@@ -27,6 +27,20 @@ TENANT_RESERVED_SUBDOMAINS = {
     "admin", "dashboard", "static", "media", "mail",
 }
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+if TENANT_BASE_DOMAIN:
+    CSRF_TRUSTED_ORIGINS.extend(
+        [
+            f"https://{TENANT_BASE_DOMAIN}",
+            f"https://*.{TENANT_BASE_DOMAIN}",
+            f"http://{TENANT_BASE_DOMAIN}",
+            f"http://*.{TENANT_BASE_DOMAIN}",
+        ]
+    )
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
