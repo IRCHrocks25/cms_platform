@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Sites · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Sites</h1>
+        <p class="page-subtitle">Every client site you manage.</p>
+      </div>
+      <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+    </div>
+
+    <form method="get" class="filter-bar">
+      <input
+        class="input"
+        type="search"
+        name="q"
+        placeholder="Search by name or subdomain…"
+        value="{{ q }}"
+        autocomplete="off"
+        style="max-width: 380px;"
+      >
+      <div class="filter-pills">
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=all"
+           class="filter-pill {% if status == 'all' or not status %}active{% endif %}">All</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=published"
+           class="filter-pill {% if status == 'published' %}active{% endif %}">Published</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=draft"
+           class="filter-pill {% if status == 'draft' %}active{% endif %}">Draft</a>
+      </div>
+      {% if q or status and status != 'all' %}
+        <a href="?" class="btn btn-ghost btn-sm">Clear</a>
+      {% endif %}
+      <noscript><button type="submit" class="btn btn-secondary btn-sm">Search</button></noscript>
+    </form>
+
+    {% if tenants %}
+      <div class="card" style="padding: 0; margin-top: 24px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Site name</th>
+              <th>Subdomain</th>
+              <th>Template</th>
+              <th>Status</th>
+              <th>Members</th>
+              <th>Last edited</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tenant in tenants %}
+              <tr>
+                <td>
+                  <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="cell-strong">
+                    {{ tenant.name }}
+                  </a>
+                </td>
+                <td><code>{{ tenant.subdomain }}</code></td>
+                <td>{{ tenant.template.name }}</td>
+                <td>
+                  {% if tenant.is_published %}
+                    <span class="badge badge-success">Published</span>
+                  {% else %}
+                    <span class="badge badge-soft">Draft</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{% url 'dashboard:tenant_detail' tenant.pk %}#members"
+                     class="cell-link">
+                    {{ tenant.member_count }} member{{ tenant.member_count|pluralize }}
+                  </a>
+                </td>
+                <td class="cell-muted">
+                  {% if tenant.last_edited %}
+                    {{ tenant.last_edited|naturaltime }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="right">
+                  <div class="row-actions">
+                    <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
+                    <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="btn btn-ghost btn-sm">Details</a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty" style="margin-top: 24px;">
+        {% if q or status and status != 'all' %}
+          <h3>No sites match those filters</h3>
+          <p>Try clearing the search or switching the status filter.</p>
+          <a href="?" class="btn btn-secondary">Clear filters</a>
+        {% else %}
+          <h3>No sites yet</h3>
+          <p>Create your first client site to start.</p>
+          <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

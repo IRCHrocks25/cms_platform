@@ -1,0 +1,61 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CMS Platform{% endblock %}</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="{% static 'css/base.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  {% block shell %}
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a href="{% url 'dashboard:root' %}" class="brand">
+          <span class="brand-mark">L</span>
+          <span>{% if request.tenant %}{{ request.tenant.name }}{% else %}Locked CMS{% endif %}</span>
+        </a>
+
+        {% if user.is_authenticated %}
+          <nav class="app-nav">
+            {% if request.tenant %}
+              <a href="{% url 'dashboard:tenant_home' %}" class="{% if nav_section == 'editor' %}active{% endif %}">Editor</a>
+              <a href="/" target="_blank" rel="noopener">Preview site ↗</a>
+            {% else %}
+              <a href="{% url 'dashboard:root' %}" class="{% if nav_section == 'home' %}active{% endif %}">Overview</a>
+              <a href="{% url 'dashboard:tenant_list' %}" class="{% if nav_section == 'sites' %}active{% endif %}">Sites</a>
+              <a href="{% url 'dashboard:template_list' %}" class="{% if nav_section == 'templates' %}active{% endif %}">Templates</a>
+              <a href="{% url 'dashboard:user_list' %}" class="{% if nav_section == 'users' %}active{% endif %}">Users</a>
+              <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-purple btn-sm" style="margin-left: 8px;">+ New client</a>
+            {% endif %}
+            <form action="{% url 'logout' %}" method="post" style="display: inline; margin-left: 8px;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
+            </form>
+          </nav>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if messages %}
+      <div class="container" style="padding-top: 16px;">
+        {% for message in messages %}
+          <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  {% endblock %}
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Editing {{ tenant.name }} · Locked CMS{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/editor.css' %}">
+{% endblock %}
+
+{% block shell %}
+  <div class="editor-bar">
+    <div class="editor-bar-left">
+      {% if scope == "agency" %}
+        <a href="{% url 'dashboard:tenant_list' %}" class="editor-bar-back" title="Back to sites">←</a>
+      {% else %}
+        <a href="/" class="editor-bar-back" title="View live site" target="_blank" rel="noopener">↗</a>
+      {% endif %}
+      <div>
+        <div class="editor-bar-title">{{ tenant.name }}</div>
+        <div class="editor-bar-sub">{{ tenant.template.name }} · {{ tenant.subdomain }}</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="preview-status">
+        <span class="status-dot" id="save-dot"></span>
+        <span id="save-text">All changes saved</span>
+      </div>
+      <form method="post" action="{{ publish_url }}" style="display: inline;">
+        {% csrf_token %}
+        <button type="submit" class="btn {% if tenant.is_published %}btn-secondary{% else %}btn-purple{% endif %}">
+          {% if tenant.is_published %}Unpublish{% else %}Publish{% endif %}
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="editor-shell {{ layout_mode }}" id="editor-shell">
+
+    <aside class="editor-sidebar">
+      <div class="sidebar-search">
+        <input type="text" id="section-search" placeholder="Jump to section…">
+      </div>
+
+      {% regroup sections by group as section_groups %}
+      {% for group in section_groups %}
+        <div class="sidebar-group">
+          <div class="sidebar-group-label">{{ group.grouper }}</div>
+          {% for section in group.list %}
+            <div class="sidebar-link" data-jump="{{ section.id }}">
+              <span class="sidebar-link-icon">{{ section.label|first|upper }}</span>
+              <span>{{ section.label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </aside>
+
+    <section class="editor-form" id="editor-form">
+      {% for section in sections %}
+        <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
+          <div class="editor-form-section-head">
+            <h2>{{ section.label }}</h2>
+            <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+          </div>
+
+          <div class="stack-5">
+            {% for field in section.fields %}
+              {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </section>
+
+    <section class="editor-preview">
+      <div class="preview-toolbar">
+        <div class="preview-status">Live preview</div>
+        <div class="viewport-toggle" id="viewport-toggle">
+          <button data-viewport="desktop" class="active">Desktop</button>
+          <button data-viewport="tablet">Tablet</button>
+          <button data-viewport="mobile">Mobile</button>
+        </div>
+      </div>
+      <div class="preview-frame-wrap">
+        <iframe id="preview-frame" class="preview-frame"
+                src="{{ preview_url }}"
+                title="Site preview"></iframe>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    window.CMS = {
+      tenantId: {{ tenant.pk }},
+      saveUrl: "{{ save_url }}",
+      uploadUrl: "{{ upload_url }}",
+      previewUrl: "{{ preview_url }}",
+      csrfToken: "{{ csrf_token }}",
+      content: {{ content_json|safe }},
+    };
+  </script>
+  <script src="{% static 'js/editor.js' %}"></script>
+{% endblock %}

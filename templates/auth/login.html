@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sign in · Locked CMS{% endblock %}
+
+{% block shell %}
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="brand" style="margin-bottom: 24px;">
+        <span class="brand-mark">L</span>
+        <span>Locked CMS</span>
+      </div>
+
+      <h1>Welcome back</h1>
+      <p class="auth-sub">Sign in to manage your client sites.</p>
+
+      {% if form.non_field_errors %}
+        <div class="flash flash-error">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <form method="post" class="stack-4">
+        {% csrf_token %}
+
+        <div class="field">
+          <label class="field-label" for="id_username">Username</label>
+          <input class="input" type="text" name="username" id="id_username"
+                 autocomplete="username" required autofocus>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="id_password">Password</label>
+          <input class="input" type="password" name="password" id="id_password"
+                 autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top: 12px;">
+          Sign in
+        </button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

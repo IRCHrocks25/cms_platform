@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}{% if template %}Edit template{% else %}New template{% endif %} · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">
+          {% if template %}{{ template.name }}{% else %}New template{% endif %}
+        </h1>
+        <p class="page-subtitle">
+          Paste annotated HTML. Use <code>data-section</code> on wrappers and
+          <code>data-edit="section.field"</code> on editable elements.
+        </p>
+      </div>
+      <a href="{% url 'dashboard:template_list' %}" class="btn btn-ghost">← Back</a>
+    </div>
+
+    <div class="card">
+      <form method="post" class="stack-5">
+        {% csrf_token %}
+
+        <div class="field">
+          <label class="field-label" for="id_name">Name</label>
+          <input class="input" type="text" name="name" id="id_name" required
+                 value="{{ template.name|default:form_data.name|default_if_none:'' }}">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="id_description">Description</label>
+          <input class="input" type="text" name="description" id="id_description"
+                 placeholder="Restaurant template, salon template, etc."
+                 value="{{ template.description|default:form_data.description|default_if_none:'' }}">
+        </div>
+
+        <details class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
+          <summary style="cursor: pointer; font-weight: 500;">
+            How to annotate
+          </summary>
+          <div style="margin-top: 12px; font-size: 13px; color: var(--color-text-soft);">
+            <p style="margin: 0 0 8px;">
+              Wrap each editable block in a <code>data-section</code>. Mark
+              editable elements with <code>data-edit="section.field"</code>
+              and a <code>data-type</code>.
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin: 8px 0;">
+              <thead>
+                <tr style="text-align: left;">
+                  <th style="padding: 4px 8px;">type</th>
+                  <th style="padding: 4px 8px;">binds to</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style="padding: 4px 8px;"><code>text</code></td><td style="padding: 4px 8px;">element text</td></tr>
+                <tr><td style="padding: 4px 8px;"><code>richtext</code></td><td style="padding: 4px 8px;">inner HTML (contenteditable)</td></tr>
+                <tr><td style="padding: 4px 8px;"><code>image</code></td><td style="padding: 4px 8px;"><code>src</code> attribute</td></tr>
+                <tr><td style="padding: 4px 8px;"><code>color</code></td><td style="padding: 4px 8px;">inline <code>background-color</code></td></tr>
+                <tr><td style="padding: 4px 8px;"><code>link</code></td><td style="padding: 4px 8px;"><code>href</code> attribute</td></tr>
+              </tbody>
+            </table>
+            <p style="margin: 8px 0 4px;">Minimal example:</p>
+<pre style="background: var(--color-surface-1); padding: 8px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 12px; margin: 0;"><code>&lt;section data-section="hero" data-label="Hero" data-group="Home"&gt;
+  &lt;h1 data-edit="hero.title" data-type="text" data-label="Headline"&gt;Welcome&lt;/h1&gt;
+  &lt;img data-edit="hero.image" data-type="image" data-label="Photo" src="..."&gt;
+&lt;/section&gt;</code></pre>
+            <p style="margin: 8px 0 0;">
+              CSS variables inside <code>&lt;style data-tokens&gt;</code> auto-generate
+              brand color pickers (e.g. <code>--primary</code>).
+            </p>
+          </div>
+        </details>
+
+        <div class="field">
+          <div class="row-between" style="align-items: center; margin-bottom: 6px;">
+            <label class="field-label" for="id_html_source" style="margin: 0;">HTML source</label>
+            <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
+          </div>
+          <textarea class="textarea" name="html_source" id="id_html_source" rows="22" required>{{ template.html_source|default:form_data.html_source|default_if_none:'' }}</textarea>
+          <span class="field-hint">
+            Tip: every <code>data-section</code> wrapper becomes a sidebar entry.
+            Field types supported: <code>text</code>, <code>richtext</code>, <code>image</code>, <code>color</code>, <code>link</code>.
+          </span>
+
+          <div id="preview-panel" hidden style="margin-top: 12px; border: 1px solid var(--color-border, #e5e7eb); border-radius: var(--radius-md); overflow: hidden;">
+            <div class="row-between" style="padding: 8px 12px; background: var(--color-surface-2); font-size: 13px; color: var(--color-text-soft);">
+              <span>Live preview of pasted HTML (raw — no content substitution)</span>
+              <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
+            </div>
+            <iframe id="preview-iframe" style="width: 100%; height: 600px; border: 0; background: white;"></iframe>
+          </div>
+        </div>
+
+        {% if template %}
+          {% with section_count=template.schema.sections|length %}
+            {% if section_count == 0 %}
+              <div class="card-tight" style="background: var(--color-warn-soft, #fff7ed); border: 1px solid var(--color-warn, #f59e0b); border-radius: var(--radius-md); color: var(--color-warn-strong, #92400e);">
+                <strong>No sections detected.</strong>
+                Add <code>data-section</code> blocks to make this template editable.
+                See <em>How to annotate</em> above.
+              </div>
+            {% else %}
+              <div class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
+                <div style="font-size: 13px; color: var(--color-text-soft); margin-bottom: 8px;">
+                  <strong>Detected:</strong> {{ section_count }} section{{ section_count|pluralize }}
+                </div>
+                <div class="row row-wrap" style="gap: 6px;">
+                  {% for sec in template.schema.sections %}
+                    <span class="badge badge-blue">{{ sec.label }} · {{ sec.fields|length }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          {% endwith %}
+        {% endif %}
+
+        <div class="row-end">
+          <button type="submit" class="btn btn-primary">
+            {% if template %}Save changes{% else %}Create template{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {% if template %}
+      <div style="max-width: 100%; margin-top: 24px; text-align: right;">
+        <form method="post" action="{% url 'dashboard:template_delete' template.pk %}"
+              onsubmit="return confirm('Delete this template? This cannot be undone.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Delete template</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  <script>
+    (function () {
+      var toggle = document.getElementById("preview-toggle");
+      var refresh = document.getElementById("preview-refresh");
+      var panel = document.getElementById("preview-panel");
+      var iframe = document.getElementById("preview-iframe");
+      var textarea = document.getElementById("id_html_source");
+      if (!toggle || !panel || !iframe || !textarea) return;
+
+      function render() {
+        iframe.srcdoc = textarea.value;
+      }
+
+      toggle.addEventListener("click", function () {
+        if (panel.hasAttribute("hidden")) {
+          panel.removeAttribute("hidden");
+          toggle.textContent = "Hide preview";
+          render();
+          panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } else {
+          panel.setAttribute("hidden", "");
+          toggle.textContent = "Preview";
+        }
+      });
+
+      refresh.addEventListener("click", render);
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Templates · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Templates</h1>
+        <p class="page-subtitle">Annotated HTML used to generate client dashboards.</p>
+      </div>
+      <a class="btn btn-purple" href="{% url 'dashboard:template_create' %}">+ New template</a>
+    </div>
+
+    {% if templates %}
+      <div class="card" style="padding: 0;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Sections</th>
+              <th>Sites using this</th>
+              <th>Last updated</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for template in templates %}
+              <tr>
+                <td>
+                  <a href="{% url 'dashboard:template_detail' template.pk %}" class="cell-strong">
+                    {{ template.name }}
+                  </a>
+                  {% if template.description %}
+                    <div class="cell-muted">{{ template.description }}</div>
+                  {% endif %}
+                </td>
+                <td class="cell-muted">{{ template.schema.sections|length }}</td>
+                <td class="cell-muted">
+                  {% if template.tenant_count %}
+                    <a href="{% url 'dashboard:tenant_list' %}?q={{ template.name|urlencode }}" class="cell-link">
+                      {{ template.tenant_count }} site{{ template.tenant_count|pluralize }}
+                    </a>
+                  {% else %}
+                    0 sites
+                  {% endif %}
+                </td>
+                <td class="cell-muted">{{ template.updated_at|naturaltime }}</td>
+                <td class="right">
+                  <a href="{% url 'dashboard:template_detail' template.pk %}" class="btn btn-secondary btn-sm">Edit</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <h3>No templates yet</h3>
+        <p>Paste your first annotated HTML to start.</p>
+        <a class="btn btn-purple" href="{% url 'dashboard:template_create' %}">+ New template</a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

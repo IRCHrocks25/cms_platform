@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block title %}Site created — {{ tenant.name }} · Locked CMS{% endblock %}
+
+{% block extra_head %}
+<style>
+  .sc-stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #047857;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .sc-stamp .sc-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.16);
+  }
+  .sc-headline {
+    margin-top: var(--space-4);
+    font-size: 36px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  .sc-sub {
+    margin-top: var(--space-3);
+    font-size: 16px;
+    color: var(--color-text-soft);
+    max-width: 560px;
+  }
+  .sc-status-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-top: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .sc-card-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+    font-weight: 500;
+    margin-bottom: var(--space-4);
+  }
+  .url-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    transition: border-color var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+  .url-row + .url-row { margin-top: var(--space-3); }
+  .url-row::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--color-blue);
+    opacity: 0.85;
+  }
+  .url-row.url-row-purple::before { background: var(--color-purple); }
+  .url-row.url-row-muted::before { background: var(--color-text-muted); }
+  .url-row:hover { border-color: var(--color-border-strong); }
+  .url-row-main { flex: 1; min-width: 0; }
+  .url-row-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    margin-bottom: 2px;
+  }
+  .url-row-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .copy-btn {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-text-soft);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+  .copy-btn:hover { background: var(--color-blue-soft); color: var(--color-blue-dark); border-color: var(--color-blue); }
+  .copy-btn.copied { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+  .sc-banner {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    color: #92400e;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-bottom: var(--space-5);
+  }
+  .sc-banner code {
+    background: rgba(146, 64, 14, 0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .sc-actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .sc-fade-in {
+    opacity: 0;
+    transform: translateY(8px);
+    animation: sc-rise 0.42s ease-out forwards;
+  }
+  .sc-fade-in.delay-1 { animation-delay: 0.08s; }
+  .sc-fade-in.delay-2 { animation-delay: 0.16s; }
+  .sc-fade-in.delay-3 { animation-delay: 0.24s; }
+  @keyframes sc-rise {
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width: 760px;">
+
+  <header class="sc-fade-in">
+    <span class="sc-stamp">
+      <span class="sc-dot"></span>
+      Site created
+    </span>
+    <h1 class="sc-headline">{{ tenant.name }} is ready.</h1>
+    <p class="sc-sub">
+      The site is set up with the
+      <strong>{{ tenant.template.name }}</strong> template and a fresh client account.
+      Share the credentials and URLs below — they're shown once.
+    </p>
+    <div class="sc-status-row">
+      {% if tenant.is_published %}
+        <span class="badge badge-success">Published</span>
+      {% else %}
+        <span class="badge badge-soft">Draft — not yet published</span>
+      {% endif %}
+      {% if urls.has_custom_domain %}
+        <span class="badge badge-purple">Custom domain</span>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if urls.using_local_dev_base %}
+    <div class="sc-banner sc-fade-in delay-1" style="margin-top: var(--space-6);">
+      <strong>Local dev mode.</strong>
+      Tenant hosts use <code>{{ tenant.subdomain }}.localhost</code>.
+      In production, set <code>TENANT_BASE_DOMAIN</code> to your wildcard host
+      (and point <code>*.&lt;host&gt;</code> at this app) for clean public URLs.
+      The <em>Direct render</em> link below works regardless.
+    </div>
+  {% endif %}
+
+  {% if payload %}
+    <section class="card stack-5 sc-fade-in delay-1" style="margin-top: var(--space-6);">
+      <div class="sc-card-label">Client login — shown once</div>
+
+      <div>
+        <div class="cred-label">Username</div>
+        <div class="cred-value cred-mono">{{ payload.username }}</div>
+      </div>
+      <div>
+        <div class="cred-label">Password</div>
+        <div class="cred-value cred-mono cred-password" id="cred-password">{{ payload.password }}</div>
+      </div>
+
+      <div class="row" style="gap: 12px; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary" id="copy-creds-btn">Copy credentials</button>
+        <span id="copy-creds-feedback" class="field-status" aria-live="polite"></span>
+      </div>
+
+      <div class="cred-warning">
+        <strong>Save this password now.</strong>
+        It will not be shown again. We do not store it in plain text.
+        If lost, reset it from the user's detail page.
+      </div>
+    </section>
+
+    <textarea id="cred-blob" hidden>{% spaceless %}{% endspaceless %}Site: {{ tenant.name }}
+Login URL: {{ urls.login_url }}
+Username: {{ payload.username }}
+Password: {{ payload.password }}</textarea>
+  {% else %}
+    <section class="card sc-fade-in delay-1" style="margin-top: var(--space-6);">
+      <div class="sc-card-label">Client login</div>
+      <p style="margin: 0 0 var(--space-3); color: var(--color-text-soft);">
+        The one-time password is no longer available — it has already been viewed or expired.
+      </p>
+      {% if user_detail_url %}
+        <a href="{{ user_detail_url }}" class="btn btn-secondary">Reset from user detail</a>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  <section class="card stack-4 sc-fade-in delay-2" style="margin-top: var(--space-5);">
+    <div class="sc-card-label">Shareable URLs</div>
+
+    <div class="url-row">
+      <div class="url-row-main">
+        <div class="url-row-label">Public site</div>
+        <div class="url-row-value" data-url="{{ urls.public_url }}">{{ urls.public_url }}</div>
+      </div>
+      <button type="button" class="copy-btn" data-copy="{{ urls.public_url }}">Copy</button>
+    </div>
+
+    <div class="url-row url-row-purple">
+      <div class="url-row-main">
+        <div class="url-row-label">Client login</div>
+        <div class="url-row-value" data-url="{{ urls.login_url }}">{{ urls.login_url }}</div>
+      </div>
+      <button type="button" class="copy-btn" data-copy="{{ urls.login_url }}">Copy</button>
+    </div>
+
+    <div class="url-row url-row-purple">
+      <div class="url-row-main">
+        <div class="url-row-label">Client editor</div>
+        <div class="url-row-value" data-url="{{ urls.editor_url }}">{{ urls.editor_url }}</div>
+      </div>
+      <button type="button" class="copy-btn" data-copy="{{ urls.editor_url }}">Copy</button>
+    </div>
+
+    <div class="url-row url-row-muted">
+      <div class="url-row-main">
+        <div class="url-row-label">Direct render (always works)</div>
+        <div class="url-row-value" data-url="{{ urls.fallback_url }}">{{ urls.fallback_url }}</div>
+      </div>
+      <button type="button" class="copy-btn" data-copy="{{ urls.fallback_url }}">Copy</button>
+    </div>
+  </section>
+
+  <section class="card stack-4 sc-fade-in delay-3" style="margin-top: var(--space-5);">
+    <div class="sc-card-label">Next steps</div>
+    <p style="margin: 0 0 var(--space-4); color: var(--color-text-soft);">
+      The site is <strong>live</strong> with template defaults. Open the editor to
+      replace placeholder content with the client's real copy, images, and brand colors.
+    </p>
+    <div class="sc-actions">
+      <a href="{{ agency_editor_url }}" class="btn btn-primary">Open editor</a>
+      <a href="{{ tenant_detail_url }}" class="btn btn-secondary">Site detail &amp; members</a>
+      <a href="{{ back_url }}" class="btn btn-ghost">Done — back to sites</a>
+    </div>
+  </section>
+</div>
+
+<script>
+  (function () {
+    function flash(btn, ok) {
+      var original = btn.dataset.originalLabel || btn.textContent;
+      btn.dataset.originalLabel = original;
+      btn.textContent = ok ? "Copied" : "Copy failed";
+      btn.classList.toggle("copied", ok);
+      setTimeout(function () {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1800);
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise(function (resolve, reject) {
+        try {
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    }
+
+    document.querySelectorAll(".copy-btn[data-copy]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        copyText(btn.getAttribute("data-copy")).then(
+          function () { flash(btn, true); },
+          function () { flash(btn, false); }
+        );
+      });
+    });
+
+    var credsBtn = document.getElementById("copy-creds-btn");
+    var credsBlob = document.getElementById("cred-blob");
+    var credsFeedback = document.getElementById("copy-creds-feedback");
+    if (credsBtn && credsBlob) {
+      credsBtn.addEventListener("click", function () {
+        copyText(credsBlob.value).then(
+          function () {
+            credsFeedback.className = "field-status ok";
+            credsFeedback.textContent = "Copied to clipboard";
+          },
+          function () {
+            credsFeedback.className = "field-status err";
+            credsFeedback.textContent = "Copy failed — select and copy manually";
+          }
+        );
+      });
+    }
+  })();
+</script>
+{% endblock %}

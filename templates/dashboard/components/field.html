@@ -1,0 +1,45 @@
+{# field.html — renders a single editable field by type #}
+<div class="field" data-field-id="{{ field.id }}" data-field-type="{{ field.type }}">
+  <label class="field-label" for="f-{{ field.id }}">{{ field.label }}</label>
+
+  {% if field.type == 'text' %}
+    <input class="input cms-input"
+           type="text"
+           id="f-{{ field.id }}"
+           data-bind="{{ field.id }}"
+           value="">
+
+  {% elif field.type == 'richtext' %}
+    <div class="cms-field-richtext"
+         id="f-{{ field.id }}"
+         data-bind="{{ field.id }}"
+         contenteditable="true"></div>
+
+  {% elif field.type == 'image' %}
+    <label class="cms-field-image" for="f-{{ field.id }}">
+      <img data-bind-image="{{ field.id }}" alt="" src="">
+      <div class="cms-field-image-info">
+        <strong style="color: var(--color-text); display: block; margin-bottom: 2px;">
+          Click to upload
+        </strong>
+        <span data-bind-image-name="{{ field.id }}">No file chosen</span>
+      </div>
+      <input type="file" accept="image/*" id="f-{{ field.id }}" data-bind="{{ field.id }}">
+    </label>
+
+  {% elif field.type == 'color' %}
+    <div class="cms-field-color">
+      <input type="color" data-bind-color="{{ field.id }}" value="#000000">
+      <input type="text" class="input" id="f-{{ field.id }}" data-bind="{{ field.id }}"
+             placeholder="#000000 or rgb(...)">
+    </div>
+
+  {% elif field.type == 'link' %}
+    <input class="input cms-input"
+           type="url"
+           id="f-{{ field.id }}"
+           data-bind="{{ field.id }}"
+           placeholder="https://"
+           value="">
+  {% endif %}
+</div>

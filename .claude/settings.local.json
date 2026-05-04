@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" manage.py makemigrations core dashboard)",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" manage.py migrate)",
+      "Bash(C:/Users/ADMIN/.conda/envs/myenv/python.exe manage.py shell -c ' *)",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" manage.py check)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" -c \"import django; print\\(django.get_version\\(\\)\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py makemigrations core)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py test core.tests.test_middleware --verbosity 2 2>&1 | Select-Object -Last 40)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py test core --verbosity 1 2>&1 | Select-Object -Last 15)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py test core.tests.test_tenant_dashboard --verbosity 2 2>&1 | Select-Object -Last 40)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py test --verbosity 1 2>&1 | Select-Object -Last 10)",
+      "PowerShell(& \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\python.exe\" manage.py check 2>&1 | Select-Object -Last 5)",
+      "Bash(python -c \"import django; print\\(django.get_version\\(\\)\\)\")",
+      "Bash(python manage.py test --verbosity=1)",
+      "Bash(python manage.py makemigrations core)",
+      "Bash(python manage.py check)",
+      "Bash(python manage.py migrate)",
+      "Bash(python manage.py test core.tests --verbosity=1)"
+    ]
+  }
+}

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}{{ tenant.name }} · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <p class="page-subtitle" style="margin-bottom: 4px;">
+          <a href="{% url 'dashboard:tenant_list' %}">Sites</a> ·
+          <code>{{ tenant.subdomain }}</code>
+          {% if tenant.custom_domain %} · {{ tenant.custom_domain }}{% endif %}
+          · {{ tenant.template.name }}
+        </p>
+        <h1 class="page-title" style="margin-bottom: 4px;">
+          {{ tenant.name }}
+          {% if tenant.is_published %}
+            <span class="badge badge-success">Published</span>
+          {% else %}
+            <span class="badge badge-soft">Draft</span>
+          {% endif %}
+        </h1>
+      </div>
+      <div class="row">
+        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-purple">Open editor</a>
+      </div>
+    </div>
+
+    <section id="members" class="card stack-4" style="margin-bottom: 32px;">
+      <div class="row-between">
+        <h2 style="margin: 0;">Members</h2>
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="add-member">+ Add member</button>
+      </div>
+
+      {% if members %}
+        <table class="data-table data-table-flush">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Joined</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in members %}
+              <tr>
+                <td><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
+                <td class="cell-muted">{{ m.user.email|default:'—' }}</td>
+                <td>
+                  <form method="post" action="{% url 'dashboard:tenant_member_role' tenant.pk m.pk %}" class="inline-form">
+                    {% csrf_token %}
+                    <select name="role" class="select select-sm" onchange="this.form.submit();">
+                      {% for value, label in role_choices %}
+                        <option value="{{ value }}" {% if m.role == value %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </form>
+                </td>
+                <td class="cell-muted">{{ m.created_at|naturaltime }}</td>
+                <td class="right">
+                  <form method="post" action="{% url 'dashboard:tenant_member_remove' tenant.pk m.pk %}"
+                        onsubmit="return confirm('Remove {{ m.user.username }} from this site?');" class="inline-form">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="cell-muted" style="margin: 0;">No members yet.</p>
+      {% endif %}
+
+      <div id="add-member-panel" hidden class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md); margin-top: 8px;">
+        <form method="post" action="{% url 'dashboard:tenant_member_add' tenant.pk %}" class="row" style="gap: 8px; flex-wrap: wrap;">
+          {% csrf_token %}
+          <select name="user_id" class="select" required style="flex: 1; min-width: 200px;">
+            <option value="" disabled selected>Pick a user…</option>
+            {% for u in add_member_candidates %}
+              <option value="{{ u.pk }}">{{ u.username }}{% if u.email %} ({{ u.email }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <select name="role" class="select" style="max-width: 180px;">
+            {% for value, label in role_choices %}
+              <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-primary">Add member</button>
+        </form>
+        <p class="field-hint" style="margin: 8px 0 0;">
+          Need a brand-new client account?
+          <a href="{% url 'dashboard:tenant_create' %}">Create a new client</a>
+          (it'll start its own site).
+        </p>
+      </div>
+    </section>
+
+    <section class="card stack-4" style="margin-bottom: 32px;">
+      <h2 style="margin: 0;">Settings</h2>
+      <form method="post" action="{% url 'dashboard:tenant_settings_update' tenant.pk %}" class="stack-4">
+        {% csrf_token %}
+        <div class="field">
+          <label class="field-label" for="settings_name">Site name</label>
+          <input class="input" type="text" name="name" id="settings_name" required value="{{ tenant.name }}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="settings_subdomain">Subdomain</label>
+          <input class="input" type="text" name="subdomain" id="settings_subdomain" required
+                 pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                 value="{{ tenant.subdomain }}">
+          <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
+        </div>
+        <div class="field">
+          <label class="field-label" for="settings_custom_domain">Custom domain</label>
+          <input class="input" type="text" name="custom_domain" id="settings_custom_domain"
+                 value="{{ tenant.custom_domain }}">
+          <span class="field-hint">Stored only — verification and TLS are not wired up yet.</span>
+        </div>
+        <div class="row-end">
+          <button type="submit" class="btn btn-primary">Save settings</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card stack-4" style="margin-bottom: 32px;">
+      <h2 style="margin: 0;">Activity</h2>
+      {% if activity %}
+        <ul class="activity-list activity-list-flush">
+          {% for v in activity %}
+            <li class="activity-row">
+              <div class="activity-row-main">
+                <strong>{{ v.saved_by.username|default:'unknown' }}</strong>
+                <span class="activity-row-sub">saved an edit</span>
+              </div>
+              <span class="activity-row-time">{{ v.saved_at|naturaltime }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="cell-muted" style="margin: 0;">No saves yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="card danger-zone stack-3">
+      <h2 style="margin: 0; color: var(--color-danger);">Danger zone</h2>
+      <p style="margin: 0; color: var(--color-text-soft);">
+        Deleting this site removes its content, history, members and uploads. This cannot be undone.
+      </p>
+      <details>
+        <summary class="btn btn-danger" style="display: inline-flex; cursor: pointer;">Delete site</summary>
+        <form method="post" action="{% url 'dashboard:tenant_delete' tenant.pk %}" class="stack-3" style="margin-top: 16px;">
+          {% csrf_token %}
+          <div class="field">
+            <label class="field-label" for="confirm_subdomain">
+              Type <code>{{ tenant.subdomain }}</code> to confirm
+            </label>
+            <input class="input" type="text" name="confirm_subdomain" id="confirm_subdomain" required autocomplete="off">
+          </div>
+          <div class="row-end">
+            <button type="submit" class="btn btn-danger">Permanently delete</button>
+          </div>
+        </form>
+      </details>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      var toggle = document.querySelector('[data-toggle="add-member"]');
+      var panel = document.getElementById("add-member-panel");
+      if (!toggle || !panel) return;
+      toggle.addEventListener("click", function () {
+        if (panel.hasAttribute("hidden")) {
+          panel.removeAttribute("hidden");
+          toggle.textContent = "Cancel";
+        } else {
+          panel.setAttribute("hidden", "");
+          toggle.textContent = "+ Add member";
+        }
+      });
+    })();
+  </script>
+{% endblock %}

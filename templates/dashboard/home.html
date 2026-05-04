@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Overview · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Overview</h1>
+        <p class="page-subtitle">All client sites at a glance.</p>
+      </div>
+    </div>
+
+    <section class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-card-value">{{ stats.total_sites }}</div>
+        <div class="stat-card-label">Total sites</div>
+        <div class="stat-card-foot">
+          <span class="badge badge-success">{{ stats.published_sites }} live</span>
+          <span class="badge badge-soft">{{ stats.draft_sites }} draft</span>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-value">{{ stats.total_clients }}</div>
+        <div class="stat-card-label">Clients</div>
+        <div class="stat-card-foot stat-card-foot-muted">With at least one site</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-value">{{ stats.total_templates }}</div>
+        <div class="stat-card-label">Templates</div>
+        <div class="stat-card-foot stat-card-foot-muted">Available designs</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-value">{{ stats.sites_edited_recently }}</div>
+        <div class="stat-card-label">Edited this week</div>
+        <div class="stat-card-foot stat-card-foot-muted">Past 7 days</div>
+      </div>
+    </section>
+
+    <section class="split-row" style="margin-top: 48px;">
+      <div class="split-main">
+        <div class="row-between" style="margin-bottom: 16px;">
+          <h2 style="margin: 0;">Recent activity</h2>
+          <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-ghost btn-sm">All sites →</a>
+        </div>
+
+        {% if recent_activity %}
+          <div class="card" style="padding: 0;">
+            <ul class="activity-list">
+              {% for v in recent_activity %}
+                <li>
+                  <a href="{% url 'dashboard:tenant_editor' v.tenant_id %}" class="activity-row">
+                    <div class="activity-row-main">
+                      <strong>{{ v.tenant.name }}</strong>
+                      <span class="activity-row-sub">
+                        saved by {{ v.saved_by.username|default:'unknown' }}
+                      </span>
+                    </div>
+                    <span class="activity-row-time">{{ v.saved_at|naturaltime }}</span>
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% else %}
+          <div class="empty">
+            <h3>No recent edits yet</h3>
+            <p>Activity from client sites will show up here.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <aside class="split-aside">
+        <h2 style="margin: 0 0 16px;">Quick actions</h2>
+        {% if stats.total_sites == 0 and stats.total_templates == 0 %}
+          <div class="empty" style="padding: 24px;">
+            <h3>Get started</h3>
+            <p>Add a template, then create your first client site.</p>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-purple">+ New template</a>
+          </div>
+        {% else %}
+          <div class="stack-3">
+            <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-purple btn-block">+ New client site</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary btn-block">+ New template</a>
+            <a href="{% url 'dashboard:user_list' %}" class="btn btn-ghost btn-block">Manage users</a>
+          </div>
+        {% endif %}
+      </aside>
+    </section>
+  </div>
+{% endblock %}
