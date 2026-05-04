@@ -13,15 +13,35 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 
+_tenant_base_domains = [
+    domain.strip().lstrip(".")
+    for domain in os.environ.get("TENANT_BASE_DOMAIN", "localhost").split(",")
+    if domain.strip()
+]
+TENANT_BASE_DOMAIN = _tenant_base_domains[0] if _tenant_base_domains else "localhost"
+_additional_tenant_base_domains = _tenant_base_domains[1:]
+_allowed_hosts_from_env = [
+    host.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
+_hardcoded_production_hosts = [
+    "sites.katek.app",
+    ".sites.katek.app",
+]
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "cmsplatform-production-60ee.up.railway.app",
-    'http://*.lvh.me:8000',
-    'https://*.lvh.me',
+    ".lvh.me",
+    TENANT_BASE_DOMAIN,
+    f".{TENANT_BASE_DOMAIN}" if TENANT_BASE_DOMAIN else "",
+    *_additional_tenant_base_domains,
+    *[f".{domain}" for domain in _additional_tenant_base_domains],
+    *_hardcoded_production_hosts,
+    *_allowed_hosts_from_env,
 ]
+ALLOWED_HOSTS = list(dict.fromkeys(host for host in ALLOWED_HOSTS if host))
 
-TENANT_BASE_DOMAIN = os.environ.get("TENANT_BASE_DOMAIN", "localhost")
 TENANT_RESERVED_SUBDOMAINS = {
     "www", "app", "api",
     "admin", "dashboard", "static", "media", "mail",
@@ -32,14 +52,30 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 if TENANT_BASE_DOMAIN:
+    _csrf_domains = [TENANT_BASE_DOMAIN, *_additional_tenant_base_domains]
     CSRF_TRUSTED_ORIGINS.extend(
-        [
-            f"https://{TENANT_BASE_DOMAIN}",
-            f"https://*.{TENANT_BASE_DOMAIN}",
-            f"http://{TENANT_BASE_DOMAIN}",
-            f"http://*.{TENANT_BASE_DOMAIN}",
-        ]
+        list(
+            dict.fromkeys(
+                origin
+                for domain in _csrf_domains
+                for origin in (
+                    f"https://{domain}",
+                    f"https://*.{domain}",
+                    f"http://{domain}",
+                    f"http://*.{domain}",
+                )
+            )
+        )
     )
+CSRF_TRUSTED_ORIGINS.extend(
+    [
+        "https://sites.katek.app",
+        "https://*.sites.katek.app",
+        "http://sites.katek.app",
+        "http://*.sites.katek.app",
+    ]
+)
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS))
 
 
 INSTALLED_APPS = [
