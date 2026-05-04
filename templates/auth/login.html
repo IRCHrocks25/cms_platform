@@ -1,42 +1,444 @@
-{% extends "base.html" %}
-{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in · KATEK Site Engine</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
 
-{% block title %}Sign in · Locked CMS{% endblock %}
+  :root {
+    --bg:        #F6F4EE;
+    --bg-card:   #FFFFFF;
+    --ink:       #15181C;
+    --ink-soft:  #4A4F57;
+    --ink-mute:  #8A8F98;
+    --line:      #E6E2D6;
+    --line-soft: #EFEBE0;
+    --accent:    #2B5F4B;
+    --accent-2:  #C8552B;
+    --field-bg:  #FAF8F2;
+  }
 
-{% block shell %}
-  <div class="auth-shell">
-    <div class="auth-card">
-      <div class="brand" style="margin-bottom: 24px;">
-        <span class="brand-mark">L</span>
-        <span>Locked CMS</span>
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .katek-page {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    min-height: 100vh;
+  }
+
+  .katek-left {
+    position: relative;
+    padding: 44px 56px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .katek-left::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(21,24,28,0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(21,24,28,0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    pointer-events: none;
+    mask-image: radial-gradient(ellipse at 30% 40%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at 30% 40%, black 30%, transparent 80%);
+  }
+
+  .crosshair {
+    position: absolute;
+    width: 14px; height: 14px;
+    pointer-events: none;
+  }
+  .crosshair::before,
+  .crosshair::after {
+    content: '';
+    position: absolute;
+    background: var(--ink);
+    opacity: 0.25;
+  }
+  .crosshair::before { left: 6px; top: 0; width: 1px; height: 14px; }
+  .crosshair::after  { top: 6px; left: 0; width: 14px; height: 1px; }
+  .ch-tl { top: 32px; left: 32px; }
+  .ch-tr { top: 32px; right: 32px; }
+  .ch-bl { bottom: 32px; left: 32px; }
+  .ch-br { bottom: 32px; right: 32px; }
+
+  .katek-brand {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; font-weight: 500;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink);
+  }
+  .katek-brand-mark {
+    width: 30px; height: 30px;
+    border-radius: 4px;
+    display: grid; place-items: center;
+    font-family: 'Fraunces', serif;
+    font-size: 18px; font-weight: 700; font-style: italic;
+    background: var(--ink); color: var(--bg);
+  }
+  .katek-brand-meta {
+    margin-left: auto;
+    font-size: 11px; color: var(--ink-mute); letter-spacing: 0.15em;
+  }
+
+  .katek-hero { position: relative; z-index: 2; max-width: 540px; }
+  .katek-eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 28px;
+  }
+  .katek-eyebrow::before { content: ''; width: 24px; height: 1px; background: var(--accent); }
+
+  .katek-headline {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(44px, 4.6vw, 76px);
+    font-weight: 500; font-variation-settings: "opsz" 144;
+    line-height: 0.96; letter-spacing: -0.03em;
+    color: var(--ink); margin: 0 0 28px;
+  }
+  .katek-headline em { font-style: italic; font-weight: 400; color: var(--accent); }
+  .katek-headline .ampersand { font-style: italic; font-weight: 300; color: var(--accent-2); font-size: 0.9em; }
+
+  .katek-lede {
+    font-size: 16px; line-height: 1.65;
+    color: var(--ink-soft); max-width: 440px; margin: 0 0 40px;
+  }
+
+  .katek-specs {
+    display: grid; gap: 0;
+    border-top: 1px solid var(--line);
+    max-width: 460px;
+    list-style: none; padding: 0; margin: 0;
+  }
+  .spec-row {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    align-items: center; gap: 18px;
+    padding: 16px 0; border-bottom: 1px solid var(--line);
+  }
+  .spec-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-mute); letter-spacing: 0.1em; }
+  .spec-label { font-size: 14px; font-weight: 500; color: var(--ink); }
+  .spec-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--accent); padding: 4px 8px;
+    background: rgba(43, 95, 75, 0.07); border-radius: 3px;
+  }
+
+  .katek-foot {
+    position: relative; z-index: 2;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--ink-mute); letter-spacing: 0.1em;
+  }
+  .katek-foot a { color: var(--ink-soft); text-decoration: none; }
+  .katek-foot a:hover { color: var(--accent); }
+
+  .katek-right {
+    background: var(--bg-card);
+    display: flex; align-items: center; justify-content: center;
+    padding: 56px 64px; position: relative;
+  }
+  .katek-form-wrap { width: 100%; max-width: 400px; }
+
+  .katek-form-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 56px; padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .session-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-mute); letter-spacing: 0.12em; }
+  .session-status {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--ink-soft);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(43, 95, 75, 0.18);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(43, 95, 75, 0.18); }
+    50%      { box-shadow: 0 0 0 5px rgba(43, 95, 75, 0.08); }
+  }
+
+  .katek-title {
+    font-family: 'Fraunces', serif;
+    font-size: 48px; font-weight: 500;
+    font-variation-settings: "opsz" 144;
+    line-height: 1; letter-spacing: -0.02em;
+    margin: 0 0 12px;
+  }
+  .katek-title em { font-style: italic; font-weight: 400; color: var(--accent); }
+
+  .katek-subtitle {
+    font-size: 15px; color: var(--ink-soft);
+    line-height: 1.55; margin: 0 0 44px;
+  }
+
+  .katek-form .field-block { margin-bottom: 22px; }
+  .katek-form .field-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .katek-form .field-label-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 500;
+  }
+  .katek-form .field-label-aux { font-size: 12px; color: var(--ink-mute); text-decoration: none; transition: color 0.2s; }
+  .katek-form .field-label-aux:hover { color: var(--accent); }
+
+  .katek-form .input {
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--field-bg);
+    border: 1.5px solid var(--line);
+    border-radius: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px; color: var(--ink);
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+    outline: none;
+  }
+  .katek-form .input::placeholder { color: var(--ink-mute); }
+  .katek-form .input:focus {
+    border-color: var(--accent);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(43, 95, 75, 0.08);
+  }
+
+  .katek-form .pw-wrap { position: relative; }
+  .katek-form .pw-toggle {
+    position: absolute; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    background: none; border: none; cursor: pointer;
+    color: var(--ink-mute);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.12em;
+    padding: 6px 8px; border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .katek-form .pw-toggle:hover { color: var(--accent); background: rgba(43, 95, 75, 0.06); }
+
+  .remember-row {
+    display: flex; align-items: center; gap: 10px;
+    margin: 4px 0 30px;
+  }
+  .remember-row input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border: 1.5px solid var(--line); border-radius: 3px;
+    background: var(--field-bg); cursor: pointer;
+    position: relative; transition: all 0.2s;
+  }
+  .remember-row input[type="checkbox"]:checked {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .remember-row input[type="checkbox"]:checked::after {
+    content: ''; position: absolute;
+    left: 4px; top: 1px;
+    width: 5px; height: 9px;
+    border: solid #fff; border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .remember-row label { font-size: 13px; color: var(--ink-soft); cursor: pointer; }
+
+  .btn-submit {
+    width: 100%;
+    padding: 15px 20px;
+    background: var(--ink); color: var(--bg);
+    border: none; border-radius: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px; font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .btn-submit:hover { background: var(--accent); }
+  .btn-submit:active { transform: translateY(1px); }
+  .btn-submit .arrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; transition: transform 0.2s;
+  }
+  .btn-submit:hover .arrow { transform: translateX(4px); }
+
+  .katek-help {
+    margin-top: 36px; padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--ink-mute); letter-spacing: 0.1em;
+  }
+  .katek-help a { color: var(--ink-soft); text-decoration: none; transition: color 0.2s; }
+  .katek-help a:hover { color: var(--accent); }
+
+  @media (max-width: 960px) {
+    .katek-page { grid-template-columns: 1fr; }
+    .katek-left { display: none; }
+    .katek-right { padding: 48px 28px; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .katek-form-wrap > * { animation: fadeUp 0.5s ease both; }
+  .katek-form-wrap > *:nth-child(1) { animation-delay: 0.05s; }
+  .katek-form-wrap > *:nth-child(2) { animation-delay: 0.12s; }
+  .katek-form-wrap > *:nth-child(3) { animation-delay: 0.18s; }
+  .katek-form-wrap > *:nth-child(4) { animation-delay: 0.24s; }
+  .katek-form-wrap > *:nth-child(5) { animation-delay: 0.30s; }
+
+  .katek-hero, .katek-specs, .katek-foot, .katek-brand {
+    animation: fadeUp 0.6s ease both;
+  }
+  .katek-brand { animation-delay: 0.05s; }
+  .katek-hero  { animation-delay: 0.15s; }
+  .katek-specs { animation-delay: 0.25s; }
+  .katek-foot  { animation-delay: 0.35s; }
+</style>
+</head>
+<body>
+
+<div class="katek-page">
+
+  <aside class="katek-left">
+    <span class="crosshair ch-tl"></span>
+    <span class="crosshair ch-tr"></span>
+    <span class="crosshair ch-bl"></span>
+    <span class="crosshair ch-br"></span>
+
+    <header class="katek-brand">
+      <span class="katek-brand-mark">K</span>
+      <span>Katek &nbsp;/&nbsp; Site Engine</span>
+      <span class="katek-brand-meta">v3.2 · stable</span>
+    </header>
+
+    <section class="katek-hero">
+      <div class="katek-eyebrow">Content management, refined</div>
+      <h2 class="katek-headline">
+        Build, publish <span class="ampersand">&amp;</span><br>
+        <em>maintain</em> every<br>
+        client site.
+      </h2>
+      <p class="katek-lede">
+        One engine. Every site. A calm, structured place to manage content,
+        deployments, and clients — without the chaos of plugin sprawl.
+      </p>
+
+      <ul class="katek-specs">
+        <li class="spec-row">
+          <span class="spec-num">01</span>
+          <span class="spec-label">Multi-site dashboard with isolated environments</span>
+          <span class="spec-tag">core</span>
+        </li>
+        <li class="spec-row">
+          <span class="spec-num">02</span>
+          <span class="spec-label">Block-based content editor &amp; revision history</span>
+          <span class="spec-tag">editor</span>
+        </li>
+        <li class="spec-row">
+          <span class="spec-num">03</span>
+          <span class="spec-label">Role-based access for teams and clients</span>
+          <span class="spec-tag">auth</span>
+        </li>
+      </ul>
+    </section>
+
+    <footer class="katek-foot">
+      <span>© 2026 KATEK</span>
+      <span><a href="#">status</a> · <a href="#">changelog</a> · <a href="#">docs</a></span>
+    </footer>
+  </aside>
+
+  <main class="katek-right">
+    <div class="katek-form-wrap">
+
+      <div class="katek-form-top">
+        <span class="session-id">SESSION · 0xKATEK</span>
+        <span class="session-status">
+          <span class="status-dot"></span> secure
+        </span>
       </div>
 
-      <h1>Welcome back</h1>
-      <p class="auth-sub">Sign in to manage your client sites.</p>
+      <h1 class="katek-title">Sign <em>in.</em></h1>
+      <p class="katek-subtitle">
+        Enter your credentials to access the site engine and your client workspaces.
+      </p>
 
-      {% if form.non_field_errors %}
-        <div class="flash flash-error">{{ form.non_field_errors }}</div>
-      {% endif %}
-
-      <form method="post" class="stack-4">
-        {% csrf_token %}
-
-        <div class="field">
-          <label class="field-label" for="id_username">Username</label>
+      <form method="post" class="katek-form" id="katekLogin">
+        <div class="field-block">
+          <div class="field-label">
+            <span class="field-label-text">Username</span>
+          </div>
           <input class="input" type="text" name="username" id="id_username"
-                 autocomplete="username" required autofocus>
+                 autocomplete="username" placeholder="your.handle" required autofocus>
         </div>
 
-        <div class="field">
-          <label class="field-label" for="id_password">Password</label>
-          <input class="input" type="password" name="password" id="id_password"
-                 autocomplete="current-password" required>
+        <div class="field-block">
+          <div class="field-label">
+            <span class="field-label-text">Password</span>
+            <a href="#" class="field-label-aux">Forgot?</a>
+          </div>
+          <div class="pw-wrap">
+            <input class="input" type="password" name="password" id="id_password"
+                   autocomplete="current-password" placeholder="••••••••••"
+                   style="padding-right: 64px;" required>
+            <button type="button" class="pw-toggle" id="pwToggle" tabindex="-1">SHOW</button>
+          </div>
         </div>
 
-        <button type="submit" class="btn btn-primary btn-block" style="margin-top: 12px;">
-          Sign in
+        <div class="remember-row">
+          <input type="checkbox" name="remember" id="id_remember">
+          <label for="id_remember">Keep me signed in on this device</label>
+        </div>
+
+        <button type="submit" class="btn-submit">
+          <span>Enter the engine</span>
+          <span class="arrow">→</span>
         </button>
       </form>
+
+      <div class="katek-help">
+        <span>Need access?</span>
+        <a href="#">Contact your admin →</a>
+      </div>
+
     </div>
-  </div>
-{% endblock %}
+  </main>
+
+</div>
+
+<script>
+  (function() {
+    const btn = document.getElementById('pwToggle');
+    const pw  = document.getElementById('id_password');
+    if (!btn || !pw) return;
+    btn.addEventListener('click', () => {
+      const isText = pw.type === 'text';
+      pw.type = isText ? 'password' : 'text';
+      btn.textContent = isText ? 'SHOW' : 'HIDE';
+    });
+  })();
+</script>
+</body>
+</html>
