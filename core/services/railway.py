@@ -51,12 +51,15 @@ def add_custom_domain(domain: str) -> bool:
         json={"query": mutation, "variables": variables},
         timeout=10,
     )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        body = resp.json()
+    except ValueError:
+        body = resp.text
     logger.info(
-        "Railway add_custom_domain response (status=%s): %s", resp.status_code, data
+        "Railway add_custom_domain response (status=%s): %s", resp.status_code, body
     )
-    return "errors" not in data
+    resp.raise_for_status()
+    return "errors" not in body
 
 
 def remove_custom_domain(domain: str) -> bool:
