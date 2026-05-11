@@ -1054,6 +1054,8 @@ def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
         acme_challenge_name = f"_acme-challenge.{dns_name}"
     else:
         acme_challenge_name = None
+    dcv_suffix = settings.CLOUDFLARE_DCV_DELEGATION_TARGET
+    dcv_target = f"{custom_domain.domain}.{dcv_suffix}" if custom_domain else None
     return render(
         request,
         "dashboard/partials/custom_domain.html",
@@ -1062,7 +1064,8 @@ def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
             "custom_domain": custom_domain,
             "dns_name": dns_name,
             "acme_challenge_name": acme_challenge_name,
-            "dcv_target": settings.CLOUDFLARE_DCV_DELEGATION_TARGET,
+            "dcv_target": dcv_target,
+            "dcv_target_suffix": dcv_suffix,
             "error": error,
             "info": info,
         },

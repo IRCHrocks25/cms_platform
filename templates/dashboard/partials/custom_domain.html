@@ -53,15 +53,16 @@
             <code>_acme-challenge.@</code> or <code>_acme-challenge.&lt;subdomain&gt;</code>
           </td>
           <td>
-            <span class="row" style="gap: 8px; align-items: center; margin: 0;">
-              <code style="word-break: break-all;">{{ dcv_target }}</code>
-              {% include "dashboard/partials/_copy_button.html" with value=dcv_target %}
-            </span>
+            <code style="word-break: break-all;">&lt;your-domain&gt;.{{ dcv_target_suffix }}</code>
           </td>
         </tr>
       </tbody>
     </table>
     <p class="field-hint" style="margin: 12px 0 0;">
+      Replace <code>&lt;your-domain&gt;</code> with your actual domain (e.g.
+      <code style="word-break: break-all;">training.acme.com.{{ dcv_target_suffix }}</code>).
+    </p>
+    <p class="field-hint" style="margin: 8px 0 0;">
       The second record is permanent — add it once and SSL renewals are
       handled automatically forever.
     </p>
