@@ -1,12 +1,16 @@
+import logging
+
 import httpx
 from django.conf import settings
 
 RAILWAY_API = "https://backboard.railway.app/graphql/v2"
 
+logger = logging.getLogger(__name__)
+
 
 def _headers():
     return {
-        "Authorization": f"Bearer {settings.RAILWAY_API_TOKEN}",
+        "Authorization": f"Bearer {settings.RAILWAY_TOKEN}",
         "Content-Type": "application/json",
     }
 
@@ -22,23 +26,25 @@ def add_custom_domain(domain: str) -> bool:
         }
     }
     """
+    variables = {
+        "input": {
+            "domain": domain,
+            "serviceId": settings.RAILWAY_SERVICE_ID,
+            "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
+        }
+    }
+    logger.info("Railway add_custom_domain request variables: %s", variables)
     resp = httpx.post(
         RAILWAY_API,
         headers=_headers(),
-        json={
-            "query": mutation,
-            "variables": {
-                "input": {
-                    "domain": domain,
-                    "serviceId": settings.RAILWAY_SERVICE_ID,
-                    "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
-                }
-            },
-        },
+        json={"query": mutation, "variables": variables},
         timeout=10,
     )
     resp.raise_for_status()
     data = resp.json()
+    logger.info(
+        "Railway add_custom_domain response (status=%s): %s", resp.status_code, data
+    )
     return "errors" not in data
 
 

@@ -1168,9 +1168,24 @@ def tenant_custom_domain_verify(request, pk):
         # for this Host. Don't undo the verified flag if this fails —
         # Cloudflare is already active and the operator can retry.
         try:
-            railway_service.add_custom_domain(custom_domain.domain)
+            success = railway_service.add_custom_domain(custom_domain.domain)
+            if not success:
+                logger.error(
+                    "Railway domain registration failed for %s — no errors key but returned False",
+                    custom_domain.domain,
+                )
+                return _render_custom_domain_partial(
+                    request, tenant,
+                    error=(
+                        "Verified at Cloudflare, but Railway returned errors registering "
+                        "the domain. Check the server logs for the GraphQL response."
+                    ),
+                )
         except httpx.HTTPError as exc:
-            logger.exception("Railway add_custom_domain failed for %s", custom_domain.domain)
+            logger.error(
+                "Railway add_custom_domain HTTP error for %s: %s",
+                custom_domain.domain, exc, exc_info=True,
+            )
             return _render_custom_domain_partial(
                 request, tenant,
                 error=(
@@ -1179,8 +1194,11 @@ def tenant_custom_domain_verify(request, pk):
                     f"you remove and re-add it, or register it manually in Railway."
                 ),
             )
-        except Exception:
-            logger.exception("Railway add_custom_domain raised for %s", custom_domain.domain)
+        except Exception as e:
+            logger.error(
+                "Railway domain registration exception for %s: %s",
+                custom_domain.domain, e, exc_info=True,
+            )
             return _render_custom_domain_partial(
                 request, tenant,
                 error=(
@@ -1237,6 +1255,54 @@ def tenant_custom_domain_delete(request, pk):
 
     custom_domain.delete()
     return _render_custom_domain_partial(request, tenant)
+
+
+@agency_operator_required
+@require_POST
+def tenant_custom_domain_railway_sync(request, pk):
+    """Manually (re-)register the verified custom domain with Railway.
+    Idempotent in practice — Railway returns 'already exists' if it's
+    been registered before, which surfaces in the logs."""
+    tenant = get_object_or_404(Tenant, pk=pk)
+    custom_domain = tenant.custom_domains.order_by("-created_at").first()
+    if custom_domain is None:
+        return _render_custom_domain_partial(request, tenant, error="No domain to sync.")
+    try:
+        success = railway_service.add_custom_domain(custom_domain.domain)
+        if not success:
+            logger.error(
+                "Railway sync returned False for %s — likely already registered or rejected; see prior response log",
+                custom_domain.domain,
+            )
+            return _render_custom_domain_partial(
+                request, tenant,
+                error=(
+                    "Railway returned errors — likely already registered, or "
+                    "an auth/ID mismatch. Check server logs for the full GraphQL response."
+                ),
+            )
+    except httpx.HTTPError as exc:
+        logger.error(
+            "Railway sync HTTP error for %s: %s",
+            custom_domain.domain, exc, exc_info=True,
+        )
+        return _render_custom_domain_partial(
+            request, tenant,
+            error=f"Couldn't sync with Railway ({exc.__class__.__name__}).",
+        )
+    except Exception as e:
+        logger.error(
+            "Railway sync exception for %s: %s",
+            custom_domain.domain, e, exc_info=True,
+        )
+        return _render_custom_domain_partial(
+            request, tenant,
+            error="Couldn't reach Railway. Try again in a moment.",
+        )
+    return _render_custom_domain_partial(
+        request, tenant,
+        info=f"Registered {custom_domain.domain} with Railway.",
+    )
 
 
 # --------------------------------------------------------------------------- #
