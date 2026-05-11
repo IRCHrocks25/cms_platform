@@ -1015,8 +1015,8 @@ def _save_upload(request, tenant):
 
 
 SSL_STATUS_MESSAGES = {
-    "pending_validation": "Waiting on the TXT record — add it at your registrar, then check again.",
-    "pending_issuance": "TXT validated. Cloudflare is issuing the SSL certificate — try again in a moment.",
+    "pending_validation": "Waiting on the _acme-challenge CNAME — make sure both CNAMEs are at your registrar, then check again.",
+    "pending_issuance": "Validation passed. Cloudflare is issuing the SSL certificate — try again in a moment.",
     "pending_deployment": "Certificate issued — Cloudflare is deploying it to the edge. Try again in a moment.",
     "initializing": "Just created. Try again in a moment.",
 }
@@ -1048,6 +1048,12 @@ def _dns_name_for_domain(domain: str) -> str:
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
     custom_domain = tenant.custom_domains.order_by("-created_at").first()
     dns_name = _dns_name_for_domain(custom_domain.domain) if custom_domain else None
+    if dns_name == "@":
+        acme_challenge_name = "_acme-challenge"
+    elif dns_name:
+        acme_challenge_name = f"_acme-challenge.{dns_name}"
+    else:
+        acme_challenge_name = None
     return render(
         request,
         "dashboard/partials/custom_domain.html",
@@ -1055,6 +1061,8 @@ def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
             "tenant": tenant,
             "custom_domain": custom_domain,
             "dns_name": dns_name,
+            "acme_challenge_name": acme_challenge_name,
+            "dcv_target": settings.CLOUDFLARE_DCV_DELEGATION_TARGET,
             "error": error,
             "info": info,
         },
@@ -1102,15 +1110,10 @@ def tenant_custom_domain_add(request, pk):
         )
 
     result = cf_response.get("result") or {}
-    records = cloudflare_service.extract_txt_record(cf_response)
     CustomDomain.objects.create(
         tenant=tenant,
         domain=domain,
         cloudflare_hostname_id=result.get("id") or "",
-        ssl_txt_name=records.ssl_txt_name,
-        ssl_txt_value=records.ssl_txt_value,
-        ssl_txt_name_2=records.ssl_txt_name_2,
-        ssl_txt_value_2=records.ssl_txt_value_2,
         is_verified=False,
     )
     return _render_custom_domain_partial(request, tenant)
@@ -1150,31 +1153,12 @@ def tenant_custom_domain_verify(request, pk):
     ssl_data = result.get("ssl") or {}
     hostname_status = result.get("status") or ""
     ssl_status = ssl_data.get("status") or ""
-    records = cloudflare_service.extract_txt_record(data)
-
-    update_fields = []
-    if records.ssl_txt_name and not custom_domain.ssl_txt_name:
-        custom_domain.ssl_txt_name = records.ssl_txt_name
-        update_fields.append("ssl_txt_name")
-    if records.ssl_txt_value and not custom_domain.ssl_txt_value:
-        custom_domain.ssl_txt_value = records.ssl_txt_value
-        update_fields.append("ssl_txt_value")
-    if records.ssl_txt_name_2 and not custom_domain.ssl_txt_name_2:
-        custom_domain.ssl_txt_name_2 = records.ssl_txt_name_2
-        update_fields.append("ssl_txt_name_2")
-    if records.ssl_txt_value_2 and not custom_domain.ssl_txt_value_2:
-        custom_domain.ssl_txt_value_2 = records.ssl_txt_value_2
-        update_fields.append("ssl_txt_value_2")
 
     is_fully_active = hostname_status == "active" and ssl_status == "active"
     just_verified = is_fully_active and not custom_domain.is_verified
     if just_verified:
         custom_domain.is_verified = True
-        update_fields.append("is_verified")
-
-    if update_fields:
-        update_fields.append("updated_at")
-        custom_domain.save(update_fields=update_fields)
+        custom_domain.save(update_fields=["is_verified", "updated_at"])
 
     if just_verified:
         # Register the domain with Railway so the service accepts traffic
