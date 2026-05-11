@@ -82,9 +82,15 @@
     <strong>{{ custom_domain.domain }}</strong>
   </p>
 
+  <p class="field-hint" style="margin: 0;">
+    Both records are required — the CNAME routes traffic, the TXT record
+    enables HTTPS.
+  </p>
+
+  {# Box 1 — CNAME (routes traffic) #}
   <div class="card-tight"
        style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 8px; font-weight: 500;">Add this DNS record at your domain registrar</p>
+    <p style="margin: 0 0 8px; font-weight: 500;">1. Route traffic with a CNAME record</p>
     <table class="data-table data-table-flush" style="margin: 0;">
       <thead>
         <tr>
@@ -110,6 +116,85 @@
       If you're using a root domain (<code>acme.com</code>), some registrars don't
       support CNAME on <code>@</code>. In that case, use an ANAME or ALIAS record
       instead, or point a subdomain like <code>www.acme.com</code>.
+    </p>
+  </div>
+
+  {# Box 2 — TXT (validates SSL) #}
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <p style="margin: 0 0 8px; font-weight: 500;">2. Validate SSL with a TXT record</p>
+    {% if custom_domain.ssl_txt_name and custom_domain.ssl_txt_value %}
+      <table class="data-table data-table-flush" style="margin: 0;">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>TXT</code></td>
+            <td>
+              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+                <code style="word-break: break-all;">{{ custom_domain.ssl_txt_name }}</code>
+                {% include "dashboard/partials/_copy_button.html" with value=custom_domain.ssl_txt_name %}
+              </span>
+            </td>
+            <td>
+              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+                <code style="word-break: break-all;">{{ custom_domain.ssl_txt_value }}</code>
+                {% include "dashboard/partials/_copy_button.html" with value=custom_domain.ssl_txt_value %}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="cell-muted" style="margin: 0;">
+        TXT validation record loading — click <strong>Check Verification</strong> to refresh.
+      </p>
+    {% endif %}
+  </div>
+
+  {# Box 3 — TXT (verifies hostname ownership) #}
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <p style="margin: 0 0 8px; font-weight: 500;">3. Verify domain ownership with a TXT record</p>
+    {% if custom_domain.pre_validation_txt_name and custom_domain.pre_validation_txt_value %}
+      <table class="data-table data-table-flush" style="margin: 0;">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>TXT</code></td>
+            <td>
+              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+                <code style="word-break: break-all;">{{ custom_domain.pre_validation_txt_name }}</code>
+                {% include "dashboard/partials/_copy_button.html" with value=custom_domain.pre_validation_txt_name %}
+              </span>
+            </td>
+            <td>
+              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+                <code style="word-break: break-all;">{{ custom_domain.pre_validation_txt_value }}</code>
+                {% include "dashboard/partials/_copy_button.html" with value=custom_domain.pre_validation_txt_value %}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="cell-muted" style="margin: 0;">
+        TXT validation record loading — click <strong>Check Verification</strong> to refresh.
+      </p>
+    {% endif %}
+    <p class="field-hint" style="margin: 12px 0 0;">
+      Required while your CNAME is not yet pointing to our servers.
     </p>
   </div>
 

@@ -23,7 +23,13 @@
       "Bash(where python3 *)",
       "Bash(where python *)",
       "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" -c \"import django; django.setup\\(\\)\")",
-      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" -c \"import os, django; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE', 'cms_platform.settings'\\); django.setup\\(\\); from django.urls import reverse; print\\(reverse\\('dashboard:custom_domain_list'\\)\\)\")"
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" -c \"import os, django; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE', 'cms_platform.settings'\\); django.setup\\(\\); from django.urls import reverse; print\\(reverse\\('dashboard:custom_domain_list'\\)\\)\")",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" manage.py makemigrations core)",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" manage.py migrate core)",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" -c \"import os, django; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE', 'cms_platform.settings'\\); django.setup\\(\\); from core.services.cloudflare import extract_txt_record; print\\(extract_txt_record\\({'result':{'ssl':{'validation_records':[{'txt_name':'_acme-challenge.test.katek-ai.com','txt_value':'t8Qbs4vGCp-cxuzdkSVjBZMKIZI8G_yutmv9T0meuYA'}]}}}\\)\\); print\\(extract_txt_record\\({}\\)\\); from dashboard.views import _ssl_status_message; print\\(_ssl_status_message\\('pending', 'pending_validation'\\)\\); print\\(_ssl_status_message\\('pending', 'unknown_state'\\)\\)\")",
+      "Bash(\"C:/Users/ADMIN/.conda/envs/myenv/python.exe\" -c \"import os, django; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE', 'cms_platform.settings'\\); django.setup\\(\\); from core.services.cloudflare import extract_txt_record; r = extract_txt_record\\({'result':{'ssl':{'validation_records':[{'txt_name':'_acme-challenge.test.katek.ai','txt_value':'cIq2rw...'}]},'ownership_verification':{'type':'txt','name':'_cf-custom-hostname.test.katek.ai','value':'d57457b8-...'}}}\\); print\\(r\\)\")",
+      "WebFetch(domain:docs.railway.com)",
+      "WebSearch"
     ]
   }
 }

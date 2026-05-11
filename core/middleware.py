@@ -3,6 +3,32 @@ from django.conf import settings
 from .models import CustomDomain, Tenant
 
 
+class AllowedHostsFromCustomDomains:
+    """
+    Expand ``settings.ALLOWED_HOSTS`` on the fly when the incoming
+    ``Host`` header matches a verified ``CustomDomain``. Must run first
+    in ``MIDDLEWARE`` — Django's ``request.get_host()`` validates against
+    ``ALLOWED_HOSTS`` and would raise ``DisallowedHost`` in production
+    before we could amend the list, so we read ``HTTP_HOST`` straight
+    from ``META`` here.
+
+    A DB lookup runs only on the first request per host per worker
+    process; once a host is in ``ALLOWED_HOSTS`` subsequent requests
+    skip the query.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        raw = request.META.get("HTTP_HOST") or request.META.get("SERVER_NAME") or ""
+        host = raw.split(":")[0].lower().strip().rstrip(".")
+        if host and host not in settings.ALLOWED_HOSTS:
+            if CustomDomain.objects.filter(domain=host, is_verified=True).exists():
+                settings.ALLOWED_HOSTS.append(host)
+        return self.get_response(request)
+
+
 class TenantResolverMiddleware:
     """
     Resolves a tenant from the host's leftmost subdomain when the host is

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -24,10 +25,12 @@ from core.models import (
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
 from core.services import cloudflare as cloudflare_service
+from core.services import railway as railway_service
 from core.urls_helpers import build_tenant_url_bundle
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -1011,6 +1014,26 @@ def _save_upload(request, tenant):
 # --------------------------------------------------------------------------- #
 
 
+SSL_STATUS_MESSAGES = {
+    "pending_validation": "Waiting on the TXT record — add it at your registrar, then check again.",
+    "pending_issuance": "TXT validated. Cloudflare is issuing the SSL certificate — try again in a moment.",
+    "pending_deployment": "Certificate issued — Cloudflare is deploying it to the edge. Try again in a moment.",
+    "initializing": "Just created. Try again in a moment.",
+}
+
+
+def _ssl_status_message(hostname_status: str, ssl_status: str) -> str:
+    if ssl_status in SSL_STATUS_MESSAGES:
+        return SSL_STATUS_MESSAGES[ssl_status]
+    parts = []
+    if hostname_status:
+        parts.append(f"hostname: {hostname_status}")
+    if ssl_status:
+        parts.append(f"ssl: {ssl_status}")
+    detail = ", ".join(parts) or "unknown"
+    return f"Not active yet — Cloudflare reports {detail}. DNS can take a few minutes."
+
+
 def _dns_name_for_domain(domain: str) -> str:
     """`@` for a root domain (2 labels), else the leftmost label."""
     cleaned = (domain or "").strip().rstrip(".")
@@ -1078,11 +1101,16 @@ def tenant_custom_domain_add(request, pk):
             error="Couldn't reach Cloudflare. Try again in a moment.",
         )
 
-    cf_id = (cf_response.get("result") or {}).get("id", "") or ""
+    result = cf_response.get("result") or {}
+    records = cloudflare_service.extract_txt_record(cf_response)
     CustomDomain.objects.create(
         tenant=tenant,
         domain=domain,
-        cloudflare_hostname_id=cf_id,
+        cloudflare_hostname_id=result.get("id") or "",
+        ssl_txt_name=records.ssl_txt_name,
+        ssl_txt_value=records.ssl_txt_value,
+        pre_validation_txt_name=records.pre_txt_name,
+        pre_validation_txt_value=records.pre_txt_value,
         is_verified=False,
     )
     return _render_custom_domain_partial(request, tenant)
@@ -1118,15 +1146,69 @@ def tenant_custom_domain_verify(request, pk):
             error="Couldn't reach Cloudflare. Try again in a moment.",
         )
 
-    status = (data.get("result") or {}).get("status", "")
-    if status == "active":
+    result = data.get("result") or {}
+    ssl_data = result.get("ssl") or {}
+    hostname_status = result.get("status") or ""
+    ssl_status = ssl_data.get("status") or ""
+    records = cloudflare_service.extract_txt_record(data)
+
+    update_fields = []
+    if records.ssl_txt_name and not custom_domain.ssl_txt_name:
+        custom_domain.ssl_txt_name = records.ssl_txt_name
+        update_fields.append("ssl_txt_name")
+    if records.ssl_txt_value and not custom_domain.ssl_txt_value:
+        custom_domain.ssl_txt_value = records.ssl_txt_value
+        update_fields.append("ssl_txt_value")
+    if records.pre_txt_name and not custom_domain.pre_validation_txt_name:
+        custom_domain.pre_validation_txt_name = records.pre_txt_name
+        update_fields.append("pre_validation_txt_name")
+    if records.pre_txt_value and not custom_domain.pre_validation_txt_value:
+        custom_domain.pre_validation_txt_value = records.pre_txt_value
+        update_fields.append("pre_validation_txt_value")
+
+    is_fully_active = hostname_status == "active" and ssl_status == "active"
+    just_verified = is_fully_active and not custom_domain.is_verified
+    if just_verified:
         custom_domain.is_verified = True
-        custom_domain.save(update_fields=["is_verified", "updated_at"])
+        update_fields.append("is_verified")
+
+    if update_fields:
+        update_fields.append("updated_at")
+        custom_domain.save(update_fields=update_fields)
+
+    if just_verified:
+        # Register the domain with Railway so the service accepts traffic
+        # for this Host. Don't undo the verified flag if this fails —
+        # Cloudflare is already active and the operator can retry.
+        try:
+            railway_service.add_custom_domain(custom_domain.domain)
+        except httpx.HTTPError as exc:
+            logger.exception("Railway add_custom_domain failed for %s", custom_domain.domain)
+            return _render_custom_domain_partial(
+                request, tenant,
+                error=(
+                    f"Verified at Cloudflare, but registering with Railway failed "
+                    f"({exc.__class__.__name__}). The domain may return 404 until "
+                    f"you remove and re-add it, or register it manually in Railway."
+                ),
+            )
+        except Exception:
+            logger.exception("Railway add_custom_domain raised for %s", custom_domain.domain)
+            return _render_custom_domain_partial(
+                request, tenant,
+                error=(
+                    "Verified at Cloudflare, but couldn't reach Railway to register the "
+                    "domain. The domain may return 404 until you remove and re-add it, "
+                    "or register it manually in Railway."
+                ),
+            )
+
+    if is_fully_active:
         return _render_custom_domain_partial(request, tenant)
 
     return _render_custom_domain_partial(
         request, tenant,
-        info=f"Not active yet — Cloudflare reports “{status or 'unknown'}”. DNS can take a few minutes.",
+        info=_ssl_status_message(hostname_status, ssl_status),
     )
 
 
@@ -1152,6 +1234,18 @@ def tenant_custom_domain_delete(request, pk):
             return _render_custom_domain_partial(
                 request, tenant,
                 error="Couldn't reach Cloudflare. Domain not deleted.",
+            )
+
+    # Best-effort Railway cleanup. A failure here leaves an orphan
+    # entry in Railway, not in our DB — log and keep going so the
+    # operator isn't blocked.
+    if custom_domain.is_verified:
+        try:
+            railway_service.remove_custom_domain(custom_domain.domain)
+        except Exception:
+            logger.exception(
+                "Railway remove_custom_domain failed for %s; proceeding with local delete",
+                custom_domain.domain,
             )
 
     custom_domain.delete()
