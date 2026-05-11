@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Custom Domains · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Custom Domains</h1>
+        <p class="page-subtitle">Every custom domain across all client sites. Use the overrides when Cloudflare and the local row drift apart.</p>
+      </div>
+    </div>
+
+    <form method="get" class="filter-bar">
+      <input
+        class="input"
+        type="search"
+        name="q"
+        placeholder="Search by domain or site…"
+        value="{{ q }}"
+        autocomplete="off"
+        style="max-width: 380px;"
+      >
+      <div class="filter-pills">
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=all"
+           class="filter-pill {% if status == 'all' or not status %}active{% endif %}">All</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=verified"
+           class="filter-pill {% if status == 'verified' %}active{% endif %}">Verified</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=pending"
+           class="filter-pill {% if status == 'pending' %}active{% endif %}">Pending</a>
+      </div>
+      {% if q or status and status != 'all' %}
+        <a href="?" class="btn btn-ghost btn-sm">Clear</a>
+      {% endif %}
+      <noscript><button type="submit" class="btn btn-secondary btn-sm">Search</button></noscript>
+    </form>
+
+    {% if domains %}
+      <div class="card" style="padding: 0; margin-top: 24px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Site</th>
+              <th>Status</th>
+              <th>Cloudflare ID</th>
+              <th>Added</th>
+              <th class="right">Overrides</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in domains %}
+              <tr>
+                <td><code class="cell-strong">{{ d.domain }}</code></td>
+                <td>
+                  <a href="{% url 'dashboard:tenant_detail' d.tenant.pk %}" class="cell-link">
+                    {{ d.tenant.name }}
+                  </a>
+                  <span class="cell-muted"> · {{ d.tenant.subdomain }}</span>
+                </td>
+                <td>
+                  {% if d.is_verified %}
+                    <span class="badge badge-success">Verified</span>
+                  {% else %}
+                    <span class="badge badge-soft">Pending</span>
+                  {% endif %}
+                </td>
+                <td class="cell-muted">
+                  {% if d.cloudflare_hostname_id %}
+                    <code>{{ d.cloudflare_hostname_id|truncatechars:18 }}</code>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="cell-muted">{{ d.created_at|naturaltime }}</td>
+                <td class="right">
+                  <div class="row-actions">
+                    {% if not d.is_verified %}
+                      <form method="post"
+                            action="{% url 'dashboard:custom_domain_force_verify' d.pk %}"
+                            onsubmit="return confirm('Force-mark {{ d.domain }} as verified without checking Cloudflare?');"
+                            class="inline-form">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-secondary btn-sm">Force verify</button>
+                      </form>
+                    {% endif %}
+                    <form method="post"
+                          action="{% url 'dashboard:custom_domain_force_delete_local' d.pk %}"
+                          onsubmit="return confirm('Delete the local row for {{ d.domain }}? Cloudflare will NOT be touched.');"
+                          class="inline-form">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-ghost btn-sm">Force delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty" style="margin-top: 24px;">
+        {% if q or status and status != 'all' %}
+          <h3>No domains match those filters</h3>
+          <p>Try clearing the search or switching the status filter.</p>
+          <a href="?" class="btn btn-secondary">Clear filters</a>
+        {% else %}
+          <h3>No custom domains yet</h3>
+          <p>Custom domains added on a site's detail page will show up here.</p>
+          <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-secondary">Browse sites</a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

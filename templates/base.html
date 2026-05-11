@@ -31,6 +31,7 @@
               <a href="{% url 'dashboard:root' %}" class="{% if nav_section == 'home' %}active{% endif %}">Overview</a>
               <a href="{% url 'dashboard:tenant_list' %}" class="{% if nav_section == 'sites' %}active{% endif %}">Sites</a>
               <a href="{% url 'dashboard:template_list' %}" class="{% if nav_section == 'templates' %}active{% endif %}">Templates</a>
+              <a href="{% url 'dashboard:custom_domain_list' %}" class="{% if nav_section == 'domains' %}active{% endif %}">Domains</a>
               <a href="{% url 'dashboard:user_list' %}" class="{% if nav_section == 'users' %}active{% endif %}">Users</a>
               <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-purple btn-sm" style="margin-left: 8px;">+ New client</a>
             {% endif %}

@@ -89,6 +89,20 @@ class TenantMembership(models.Model):
         return f"{self.user} @ {self.tenant} ({self.role})"
 
 
+class CustomDomain(models.Model):
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="custom_domains"
+    )
+    domain = models.CharField(max_length=253, unique=True)
+    cloudflare_hostname_id = models.CharField(max_length=255, blank=True, default="")
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.domain} → {self.tenant.subdomain}"
+
+
 class MediaAsset(models.Model):
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name="assets"

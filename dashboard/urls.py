@@ -24,6 +24,10 @@ urlpatterns = [
     # Back-compat alias — old bookmarks/redirects still resolve.
     path("sites/<int:pk>/credentials/", views.site_credentials, name="site_credentials"),
     path("sites/<int:pk>/settings/", views.tenant_settings_update, name="tenant_settings_update"),
+    path("sites/<int:pk>/custom-domain/", views.tenant_custom_domain_section, name="tenant_custom_domain_section"),
+    path("sites/<int:pk>/custom-domain/add/", views.tenant_custom_domain_add, name="tenant_custom_domain_add"),
+    path("sites/<int:pk>/custom-domain/verify/", views.tenant_custom_domain_verify, name="tenant_custom_domain_verify"),
+    path("sites/<int:pk>/custom-domain/delete/", views.tenant_custom_domain_delete, name="tenant_custom_domain_delete"),
     path("sites/<int:pk>/delete/", views.tenant_delete, name="tenant_delete"),
     path("sites/<int:pk>/members/add/", views.tenant_member_add, name="tenant_member_add"),
     path("sites/<int:pk>/members/<int:membership_id>/remove/", views.tenant_member_remove, name="tenant_member_remove"),
@@ -33,6 +37,10 @@ urlpatterns = [
     path("sites/<int:pk>/save/", views.tenant_save, name="tenant_save"),
     path("sites/<int:pk>/publish/", views.tenant_publish, name="tenant_publish"),
     path("sites/<int:pk>/upload/", views.tenant_upload, name="tenant_upload"),
+
+    path("custom-domains/", views.custom_domain_list, name="custom_domain_list"),
+    path("custom-domains/<int:pk>/force-verify/", views.custom_domain_force_verify, name="custom_domain_force_verify"),
+    path("custom-domains/<int:pk>/force-delete/", views.custom_domain_force_delete_local, name="custom_domain_force_delete_local"),
 
     path("users/", views.user_list, name="user_list"),
     path("users/<int:pk>/", views.user_detail, name="user_detail"),

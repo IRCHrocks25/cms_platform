@@ -1,0 +1,14 @@
+{% comment %}Small icon button. Pass `value` (the string to copy).{% endcomment %}
+<button type="button"
+        class="btn btn-ghost btn-sm copy-btn"
+        data-copy="{{ value }}"
+        aria-label="Copy {{ value }}"
+        title="Copy"
+        style="padding: 2px 6px; line-height: 1;">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect>
+    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+  </svg>
+  <span class="copy-btn-feedback" hidden>Copied</span>
+</button>

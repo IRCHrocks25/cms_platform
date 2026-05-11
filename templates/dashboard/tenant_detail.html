@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load humanize %}
+{% load humanize static %}
 
 {% block title %}{{ tenant.name }} · Locked CMS{% endblock %}
 
@@ -114,16 +114,14 @@
                  value="{{ tenant.subdomain }}">
           <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
         </div>
-        <div class="field">
-          <label class="field-label" for="settings_custom_domain">Custom domain</label>
-          <input class="input" type="text" name="custom_domain" id="settings_custom_domain"
-                 value="{{ tenant.custom_domain }}">
-          <span class="field-hint">Stored only — verification and TLS are not wired up yet.</span>
-        </div>
         <div class="row-end">
           <button type="submit" class="btn btn-primary">Save settings</button>
         </div>
       </form>
+    </section>
+
+    <section class="card stack-4" id="custom-domain-section" style="margin-bottom: 32px;">
+      {% include "dashboard/partials/custom_domain.html" %}
     </section>
 
     <section class="card stack-4" style="margin-bottom: 32px;">
@@ -184,4 +182,5 @@
       });
     })();
   </script>
+  <script src="{% static 'js/section-fetch.js' %}"></script>
 {% endblock %}

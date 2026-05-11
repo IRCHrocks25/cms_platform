@@ -16,11 +16,14 @@ from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST, require_GET
 
+import httpx
+
 from core.models import (
-    Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
+    CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
 )
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
+from core.services import cloudflare as cloudflare_service
 from core.urls_helpers import build_tenant_url_bundle
 
 
@@ -53,6 +56,9 @@ STARTER_TEMPLATE_HTML = """\
 
 
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+)
 PASSWORD_ALPHABET = (
     "abcdefghjkmnpqrstuvwxyz"
     "ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -563,6 +569,7 @@ def tenant_detail(request, pk):
         .select_related("user")
         .order_by("user__username")
     )
+    custom_domain = tenant.custom_domains.order_by("-created_at").first()
     member_user_ids = list(members.values_list("user_id", flat=True))
     add_member_candidates = (
         User.objects.exclude(pk__in=member_user_ids)
@@ -580,6 +587,7 @@ def tenant_detail(request, pk):
             "members": members,
             "add_member_candidates": add_member_candidates,
             "activity": activity,
+            "custom_domain": custom_domain,
             "nav_section": "sites",
             "role_choices": TenantMembership.ROLE_CHOICES,
         },
@@ -592,7 +600,6 @@ def tenant_settings_update(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
     name = (request.POST.get("name") or "").strip()
     new_subdomain = (request.POST.get("subdomain") or "").strip().lower()
-    custom_domain = (request.POST.get("custom_domain") or "").strip()
 
     if not name:
         messages.error(request, "Site name is required.")
@@ -618,8 +625,7 @@ def tenant_settings_update(request, pk):
         tenant.subdomain = new_subdomain
 
     tenant.name = name
-    tenant.custom_domain = custom_domain
-    tenant.save(update_fields=["name", "subdomain", "custom_domain", "updated_at"])
+    tenant.save(update_fields=["name", "subdomain", "updated_at"])
     messages.success(request, "Site settings updated.")
     return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
@@ -998,3 +1004,218 @@ def _save_upload(request, tenant):
         original_name=upload.name,
     )
     return JsonResponse({"ok": True, "url": asset.file.url, "id": asset.id})
+
+
+# --------------------------------------------------------------------------- #
+# Custom domain (Cloudflare for SaaS) — agency surface                         #
+# --------------------------------------------------------------------------- #
+
+
+def _dns_name_for_domain(domain: str) -> str:
+    """`@` for a root domain (2 labels), else the leftmost label."""
+    cleaned = (domain or "").strip().rstrip(".")
+    if not cleaned:
+        return "@"
+    labels = cleaned.split(".")
+    if len(labels) <= 2:
+        return "@"
+    return labels[0]
+
+
+def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
+    custom_domain = tenant.custom_domains.order_by("-created_at").first()
+    dns_name = _dns_name_for_domain(custom_domain.domain) if custom_domain else None
+    return render(
+        request,
+        "dashboard/partials/custom_domain.html",
+        {
+            "tenant": tenant,
+            "custom_domain": custom_domain,
+            "dns_name": dns_name,
+            "error": error,
+            "info": info,
+        },
+    )
+
+
+@agency_operator_required
+@require_GET
+def tenant_custom_domain_section(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _render_custom_domain_partial(request, tenant)
+
+
+@agency_operator_required
+@require_POST
+def tenant_custom_domain_add(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    domain = (request.POST.get("domain") or "").strip().lower().rstrip(".")
+
+    if not domain:
+        return _render_custom_domain_partial(
+            request, tenant, error="Enter a domain to add."
+        )
+    if not DOMAIN_RE.match(domain):
+        return _render_custom_domain_partial(
+            request, tenant,
+            error="That doesn't look like a valid domain (e.g. training.acme.com).",
+        )
+    if CustomDomain.objects.filter(domain=domain).exists():
+        return _render_custom_domain_partial(
+            request, tenant, error=f"“{domain}” is already in use."
+        )
+
+    try:
+        cf_response = cloudflare_service.add_custom_hostname(domain)
+    except httpx.HTTPError as exc:
+        return _render_custom_domain_partial(
+            request, tenant,
+            error=f"Cloudflare rejected that domain ({exc.__class__.__name__}). Try again or contact support.",
+        )
+    except Exception:
+        return _render_custom_domain_partial(
+            request, tenant,
+            error="Couldn't reach Cloudflare. Try again in a moment.",
+        )
+
+    cf_id = (cf_response.get("result") or {}).get("id", "") or ""
+    CustomDomain.objects.create(
+        tenant=tenant,
+        domain=domain,
+        cloudflare_hostname_id=cf_id,
+        is_verified=False,
+    )
+    return _render_custom_domain_partial(request, tenant)
+
+
+@agency_operator_required
+@require_POST
+def tenant_custom_domain_verify(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    custom_domain = tenant.custom_domains.order_by("-created_at").first()
+    if custom_domain is None:
+        return _render_custom_domain_partial(
+            request, tenant, error="No domain to verify."
+        )
+    if not custom_domain.cloudflare_hostname_id:
+        return _render_custom_domain_partial(
+            request, tenant,
+            error="This domain has no Cloudflare hostname id — recreate it.",
+        )
+
+    try:
+        data = cloudflare_service.get_hostname_status(
+            custom_domain.cloudflare_hostname_id
+        )
+    except httpx.HTTPError as exc:
+        return _render_custom_domain_partial(
+            request, tenant,
+            error=f"Couldn't check status with Cloudflare ({exc.__class__.__name__}).",
+        )
+    except Exception:
+        return _render_custom_domain_partial(
+            request, tenant,
+            error="Couldn't reach Cloudflare. Try again in a moment.",
+        )
+
+    status = (data.get("result") or {}).get("status", "")
+    if status == "active":
+        custom_domain.is_verified = True
+        custom_domain.save(update_fields=["is_verified", "updated_at"])
+        return _render_custom_domain_partial(request, tenant)
+
+    return _render_custom_domain_partial(
+        request, tenant,
+        info=f"Not active yet — Cloudflare reports “{status or 'unknown'}”. DNS can take a few minutes.",
+    )
+
+
+@agency_operator_required
+@require_POST
+def tenant_custom_domain_delete(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    custom_domain = tenant.custom_domains.order_by("-created_at").first()
+    if custom_domain is None:
+        return _render_custom_domain_partial(request, tenant)
+
+    if custom_domain.cloudflare_hostname_id:
+        try:
+            cloudflare_service.delete_custom_hostname(
+                custom_domain.cloudflare_hostname_id
+            )
+        except httpx.HTTPError as exc:
+            return _render_custom_domain_partial(
+                request, tenant,
+                error=f"Couldn't remove from Cloudflare ({exc.__class__.__name__}). Domain not deleted.",
+            )
+        except Exception:
+            return _render_custom_domain_partial(
+                request, tenant,
+                error="Couldn't reach Cloudflare. Domain not deleted.",
+            )
+
+    custom_domain.delete()
+    return _render_custom_domain_partial(request, tenant)
+
+
+# --------------------------------------------------------------------------- #
+# Custom domain — agency-wide list + override actions                          #
+# --------------------------------------------------------------------------- #
+
+
+@agency_operator_required
+def custom_domain_list(request):
+    q = (request.GET.get("q") or "").strip()
+    status = (request.GET.get("status") or "all").lower()
+
+    domains = (
+        CustomDomain.objects.select_related("tenant")
+        .order_by("-created_at")
+    )
+    if q:
+        domains = domains.filter(
+            Q(domain__icontains=q)
+            | Q(tenant__name__icontains=q)
+            | Q(tenant__subdomain__icontains=q)
+        )
+    if status == "verified":
+        domains = domains.filter(is_verified=True)
+    elif status == "pending":
+        domains = domains.filter(is_verified=False)
+
+    return render(
+        request,
+        "dashboard/custom_domain_list.html",
+        {
+            "domains": domains,
+            "q": q,
+            "status": status,
+            "nav_section": "domains",
+        },
+    )
+
+
+@agency_operator_required
+@require_POST
+def custom_domain_force_verify(request, pk):
+    domain = get_object_or_404(CustomDomain, pk=pk)
+    if not domain.is_verified:
+        domain.is_verified = True
+        domain.save(update_fields=["is_verified", "updated_at"])
+        messages.success(request, f"“{domain.domain}” force-marked as verified.")
+    else:
+        messages.info(request, f"“{domain.domain}” was already verified.")
+    return redirect("dashboard:custom_domain_list")
+
+
+@agency_operator_required
+@require_POST
+def custom_domain_force_delete_local(request, pk):
+    domain = get_object_or_404(CustomDomain, pk=pk)
+    label = domain.domain
+    domain.delete()
+    messages.success(
+        request,
+        f"“{label}” deleted locally. Cloudflare was not touched — clean up the CF hostname manually if needed.",
+    )
+    return redirect("dashboard:custom_domain_list")

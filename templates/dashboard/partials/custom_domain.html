@@ -1,0 +1,153 @@
+{% comment %}
+  Re-rendered server-side on initial page load and via fetch+swap on every
+  add/verify/delete. The wrapping #custom-domain-section element is the swap
+  target — see static/js/section-fetch.js.
+{% endcomment %}
+<div class="row-between">
+  <h2 style="margin: 0;">Custom Domain</h2>
+  {% if custom_domain %}
+    {% if custom_domain.is_verified %}
+      <span class="badge badge-success">Active</span>
+    {% else %}
+      <span class="badge badge-soft" style="color: var(--color-warning, #b45309);">Pending</span>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if error %}
+  <div class="flash flash-danger" style="margin: 0;">{{ error }}</div>
+{% endif %}
+{% if info %}
+  <div class="flash flash-info" style="margin: 0;">{{ info }}</div>
+{% endif %}
+
+{% if not custom_domain %}
+  {# State A — no domain configured #}
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <p style="margin: 0 0 8px; font-weight: 500;">
+      Before you add your domain, set up this DNS record at your registrar:
+    </p>
+    <table class="data-table data-table-flush" style="margin: 0;">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CNAME</code></td>
+          <td>
+            <code>@</code> for a root domain<br>
+            <span class="cell-muted">or just the subdomain (e.g. <code>training</code>)</span>
+          </td>
+          <td>
+            <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+              <code>proxy.sites.katek.app</code>
+              {% include "dashboard/partials/_copy_button.html" with value="proxy.sites.katek.app" %}
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="field-hint" style="margin: 12px 0 0;">
+      If you're using a root domain (<code>acme.com</code>), some registrars don't
+      support CNAME on <code>@</code>. In that case, use an ANAME or ALIAS record
+      instead, or point a subdomain like <code>www.acme.com</code>.
+    </p>
+    <p class="field-hint" style="margin: 8px 0 0;">
+      Once the record is added, enter your domain below and click Add Domain.
+      Verification is automatic — usually takes a few minutes.
+    </p>
+  </div>
+
+  <form data-fetch-form
+        data-target="#custom-domain-section"
+        method="post"
+        action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
+        class="row" style="gap: 8px; flex-wrap: wrap;">
+    {% csrf_token %}
+    <input class="input" type="text" name="domain" required
+           placeholder="training.acme.com"
+           pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+           style="flex: 1; min-width: 240px;">
+    <button type="submit" class="btn btn-primary">Add Domain</button>
+  </form>
+
+{% elif not custom_domain.is_verified %}
+  {# State B — added, awaiting verification #}
+  <p style="margin: 0;">
+    <strong>{{ custom_domain.domain }}</strong>
+  </p>
+
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <p style="margin: 0 0 8px; font-weight: 500;">Add this DNS record at your domain registrar</p>
+    <table class="data-table data-table-flush" style="margin: 0;">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CNAME</code></td>
+          <td><code>{{ dns_name }}</code></td>
+          <td>
+            <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+              <code>proxy.sites.katek.app</code>
+              {% include "dashboard/partials/_copy_button.html" with value="proxy.sites.katek.app" %}
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="field-hint" style="margin: 12px 0 0;">
+      If you're using a root domain (<code>acme.com</code>), some registrars don't
+      support CNAME on <code>@</code>. In that case, use an ANAME or ALIAS record
+      instead, or point a subdomain like <code>www.acme.com</code>.
+    </p>
+  </div>
+
+  <div class="row" style="gap: 8px;">
+    <form data-fetch-form
+          data-target="#custom-domain-section"
+          method="post"
+          action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk %}"
+          class="inline-form">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">Check Verification</button>
+    </form>
+    <form data-fetch-form
+          data-target="#custom-domain-section"
+          data-confirm="Remove {{ custom_domain.domain }}? This will delete it from Cloudflare too."
+          method="post"
+          action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk %}"
+          class="inline-form">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost">Remove</button>
+    </form>
+  </div>
+
+{% else %}
+  {# State C — verified and live #}
+  <p style="margin: 0;">
+    <strong>{{ custom_domain.domain }}</strong>
+  </p>
+  <p class="cell-muted" style="margin: 0;">Your custom domain is live.</p>
+  <div class="row" style="gap: 8px;">
+    <form data-fetch-form
+          data-target="#custom-domain-section"
+          data-confirm="Remove {{ custom_domain.domain }}? This will delete it from Cloudflare too."
+          method="post"
+          action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk %}"
+          class="inline-form">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost">Remove</button>
+    </form>
+  </div>
+{% endif %}

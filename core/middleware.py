@@ -1,16 +1,17 @@
 from django.conf import settings
 
-from .models import Tenant
+from .models import CustomDomain, Tenant
 
 
 class TenantResolverMiddleware:
     """
     Resolves a tenant from the host's leftmost subdomain when the host is
-    a tenant host (`<sub>.<TENANT_BASE_DOMAIN>`). The resolved tenant is
-    attached to ``request.tenant``. If the host is the bare base domain,
-    a reserved subdomain (``www``/``app``/``api``), or doesn't match the
-    base domain at all, ``request.tenant`` is ``None`` and standard URL
-    routing applies.
+    a tenant host (`<sub>.<TENANT_BASE_DOMAIN>`). Falls back to looking up
+    a verified ``CustomDomain`` row when the host doesn't match a
+    subdomain pattern. The resolved tenant is attached to
+    ``request.tenant``. If the host is the bare base domain or a reserved
+    subdomain, ``request.tenant`` is ``None`` and the custom-domain
+    fallback is skipped.
     """
 
     APP_HOSTS = {"127.0.0.1", "0.0.0.0"}
@@ -34,21 +35,28 @@ class TenantResolverMiddleware:
         if host == base:
             return None
 
-        if not base or not host.endswith("." + base):
-            return None
+        # Subdomain pattern: host is `<sub>.<base>`.
+        if base and host.endswith("." + base):
+            sub_part = host[: -(len(base) + 1)]
+            if sub_part and "." not in sub_part:
+                # Reserved subdomain — never fall through to custom-domain lookup.
+                if sub_part in reserved:
+                    return None
+                tenant = (
+                    Tenant.objects.select_related("template")
+                    .filter(subdomain=sub_part)
+                    .first()
+                )
+                if tenant:
+                    return tenant
 
-        sub_part = host[: -(len(base) + 1)]
-        if not sub_part:
-            return None
+        # Fallback: verified custom domain (e.g. `training.acme.com`).
+        custom = (
+            CustomDomain.objects.select_related("tenant__template")
+            .filter(domain=host, is_verified=True)
+            .first()
+        )
+        if custom:
+            return custom.tenant
 
-        # Only treat the leftmost label as the tenant subdomain. If the
-        # host has additional labels between the subdomain and the base
-        # domain (e.g. `acme.staging.yourdomain.com`), don't try to be
-        # clever — leave it unresolved.
-        if "." in sub_part:
-            return None
-
-        if sub_part in reserved:
-            return None
-
-        return Tenant.objects.select_related("template").filter(subdomain=sub_part).first()
+        return None
