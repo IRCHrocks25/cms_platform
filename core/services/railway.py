@@ -9,8 +9,19 @@ logger = logging.getLogger(__name__)
 
 
 def _headers():
+    token = settings.RAILWAY_TOKEN
+    if not token:
+        raise RuntimeError(
+            "RAILWAY_TOKEN is not set. Add it to the service's environment "
+            "variables in the Railway dashboard (Service → Variables)."
+        )
+    if not settings.RAILWAY_SERVICE_ID or not settings.RAILWAY_ENVIRONMENT_ID:
+        raise RuntimeError(
+            "RAILWAY_SERVICE_ID and RAILWAY_ENVIRONMENT_ID must both be set "
+            "in the service's environment variables."
+        )
     return {
-        "Authorization": f"Bearer {settings.RAILWAY_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
