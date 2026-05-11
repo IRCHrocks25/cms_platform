@@ -9,8 +9,8 @@ CLOUDFLARE_API = "https://api.cloudflare.com/client/v4"
 class TxtRecords(NamedTuple):
     ssl_txt_name: str
     ssl_txt_value: str
-    pre_txt_name: str
-    pre_txt_value: str
+    ssl_txt_name_2: str
+    ssl_txt_value_2: str
 
 
 def _headers():
@@ -50,19 +50,19 @@ def get_hostname_status(cloudflare_hostname_id: str) -> dict:
 
 
 def extract_txt_record(cf_response: dict) -> TxtRecords:
-    """Pull both TXT validation records out of an add/status response:
-    the SSL cert validation record (``result.ssl.validation_records[0]``)
-    and the hostname pre-validation record (``result.ownership_verification``).
-    Missing fields come back as empty strings."""
+    """Pull both SSL TXT validation records out of an add/status
+    response. Cloudflare may return one or two entries in
+    ``result.ssl.validation_records``; missing slots come back as
+    empty strings."""
     result = (cf_response or {}).get("result") or {}
     ssl_records = (result.get("ssl") or {}).get("validation_records") or []
-    ssl_first = (ssl_records[0] or {}) if ssl_records else {}
-    ownership = result.get("ownership_verification") or {}
+    first = (ssl_records[0] or {}) if len(ssl_records) >= 1 else {}
+    second = (ssl_records[1] or {}) if len(ssl_records) >= 2 else {}
     return TxtRecords(
-        ssl_txt_name=ssl_first.get("txt_name") or "",
-        ssl_txt_value=ssl_first.get("txt_value") or "",
-        pre_txt_name=ownership.get("name") or "",
-        pre_txt_value=ownership.get("value") or "",
+        ssl_txt_name=first.get("txt_name") or "",
+        ssl_txt_value=first.get("txt_value") or "",
+        ssl_txt_name_2=second.get("txt_name") or "",
+        ssl_txt_value_2=second.get("txt_value") or "",
     )
 
 

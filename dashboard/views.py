@@ -1109,8 +1109,8 @@ def tenant_custom_domain_add(request, pk):
         cloudflare_hostname_id=result.get("id") or "",
         ssl_txt_name=records.ssl_txt_name,
         ssl_txt_value=records.ssl_txt_value,
-        pre_validation_txt_name=records.pre_txt_name,
-        pre_validation_txt_value=records.pre_txt_value,
+        ssl_txt_name_2=records.ssl_txt_name_2,
+        ssl_txt_value_2=records.ssl_txt_value_2,
         is_verified=False,
     )
     return _render_custom_domain_partial(request, tenant)
@@ -1159,12 +1159,12 @@ def tenant_custom_domain_verify(request, pk):
     if records.ssl_txt_value and not custom_domain.ssl_txt_value:
         custom_domain.ssl_txt_value = records.ssl_txt_value
         update_fields.append("ssl_txt_value")
-    if records.pre_txt_name and not custom_domain.pre_validation_txt_name:
-        custom_domain.pre_validation_txt_name = records.pre_txt_name
-        update_fields.append("pre_validation_txt_name")
-    if records.pre_txt_value and not custom_domain.pre_validation_txt_value:
-        custom_domain.pre_validation_txt_value = records.pre_txt_value
-        update_fields.append("pre_validation_txt_value")
+    if records.ssl_txt_name_2 and not custom_domain.ssl_txt_name_2:
+        custom_domain.ssl_txt_name_2 = records.ssl_txt_name_2
+        update_fields.append("ssl_txt_name_2")
+    if records.ssl_txt_value_2 and not custom_domain.ssl_txt_value_2:
+        custom_domain.ssl_txt_value_2 = records.ssl_txt_value_2
+        update_fields.append("ssl_txt_value_2")
 
     is_fully_active = hostname_status == "active" and ssl_status == "active"
     just_verified = is_fully_active and not custom_domain.is_verified
