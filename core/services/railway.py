@@ -44,7 +44,7 @@ def add_custom_domain(domain: str) -> bool:
             "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
         }
     }
-    logger.info("Railway add_custom_domain request variables: %s", variables)
+    logger.warning("Railway add_custom_domain request variables: %s", variables)
     resp = httpx.post(
         RAILWAY_API,
         headers=_headers(),
@@ -55,7 +55,7 @@ def add_custom_domain(domain: str) -> bool:
         body = resp.json()
     except ValueError:
         body = resp.text
-    logger.info(
+    logger.warning(
         "Railway add_custom_domain response (status=%s): %s", resp.status_code, body
     )
     resp.raise_for_status()
