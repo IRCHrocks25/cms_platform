@@ -3,14 +3,26 @@ from django.conf import settings
 from .models import CustomDomain, Tenant
 
 
+def _x_forwarded_host_first(request, fallback_host: str) -> str:
+    """
+    First host in ``X-Forwarded-Host`` (proxy chains may send a list).
+    Used when an edge proxy rewrites ``Host`` (e.g. Cloudflare → Railway)
+    but preserves the original domain here. Falls back to ``fallback_host``.
+    """
+    forwarded = (request.META.get("HTTP_X_FORWARDED_HOST") or "").split(",")[0].strip().lower()
+    if not forwarded:
+        return fallback_host
+    return forwarded.split(":")[0].rstrip(".")
+
+
 class AllowedHostsFromCustomDomains:
     """
     Expand ``settings.ALLOWED_HOSTS`` on the fly when the incoming
-    ``Host`` header matches a verified ``CustomDomain``. Must run first
-    in ``MIDDLEWARE`` — Django's ``request.get_host()`` validates against
-    ``ALLOWED_HOSTS`` and would raise ``DisallowedHost`` in production
-    before we could amend the list, so we read ``HTTP_HOST`` straight
-    from ``META`` here.
+    ``Host`` or ``X-Forwarded-Host`` (first value) matches a verified
+    ``CustomDomain``. Must run first in ``MIDDLEWARE`` — Django's
+    ``request.get_host()`` validates against ``ALLOWED_HOSTS`` and would
+    raise ``DisallowedHost`` in production before we could amend the list,
+    so we read ``HTTP_HOST`` straight from ``META`` here.
 
     A DB lookup runs only on the first request per host per worker
     process; once a host is in ``ALLOWED_HOSTS`` subsequent requests
@@ -23,9 +35,16 @@ class AllowedHostsFromCustomDomains:
     def __call__(self, request):
         raw = request.META.get("HTTP_HOST") or request.META.get("SERVER_NAME") or ""
         host = raw.split(":")[0].lower().strip().rstrip(".")
-        if host and host not in settings.ALLOWED_HOSTS:
-            if CustomDomain.objects.filter(domain=host, is_verified=True).exists():
-                settings.ALLOWED_HOSTS.append(host)
+        lookup_host = _x_forwarded_host_first(request, host)
+        candidates = []
+        if host:
+            candidates.append(host)
+        if lookup_host and lookup_host not in candidates:
+            candidates.append(lookup_host)
+        for candidate in candidates:
+            if candidate not in settings.ALLOWED_HOSTS:
+                if CustomDomain.objects.filter(domain=candidate, is_verified=True).exists():
+                    settings.ALLOWED_HOSTS.append(candidate)
         return self.get_response(request)
 
 
@@ -33,11 +52,12 @@ class TenantResolverMiddleware:
     """
     Resolves a tenant from the host's leftmost subdomain when the host is
     a tenant host (`<sub>.<TENANT_BASE_DOMAIN>`). Falls back to looking up
-    a verified ``CustomDomain`` row when the host doesn't match a
-    subdomain pattern. The resolved tenant is attached to
-    ``request.tenant``. If the host is the bare base domain or a reserved
-    subdomain, ``request.tenant`` is ``None`` and the custom-domain
-    fallback is skipped.
+    a verified ``CustomDomain`` when the host doesn't match a subdomain
+    pattern; that lookup uses ``X-Forwarded-Host`` (first value) when set,
+    so a proxy can rewrite ``Host`` while preserving the client domain.
+    The resolved tenant is attached to ``request.tenant``. If the host is
+    the bare base domain or a reserved subdomain, ``request.tenant`` is
+    ``None`` and the custom-domain fallback is skipped.
     """
 
     APP_HOSTS = {"127.0.0.1", "0.0.0.0"}
@@ -77,9 +97,11 @@ class TenantResolverMiddleware:
                     return tenant
 
         # Fallback: verified custom domain (e.g. `training.acme.com`).
+        # Prefer ``X-Forwarded-Host`` when present (proxy rewrote ``Host``).
+        lookup_host = _x_forwarded_host_first(request, host)
         custom = (
             CustomDomain.objects.select_related("tenant__template")
-            .filter(domain=host, is_verified=True)
+            .filter(domain=lookup_host, is_verified=True)
             .first()
         )
         if custom:

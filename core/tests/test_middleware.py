@@ -1,8 +1,9 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 
-from core.middleware import TenantResolverMiddleware
-from core.models import Template, Tenant
+from core.middleware import AllowedHostsFromCustomDomains, TenantResolverMiddleware
+from core.models import CustomDomain, Template, Tenant
 
 
 def _make_template():
@@ -96,3 +97,50 @@ class TenantResolverProductionDomainTests(TestCase):
     def test_other_domain_resolves_to_none(self):
         request = self._get("acme.someoneelse.com")
         self.assertIsNone(request.tenant)
+
+
+@override_settings(TENANT_BASE_DOMAIN="katek.app", ALLOWED_HOSTS=["proxy.sites.katek.app", "testserver"])
+class TenantResolverCustomDomainForwardedHostTests(TestCase):
+    """Host rewritten at edge; original domain in ``X-Forwarded-Host``."""
+
+    def setUp(self):
+        User = get_user_model()
+        owner = User.objects.create_user("owner3", password="x")
+        self.tenant = Tenant.objects.create(
+            name="Client",
+            subdomain="client",
+            template=_make_template(),
+            owner=owner,
+        )
+        CustomDomain.objects.create(
+            tenant=self.tenant,
+            domain="www.clientbrand.com",
+            is_verified=True,
+        )
+        self.middleware = TenantResolverMiddleware(lambda r: r)
+        self.factory = RequestFactory()
+
+    def test_custom_domain_uses_x_forwarded_host_when_host_is_proxy(self):
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="proxy.sites.katek.app",
+            HTTP_X_FORWARDED_HOST="www.clientbrand.com",
+        )
+        self.middleware(request)
+        self.assertEqual(request.tenant, self.tenant)
+
+    def test_allowed_hosts_middleware_adds_forwarded_custom_domain(self):
+        mw = AllowedHostsFromCustomDomains(lambda r: r)
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="proxy.sites.katek.app",
+            HTTP_X_FORWARDED_HOST="www.clientbrand.com",
+        )
+        self.assertNotIn("www.clientbrand.com", settings.ALLOWED_HOSTS)
+        mw(request)
+        self.assertIn("www.clientbrand.com", settings.ALLOWED_HOSTS)
+
+    def tearDown(self):
+        h = "www.clientbrand.com"
+        if h in settings.ALLOWED_HOSTS:
+            settings.ALLOWED_HOSTS.remove(h)
