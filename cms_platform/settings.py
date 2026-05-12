@@ -170,6 +170,25 @@ LOGOUT_REDIRECT_URL = "/login/"
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "%(levelname)s %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+    "loggers": {
+        "core": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "dashboard": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
+
 CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = os.environ.get("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_DCV_DELEGATION_TARGET = "711b5e8ed3b3aa16.dcv.cloudflare.com"

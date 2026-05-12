@@ -26,9 +26,56 @@ def _headers():
     }
 
 
+def test_connection() -> dict:
+    """Test token validity. Returns the raw GraphQL response."""
+    query = "query { me { name email } }"
+    resp = httpx.post(
+        RAILWAY_API, headers=_headers(), json={"query": query}, timeout=10
+    )
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {"raw": resp.text}
+    logger.info("Railway test_connection (status=%s): %s", resp.status_code, body)
+    return body
+
+
+def check_domain_availability(domain: str) -> dict:
+    """Ask Railway whether a domain can be added to the service."""
+    query = """
+    query customDomainAvailable($domainName: String!, $serviceId: String!, $environmentId: String!) {
+        customDomainAvailable(domainName: $domainName, serviceId: $serviceId, environmentId: $environmentId) {
+            available
+            message
+        }
+    }
+    """
+    variables = {
+        "domainName": domain,
+        "serviceId": settings.RAILWAY_SERVICE_ID,
+        "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
+    }
+    logger.info("Railway check_domain_availability variables: %s", variables)
+    resp = httpx.post(
+        RAILWAY_API,
+        headers=_headers(),
+        json={"query": query, "variables": variables},
+        timeout=10,
+    )
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {"raw": resp.text}
+    logger.info(
+        "Railway check_domain_availability (status=%s): %s", resp.status_code, body
+    )
+    return body
+
+
 def add_custom_domain(domain: str) -> bool:
     """Register a custom domain with Railway for the CMS service.
-    Returns True on success (no GraphQL errors in the response)."""
+    Logs the full request + response. Returns True only when Railway
+    confirms a created hostname id."""
     mutation = """
     mutation customDomainCreate($input: CustomDomainCreateInput!) {
         customDomainCreate(input: $input) {
@@ -44,7 +91,7 @@ def add_custom_domain(domain: str) -> bool:
             "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
         }
     }
-    logger.warning("Railway add_custom_domain request variables: %s", variables)
+    logger.info("Railway add_custom_domain request variables: %s", variables)
     resp = httpx.post(
         RAILWAY_API,
         headers=_headers(),
@@ -52,14 +99,18 @@ def add_custom_domain(domain: str) -> bool:
         timeout=10,
     )
     try:
-        body = resp.json()
+        data = resp.json()
     except ValueError:
-        body = resp.text
-    logger.warning(
-        "Railway add_custom_domain response (status=%s): %s", resp.status_code, body
+        data = {"raw": resp.text}
+    logger.info(
+        "Railway add_custom_domain status=%s response=%s", resp.status_code, data
     )
-    resp.raise_for_status()
-    return "errors" not in body
+    if resp.status_code != 200 or "errors" in data:
+        logger.error("Railway domain add failed: %s", data)
+        return False
+    return bool(
+        ((data.get("data") or {}).get("customDomainCreate") or {}).get("id")
+    )
 
 
 def remove_custom_domain(domain: str) -> bool:
