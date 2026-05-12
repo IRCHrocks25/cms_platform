@@ -41,20 +41,17 @@ def test_connection() -> dict:
 
 
 def check_domain_availability(domain: str) -> dict:
-    """Ask Railway whether a domain can be added to the service."""
+    """Ask Railway whether a domain can be added. Per Railway's
+    schema this query only takes ``domain``."""
     query = """
-    query customDomainAvailable($domainName: String!, $serviceId: String!, $environmentId: String!) {
-        customDomainAvailable(domainName: $domainName, serviceId: $serviceId, environmentId: $environmentId) {
+    query customDomainAvailable($domain: String!) {
+        customDomainAvailable(domain: $domain) {
             available
             message
         }
     }
     """
-    variables = {
-        "domainName": domain,
-        "serviceId": settings.RAILWAY_SERVICE_ID,
-        "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
-    }
+    variables = {"domain": domain}
     logger.info("Railway check_domain_availability variables: %s", variables)
     resp = httpx.post(
         RAILWAY_API,
@@ -72,10 +69,63 @@ def check_domain_availability(domain: str) -> dict:
     return body
 
 
+def list_custom_domains() -> dict:
+    """Return every custom domain currently registered on the service.
+    Logs the full response so callers don't have to."""
+    query = """
+    query {
+        service(id: "%s") {
+            domains(environmentId: "%s") {
+                customDomains {
+                    id
+                    domain
+                }
+            }
+        }
+    }
+    """ % (settings.RAILWAY_SERVICE_ID, settings.RAILWAY_ENVIRONMENT_ID)
+    resp = httpx.post(
+        RAILWAY_API,
+        headers=_headers(),
+        json={"query": query},
+        timeout=10,
+    )
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {"raw": resp.text}
+    logger.info(
+        "Railway list_custom_domains (status=%s): %s", resp.status_code, body
+    )
+    return body
+
+
 def add_custom_domain(domain: str) -> bool:
     """Register a custom domain with Railway for the CMS service.
-    Logs the full request + response. Returns True only when Railway
-    confirms a created hostname id."""
+    Logs the full request + response. Returns True if Railway confirms
+    a created hostname id, OR if the domain is already registered on
+    the service."""
+    # Short-circuit if Railway already has it — the create mutation
+    # 400s on duplicates with an unhelpful "Problem processing request"
+    # message, so we ask first.
+    try:
+        existing = list_custom_domains()
+        registered = (
+            ((existing.get("data") or {}).get("service") or {})
+            .get("domains", {})
+            .get("customDomains", [])
+        ) or []
+        if any((d or {}).get("domain") == domain for d in registered):
+            logger.info(
+                "Railway already has %s registered — skipping create.", domain
+            )
+            return True
+    except Exception as e:
+        logger.error(
+            "Railway list_custom_domains failed during pre-check for %s: %s",
+            domain, e, exc_info=True,
+        )
+
     mutation = """
     mutation customDomainCreate($input: CustomDomainCreateInput!) {
         customDomainCreate(input: $input) {
