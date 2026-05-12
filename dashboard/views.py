@@ -1168,13 +1168,6 @@ def tenant_custom_domain_verify(request, pk):
         # for this Host. Don't undo the verified flag if this fails —
         # Cloudflare is already active and the operator can retry.
         try:
-            railway_service.introspect_custom_domain_input()
-        except Exception as e:
-            logger.error(
-                "Railway introspect_custom_domain_input failed: %s",
-                e, exc_info=True,
-            )
-        try:
             availability = railway_service.check_domain_availability(custom_domain.domain)
             logger.info(
                 "Railway availability for %s: %s", custom_domain.domain, availability

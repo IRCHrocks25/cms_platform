@@ -171,6 +171,7 @@ def add_custom_domain(domain: str) -> bool:
             "domain": domain,
             "serviceId": settings.RAILWAY_SERVICE_ID,
             "environmentId": settings.RAILWAY_ENVIRONMENT_ID,
+            "projectId": settings.RAILWAY_PROJECT_ID,
         }
     }
     logger.info("Railway add_custom_domain request variables: %s", variables)
