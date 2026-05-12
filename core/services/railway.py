@@ -69,6 +69,38 @@ def check_domain_availability(domain: str) -> dict:
     return body
 
 
+def introspect_custom_domain_input() -> dict:
+    """Introspect Railway's ``CustomDomainCreateInput`` to find the real
+    field names. Logs the full response."""
+    query = """
+    query {
+        __type(name: "CustomDomainCreateInput") {
+            name
+            inputFields {
+                name
+                type {
+                    name
+                    kind
+                    ofType {
+                        name
+                        kind
+                    }
+                }
+            }
+        }
+    }
+    """
+    resp = httpx.post(
+        RAILWAY_API,
+        headers=_headers(),
+        json={"query": query},
+        timeout=10,
+    )
+    body = resp.json()
+    logger.info(f"CustomDomainCreateInput schema: {body}")
+    return body
+
+
 def list_custom_domains() -> dict:
     """Return every custom domain currently registered on the service.
     Logs the full response so callers don't have to."""

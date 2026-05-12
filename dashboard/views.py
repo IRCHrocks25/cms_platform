@@ -1168,6 +1168,13 @@ def tenant_custom_domain_verify(request, pk):
         # for this Host. Don't undo the verified flag if this fails —
         # Cloudflare is already active and the operator can retry.
         try:
+            railway_service.introspect_custom_domain_input()
+        except Exception as e:
+            logger.error(
+                "Railway introspect_custom_domain_input failed: %s",
+                e, exc_info=True,
+            )
+        try:
             availability = railway_service.check_domain_availability(custom_domain.domain)
             logger.info(
                 "Railway availability for %s: %s", custom_domain.domain, availability
@@ -1277,6 +1284,13 @@ def tenant_custom_domain_railway_sync(request, pk):
     custom_domain = tenant.custom_domains.order_by("-created_at").first()
     if custom_domain is None:
         return _render_custom_domain_partial(request, tenant, error="No domain to sync.")
+    try:
+        railway_service.introspect_custom_domain_input()
+    except Exception as e:
+        logger.error(
+            "Railway introspect_custom_domain_input failed: %s",
+            e, exc_info=True,
+        )
     try:
         availability = railway_service.check_domain_availability(custom_domain.domain)
         logger.info(
