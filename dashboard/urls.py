@@ -28,7 +28,6 @@ urlpatterns = [
     path("sites/<int:pk>/custom-domain/add/", views.tenant_custom_domain_add, name="tenant_custom_domain_add"),
     path("sites/<int:pk>/custom-domain/verify/", views.tenant_custom_domain_verify, name="tenant_custom_domain_verify"),
     path("sites/<int:pk>/custom-domain/delete/", views.tenant_custom_domain_delete, name="tenant_custom_domain_delete"),
-    path("sites/<int:pk>/custom-domain/sync-railway/", views.tenant_custom_domain_railway_sync, name="tenant_custom_domain_railway_sync"),
     path("sites/<int:pk>/delete/", views.tenant_delete, name="tenant_delete"),
     path("sites/<int:pk>/members/add/", views.tenant_member_add, name="tenant_member_add"),
     path("sites/<int:pk>/members/<int:membership_id>/remove/", views.tenant_member_remove, name="tenant_member_remove"),

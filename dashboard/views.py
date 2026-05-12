@@ -25,7 +25,6 @@ from core.models import (
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
 from core.services import cloudflare as cloudflare_service
-from core.services import railway as railway_service
 from core.urls_helpers import build_tenant_url_bundle
 
 
@@ -1158,65 +1157,9 @@ def tenant_custom_domain_verify(request, pk):
     ssl_status = ssl_data.get("status") or ""
 
     is_fully_active = hostname_status == "active" and ssl_status == "active"
-    just_verified = is_fully_active and not custom_domain.is_verified
-    if just_verified:
+    if is_fully_active and not custom_domain.is_verified:
         custom_domain.is_verified = True
         custom_domain.save(update_fields=["is_verified", "updated_at"])
-
-    if just_verified:
-        # Register the domain with Railway so the service accepts traffic
-        # for this Host. Don't undo the verified flag if this fails —
-        # Cloudflare is already active and the operator can retry.
-        try:
-            availability = railway_service.check_domain_availability(custom_domain.domain)
-            logger.info(
-                "Railway availability for %s: %s", custom_domain.domain, availability
-            )
-        except Exception as e:
-            logger.error(
-                "Railway availability check raised for %s: %s",
-                custom_domain.domain, e, exc_info=True,
-            )
-        try:
-            success = railway_service.add_custom_domain(custom_domain.domain)
-            if not success:
-                logger.error(
-                    "Railway domain registration failed for %s — no errors key but returned False",
-                    custom_domain.domain,
-                )
-                return _render_custom_domain_partial(
-                    request, tenant,
-                    error=(
-                        "Verified at Cloudflare, but Railway returned errors registering "
-                        "the domain. Check the server logs for the GraphQL response."
-                    ),
-                )
-        except httpx.HTTPError as exc:
-            logger.error(
-                "Railway add_custom_domain HTTP error for %s: %s",
-                custom_domain.domain, exc, exc_info=True,
-            )
-            return _render_custom_domain_partial(
-                request, tenant,
-                error=(
-                    f"Verified at Cloudflare, but registering with Railway failed "
-                    f"({exc.__class__.__name__}). The domain may return 404 until "
-                    f"you remove and re-add it, or register it manually in Railway."
-                ),
-            )
-        except Exception as e:
-            logger.error(
-                "Railway domain registration exception for %s: %s",
-                custom_domain.domain, e, exc_info=True,
-            )
-            return _render_custom_domain_partial(
-                request, tenant,
-                error=(
-                    "Verified at Cloudflare, but couldn't reach Railway to register the "
-                    "domain. The domain may return 404 until you remove and re-add it, "
-                    "or register it manually in Railway."
-                ),
-            )
 
     if is_fully_active:
         return _render_custom_domain_partial(request, tenant)
@@ -1251,85 +1194,8 @@ def tenant_custom_domain_delete(request, pk):
                 error="Couldn't reach Cloudflare. Domain not deleted.",
             )
 
-    # Best-effort Railway cleanup. A failure here leaves an orphan
-    # entry in Railway, not in our DB — log and keep going so the
-    # operator isn't blocked.
-    if custom_domain.is_verified:
-        try:
-            railway_service.remove_custom_domain(custom_domain.domain)
-        except Exception:
-            logger.exception(
-                "Railway remove_custom_domain failed for %s; proceeding with local delete",
-                custom_domain.domain,
-            )
-
     custom_domain.delete()
     return _render_custom_domain_partial(request, tenant)
-
-
-@agency_operator_required
-@require_POST
-def tenant_custom_domain_railway_sync(request, pk):
-    """Manually (re-)register the verified custom domain with Railway.
-    Idempotent in practice — Railway returns 'already exists' if it's
-    been registered before, which surfaces in the logs."""
-    tenant = get_object_or_404(Tenant, pk=pk)
-    custom_domain = tenant.custom_domains.order_by("-created_at").first()
-    if custom_domain is None:
-        return _render_custom_domain_partial(request, tenant, error="No domain to sync.")
-    try:
-        railway_service.introspect_custom_domain_input()
-    except Exception as e:
-        logger.error(
-            "Railway introspect_custom_domain_input failed: %s",
-            e, exc_info=True,
-        )
-    try:
-        availability = railway_service.check_domain_availability(custom_domain.domain)
-        logger.info(
-            "Railway availability for %s: %s", custom_domain.domain, availability
-        )
-    except Exception as e:
-        logger.error(
-            "Railway availability check raised for %s: %s",
-            custom_domain.domain, e, exc_info=True,
-        )
-    try:
-        success = railway_service.add_custom_domain(custom_domain.domain)
-        if not success:
-            logger.error(
-                "Railway sync returned False for %s — likely already registered or rejected; see prior response log",
-                custom_domain.domain,
-            )
-            return _render_custom_domain_partial(
-                request, tenant,
-                error=(
-                    "Railway returned errors — likely already registered, or "
-                    "an auth/ID mismatch. Check server logs for the full GraphQL response."
-                ),
-            )
-    except httpx.HTTPError as exc:
-        logger.error(
-            "Railway sync HTTP error for %s: %s",
-            custom_domain.domain, exc, exc_info=True,
-        )
-        return _render_custom_domain_partial(
-            request, tenant,
-            error=f"Couldn't sync with Railway ({exc.__class__.__name__}).",
-        )
-    except Exception as e:
-        logger.error(
-            "Railway sync exception for %s: %s",
-            custom_domain.domain, e, exc_info=True,
-        )
-        return _render_custom_domain_partial(
-            request, tenant,
-            error="Couldn't reach Railway. Try again in a moment.",
-        )
-    return _render_custom_domain_partial(
-        request, tenant,
-        info=f"Registered {custom_domain.domain} with Railway.",
-    )
 
 
 # --------------------------------------------------------------------------- #

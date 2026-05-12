@@ -1,3 +1,17 @@
+"""
+Railway GraphQL helpers.
+
+NOT currently called by the custom-domain flow. The CMS routes client
+traffic via Cloudflare for SaaS → ``proxy.sites.katek.app`` → Railway,
+and Railway only needs to know about ``proxy.sites.katek.app`` (already
+configured on the service). Registering each client domain with Railway
+forces a competing CNAME pointed at Railway, which conflicts with the
+Cloudflare CNAME we tell clients to publish.
+
+Kept around in case we want it for other operations (service redeploys,
+etc.) — feel free to delete the file if/when it stays unused.
+"""
+
 import logging
 
 import httpx
