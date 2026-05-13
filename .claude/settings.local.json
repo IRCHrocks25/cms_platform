@@ -47,7 +47,11 @@
       "Bash(git *)",
       "WebFetch(domain:developers.cloudflare.com)",
       "WebFetch(domain:repalash.com)",
-      "WebFetch(domain:community.cloudflare.com)"
+      "WebFetch(domain:community.cloudflare.com)",
+      "Bash(python -c \"import cms_platform.urls; import core.middleware; import dashboard.views; print\\('imports OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(timeout 6 python manage.py runserver 0.0.0.0:8080 --noreload)",
+      "Bash(echo \"---exit:$?---\")"
     ]
   }
 }
