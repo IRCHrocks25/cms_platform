@@ -51,6 +51,9 @@ urlpatterns = [
     path("users/<int:pk>/make-staff/", views.user_make_staff, name="user_make_staff"),
     path("users/<int:pk>/memberships/<int:membership_id>/remove/", views.user_remove_membership, name="user_remove_membership"),
 
+    # TEMPORARY: debug view for inspecting headers. Remove after debugging.
+    path("debug-headers/", views.debug_headers, name="debug_headers"),
+
     # ----- Tenant surface (host resolves to a tenant) --------------------- #
     path("editor/", views.tenant_home, name="tenant_home"),
     path("editor/preview/", views.tenant_preview_self, name="tenant_preview_self"),

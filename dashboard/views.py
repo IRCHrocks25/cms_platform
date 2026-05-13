@@ -1259,3 +1259,13 @@ def custom_domain_force_delete_local(request, pk):
         f"“{label}” deleted locally. Cloudflare was not touched — clean up the CF hostname manually if needed.",
     )
     return redirect("dashboard:custom_domain_list")
+
+
+# TEMPORARY: debug view for inspecting headers received from the Cloudflare Worker.
+# Remove after debugging.
+def debug_headers(request):
+    headers = {k: v for k, v in request.META.items() if k.startswith('HTTP_')}
+    return JsonResponse({
+        'headers': headers,
+        'host': request.get_host(),
+    })
