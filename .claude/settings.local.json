@@ -35,7 +35,16 @@
       "Bash(C:/Users/ADMIN/.conda/envs/myenv/python.exe -c ' *)",
       "Bash(awk -F: '{print $2}')",
       "Bash(awk '{print $2}')",
-      "Bash(awk -F. '{print $1}')"
+      "Bash(awk -F. '{print $1}')",
+      "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" ls-files .venv)",
+      "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" ls-files)",
+      "Bash(grep -E \"^\\(\\\\.venv/|.*__pycache__/|.*\\\\.pyc$|staticfiles/\\)\")",
+      "Bash(awk -F/ '{print $1}')",
+      "Bash(grep -E \"__pycache__|\\\\.pyc$\")",
+      "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" status --short)",
+      "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" rm -r --cached --quiet .venv)",
+      "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" rm -r --cached --quiet cms_platform/__pycache__ core/__pycache__ dashboard/__pycache__)",
+      "Bash(git *)"
     ]
   }
 }
