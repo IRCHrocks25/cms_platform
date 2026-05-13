@@ -52,6 +52,25 @@ class TenantResolverMiddleware:
             host,
             lookup_host,
         )
+
+        # Check for Cloudflare Worker forwarded host
+        x_original_host = (
+            request.META.get("HTTP_X_ORIGINAL_HOST", "")
+            .split(",")[0]
+            .strip()
+            .lower()
+            .rstrip(".")
+        )
+        logger.debug(f"X-Original-Host: {x_original_host}, host: {host}")
+        if x_original_host:
+            custom = (
+                CustomDomain.objects.select_related("tenant__template")
+                .filter(domain=x_original_host, is_verified=True)
+                .first()
+            )
+            if custom:
+                return custom.tenant
+
         if not host or host in self.APP_HOSTS:
             return None
 
