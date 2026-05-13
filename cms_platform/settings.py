@@ -20,27 +20,7 @@ _tenant_base_domains = [
 ]
 TENANT_BASE_DOMAIN = _tenant_base_domains[0] if _tenant_base_domains else "localhost"
 _additional_tenant_base_domains = _tenant_base_domains[1:]
-_allowed_hosts_from_env = [
-    host.strip().replace("http://", "").replace("https://", "").split("/")[0]
-    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",")
-    if host.strip()
-]
-_hardcoded_production_hosts = [
-    "sites.katek.app",
-    ".sites.katek.app",
-]
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    ".lvh.me",
-    TENANT_BASE_DOMAIN,
-    f".{TENANT_BASE_DOMAIN}" if TENANT_BASE_DOMAIN else "",
-    *_additional_tenant_base_domains,
-    *[f".{domain}" for domain in _additional_tenant_base_domains],
-    *_hardcoded_production_hosts,
-    *_allowed_hosts_from_env,
-]
-ALLOWED_HOSTS = list(dict.fromkeys(host for host in ALLOWED_HOSTS if host))
+ALLOWED_HOSTS = ["*"]
 
 TENANT_RESERVED_SUBDOMAINS = {
     "www", "app", "api",
@@ -93,7 +73,6 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "core.middleware.AllowedHostsFromCustomDomains",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

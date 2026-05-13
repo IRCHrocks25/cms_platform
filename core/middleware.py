@@ -15,39 +15,6 @@ def _x_forwarded_host_first(request, fallback_host: str) -> str:
     return forwarded.split(":")[0].rstrip(".")
 
 
-class AllowedHostsFromCustomDomains:
-    """
-    Expand ``settings.ALLOWED_HOSTS`` on the fly when the incoming
-    ``Host`` or ``X-Forwarded-Host`` (first value) matches a verified
-    ``CustomDomain``. Must run first in ``MIDDLEWARE`` — Django's
-    ``request.get_host()`` validates against ``ALLOWED_HOSTS`` and would
-    raise ``DisallowedHost`` in production before we could amend the list,
-    so we read ``HTTP_HOST`` straight from ``META`` here.
-
-    A DB lookup runs only on the first request per host per worker
-    process; once a host is in ``ALLOWED_HOSTS`` subsequent requests
-    skip the query.
-    """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        raw = request.META.get("HTTP_HOST") or request.META.get("SERVER_NAME") or ""
-        host = raw.split(":")[0].lower().strip().rstrip(".")
-        lookup_host = _x_forwarded_host_first(request, host)
-        candidates = []
-        if host:
-            candidates.append(host)
-        if lookup_host and lookup_host not in candidates:
-            candidates.append(lookup_host)
-        for candidate in candidates:
-            if candidate not in settings.ALLOWED_HOSTS:
-                if CustomDomain.objects.filter(domain=candidate, is_verified=True).exists():
-                    settings.ALLOWED_HOSTS.append(candidate)
-        return self.get_response(request)
-
-
 class TenantResolverMiddleware:
     """
     Resolves a tenant from the host's leftmost subdomain when the host is
@@ -97,7 +64,6 @@ class TenantResolverMiddleware:
                     return tenant
 
         # Fallback: verified custom domain (e.g. `training.acme.com`).
-        # Prefer ``X-Forwarded-Host`` when present (proxy rewrote ``Host``).
         lookup_host = _x_forwarded_host_first(request, host)
         custom = (
             CustomDomain.objects.select_related("tenant__template")

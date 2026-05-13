@@ -1,8 +1,7 @@
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 
-from core.middleware import AllowedHostsFromCustomDomains, TenantResolverMiddleware
+from core.middleware import TenantResolverMiddleware
 from core.models import CustomDomain, Template, Tenant
 
 
@@ -129,18 +128,3 @@ class TenantResolverCustomDomainForwardedHostTests(TestCase):
         self.middleware(request)
         self.assertEqual(request.tenant, self.tenant)
 
-    def test_allowed_hosts_middleware_adds_forwarded_custom_domain(self):
-        mw = AllowedHostsFromCustomDomains(lambda r: r)
-        request = self.factory.get(
-            "/",
-            HTTP_HOST="proxy.sites.katek.app",
-            HTTP_X_FORWARDED_HOST="www.clientbrand.com",
-        )
-        self.assertNotIn("www.clientbrand.com", settings.ALLOWED_HOSTS)
-        mw(request)
-        self.assertIn("www.clientbrand.com", settings.ALLOWED_HOSTS)
-
-    def tearDown(self):
-        h = "www.clientbrand.com"
-        if h in settings.ALLOWED_HOSTS:
-            settings.ALLOWED_HOSTS.remove(h)
