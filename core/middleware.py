@@ -1,6 +1,10 @@
+import logging
+
 from django.conf import settings
 
 from .models import CustomDomain, Tenant
+
+logger = logging.getLogger(__name__)
 
 
 def _x_forwarded_host_first(request, fallback_host: str) -> str:
@@ -37,7 +41,17 @@ class TenantResolverMiddleware:
         return self.get_response(request)
 
     def _resolve_tenant(self, request):
+        http_host = request.META.get("HTTP_HOST")
+        http_x_original_host = request.META.get("HTTP_X_ORIGINAL_HOST")
         host = request.get_host().split(":")[0].lower().rstrip(".")
+        lookup_host = _x_forwarded_host_first(request, host)
+        logger.debug(
+            "TenantResolverMiddleware: HTTP_HOST=%r HTTP_X_ORIGINAL_HOST=%r host=%r lookup_host=%r",
+            http_host,
+            http_x_original_host,
+            host,
+            lookup_host,
+        )
         if not host or host in self.APP_HOSTS:
             return None
 
@@ -64,7 +78,6 @@ class TenantResolverMiddleware:
                     return tenant
 
         # Fallback: verified custom domain (e.g. `training.acme.com`).
-        lookup_host = _x_forwarded_host_first(request, host)
         custom = (
             CustomDomain.objects.select_related("tenant__template")
             .filter(domain=lookup_host, is_verified=True)

@@ -44,7 +44,10 @@
       "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" status --short)",
       "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" rm -r --cached --quiet .venv)",
       "Bash(git -C \"E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\" rm -r --cached --quiet cms_platform/__pycache__ core/__pycache__ dashboard/__pycache__)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:repalash.com)",
+      "WebFetch(domain:community.cloudflare.com)"
     ]
   }
 }
