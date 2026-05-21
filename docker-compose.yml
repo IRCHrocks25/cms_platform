@@ -1,0 +1,55 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cms-platform:latest
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      DATABASE_URL: ${DATABASE_URL}
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-sites.katek.app}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      RAILWAY_TOKEN: ${RAILWAY_TOKEN:-}
+      RAILWAY_SERVICE_ID: ${RAILWAY_SERVICE_ID:-}
+      RAILWAY_ENVIRONMENT_ID: ${RAILWAY_ENVIRONMENT_ID:-}
+      RAILWAY_PROJECT_ID: ${RAILWAY_PROJECT_ID:-}
+    volumes:
+      - media:/app/media
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.services.cms-web.loadbalancer.server.port=8000
+
+      # Apex / agency host
+      - traefik.http.routers.cms-apex.rule=Host(`sites.katek.app`)
+      - traefik.http.routers.cms-apex.entrypoints=websecure
+      - traefik.http.routers.cms-apex.tls=true
+      - traefik.http.routers.cms-apex.tls.certresolver=letsencrypt
+      - traefik.http.routers.cms-apex.service=cms-web
+
+      # Wildcard tenant subdomains. Requires a DNS-01 cert resolver in Traefik
+      # (Dokploy ships HTTP-01 by default — wildcards need DNS-01, configure
+      # the resolver in Dokploy → Traefik settings, or add per-tenant domains
+      # in Dokploy's Domains tab and remove this router).
+      - traefik.http.routers.cms-wildcard.rule=HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)
+      - traefik.http.routers.cms-wildcard.entrypoints=websecure
+      - traefik.http.routers.cms-wildcard.tls=true
+      - traefik.http.routers.cms-wildcard.tls.certresolver=letsencrypt
+      - traefik.http.routers.cms-wildcard.tls.domains[0].main=sites.katek.app
+      - traefik.http.routers.cms-wildcard.tls.domains[0].sans=*.sites.katek.app
+      - traefik.http.routers.cms-wildcard.service=cms-web
+
+volumes:
+  media:
+
+networks:
+  dokploy-network:
+    external: true

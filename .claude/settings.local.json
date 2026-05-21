@@ -51,7 +51,8 @@
       "Bash(python -c \"import cms_platform.urls; import core.middleware; import dashboard.views; print\\('imports OK'\\)\")",
       "Bash(python -c ' *)",
       "Bash(timeout 6 python manage.py runserver 0.0.0.0:8080 --noreload)",
-      "Bash(echo \"---exit:$?---\")"
+      "Bash(echo \"---exit:$?---\")",
+      "PowerShell(python -c \"import ast; ast.parse\\(open\\(r'E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\\\\cms_platform\\\\settings.py'\\).read\\(\\)\\); print\\('settings.py OK'\\)\")"
     ]
   }
 }

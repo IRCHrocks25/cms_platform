@@ -20,7 +20,14 @@ _tenant_base_domains = [
 ]
 TENANT_BASE_DOMAIN = _tenant_base_domains[0] if _tenant_base_domains else "localhost"
 _additional_tenant_base_domains = _tenant_base_domains[1:]
-ALLOWED_HOSTS = ["*"]
+
+_allowed_hosts_env = os.environ.get("DJANGO_ALLOWED_HOSTS", "*")
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(",") if h.strip()] or ["*"]
+
+# Behind Traefik / Cloudflare — trust the X-Forwarded-Proto header so Django
+# knows requests are HTTPS even though the inner hop is plain HTTP.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 TENANT_RESERVED_SUBDOMAINS = {
     "www", "app", "api",
@@ -74,6 +81,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -132,6 +140,12 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 
 MEDIA_URL = "/media/"
