@@ -1,0 +1,54 @@
+{% extends "blog/_content.html" %}
+
+{% block styles %}
+  .card-index-head { text-align: center; padding: 64px 0 44px; }
+  .card-index-head h1 { font-family: var(--blog-serif); font-size: 44px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .card-index-head p { color: var(--blog-muted); margin: 0; }
+
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px; }
+  .card-post {
+    border: 1px solid var(--blog-line); border-radius: 16px; overflow: hidden; background: #fff;
+    display: flex; flex-direction: column; transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .card-post:hover { transform: translateY(-3px); box-shadow: 0 18px 40px rgba(10,10,20,0.10); }
+  .card-cover { aspect-ratio: 16/10; width: 100%; object-fit: cover; background: var(--blog-surface); }
+  .card-body { padding: 22px; display: flex; flex-direction: column; flex: 1; }
+  .card-title { font-family: var(--blog-serif); font-size: 21px; line-height: 1.25; margin: 0 0 10px; }
+  .card-title a { color: var(--blog-ink); }
+  .card-title a:hover { color: var(--blog-accent); text-decoration: none; }
+  .card-excerpt { color: var(--blog-soft); font-size: 15px; margin: 0 0 16px; flex: 1; }
+  .card-foot { margin-top: auto; }
+{% endblock %}
+
+{% block body %}
+<main class="blog-wrap">
+  <div class="card-index-head">
+    <h1>{{ settings.title }}</h1>
+    <p>News &amp; stories from {{ tenant.name }}</p>
+  </div>
+
+  {% if posts %}
+    <div class="card-grid">
+      {% for post in posts %}
+        <article class="card-post">
+          <a href="{{ blog_base }}{{ post.slug }}/">
+            <img class="card-cover" src="{{ post.cover_image|default:'https://placehold.co/600x375?text=+' }}" alt="{{ post.title }}">
+          </a>
+          <div class="card-body">
+            <div class="blog-meta" style="margin-bottom: 10px;"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
+            <h2 class="card-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
+            <p class="card-excerpt">{{ post.display_excerpt }}</p>
+            <div class="card-foot"><a href="{{ blog_base }}{{ post.slug }}/" style="font-weight:500; font-size:14px;">Read more →</a></div>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+    {% include "blog/_pager.html" %}
+  {% else %}
+    <div class="blog-empty">
+      <h2>No posts yet</h2>
+      <p>New stories will show up here as cards.</p>
+    </div>
+  {% endif %}
+</main>
+{% endblock %}

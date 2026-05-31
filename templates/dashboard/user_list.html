@@ -38,7 +38,7 @@
     </form>
 
     {% if user_rows %}
-      <div class="card" style="padding: 0; margin-top: 24px;">
+      <div class="card card-flush content-block">
         <table class="data-table">
           <thead>
             <tr>
@@ -82,7 +82,7 @@
                     {% endif %}
                   </td>
                   <td class="right">
-                    <a href="{% url 'dashboard:user_detail' u.pk %}" class="btn btn-secondary btn-sm">View</a>
+                    <a href="{% url 'dashboard:user_detail' u.pk %}" class="btn btn-secondary btn-sm">Details</a>
                   </td>
                 </tr>
               {% endwith %}
@@ -91,7 +91,7 @@
         </table>
       </div>
     {% else %}
-      <div class="empty" style="margin-top: 24px;">
+      <div class="empty content-block">
         {% if q or role and role != 'all' %}
           <h3>No users match those filters</h3>
           <a href="?" class="btn btn-secondary">Clear filters</a>

@@ -148,6 +148,14 @@
 {% block content %}
 <div class="page" style="max-width: 760px;">
 
+  <nav class="breadcrumb sc-fade-in">
+    <a href="{% url 'dashboard:tenant_list' %}">Sites</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="{% url 'dashboard:tenant_detail' tenant.pk %}">{{ tenant.name }}</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>Created</span>
+  </nav>
+
   <header class="sc-fade-in">
     <span class="sc-stamp">
       <span class="sc-dot"></span>

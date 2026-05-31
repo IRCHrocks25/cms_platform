@@ -14,6 +14,7 @@
          id="f-{{ field.id }}"
          data-bind="{{ field.id }}"
          contenteditable="true"></div>
+    <span class="field-hint cms-richtext-hint">Select text to format — bold, italic, or add a link.</span>
 
   {% elif field.type == 'image' %}
     <label class="cms-field-image" for="f-{{ field.id }}">
@@ -34,12 +35,46 @@
              placeholder="#000000 or rgb(...)">
     </div>
 
+  {% elif field.type == 'video' %}
+    <div class="cms-field-video">
+      <video data-bind-video class="cms-video-preview" controls preload="metadata" playsinline hidden></video>
+      <label class="cms-field-image" for="f-{{ field.id }}">
+        <div class="cms-field-image-info">
+          <strong style="color: var(--color-text); display: block; margin-bottom: 2px;">
+            Click to upload video
+          </strong>
+          <span data-bind-video-name>No file chosen</span>
+        </div>
+        <input type="file" accept="video/*" id="f-{{ field.id }}" data-bind="{{ field.id }}">
+      </label>
+    </div>
+
   {% elif field.type == 'link' %}
-    <input class="input cms-input"
-           type="url"
-           id="f-{{ field.id }}"
-           data-bind="{{ field.id }}"
-           placeholder="https://"
-           value="">
+    <div class="cms-field-link">
+      <select class="select cms-link-select" data-bind-link-select
+              aria-label="{{ field.label }} destination">
+        <option value="">Not linked</option>
+        {% if link_targets %}
+          <optgroup label="Your site sections">
+            {% for t in link_targets %}
+              <option value="{{ t.value }}">{{ t.label }}</option>
+            {% endfor %}
+          </optgroup>
+        {% endif %}
+        <option value="__custom__">Custom link (web address, email…)</option>
+      </select>
+      <div class="cms-link-custom-row" data-link-custom-row hidden>
+        <input class="input cms-link-custom"
+               type="text"
+               id="f-{{ field.id }}"
+               data-bind="{{ field.id }}"
+               placeholder="https://example.com  ·  mailto:you@site.com">
+        <button type="button" class="btn btn-secondary btn-sm" data-link-test
+                title="Open this link in a new tab">test ↗</button>
+      </div>
+      <span class="field-status err cms-link-warn" data-link-warn hidden>
+        This doesn't look like a working link — it'll still save.
+      </span>
+    </div>
   {% endif %}
 </div>

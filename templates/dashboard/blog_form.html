@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if post %}Edit post{% else %}New post{% endif %} · {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/editor.css' %}">
+  <link rel="stylesheet" href="{% static 'css/blog.css' %}">
+{% endblock %}
+
+{% block shell %}
+  <div class="editor-bar">
+    <div class="editor-bar-left">
+      <a href="{{ blog_urls.list }}" class="editor-bar-back" title="Back to blog">←</a>
+      <div>
+        <div class="editor-bar-title">{% if post %}Edit post{% else %}New post{% endif %}</div>
+        <div class="editor-bar-sub">{{ tenant.name }} · Blog</div>
+      </div>
+    </div>
+
+    <div class="layout-toggle" id="blog-layout-toggle" role="group" aria-label="Editor layout">
+      <button type="button" data-layout="editor" title="Editor only">✎ Write</button>
+      <button type="button" data-layout="split" class="active" title="Side by side">▣ Split</button>
+      <button type="button" data-layout="preview" title="Preview only">▦ Preview</button>
+    </div>
+
+    <div class="row">
+      {% if view_url and post.status == 'published' %}
+        <a href="{{ view_url }}" class="btn btn-ghost" target="_blank" rel="noopener">View ↗</a>
+      {% endif %}
+      <a href="{{ blog_urls.list }}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" form="blog-form" class="btn btn-purple">Save post</button>
+    </div>
+  </div>
+
+  <div class="editor-shell blog-edit" id="editor-shell">
+    <form method="post" action="{{ save_url }}" class="editor-form blog-edit-form" id="blog-form">
+      {% csrf_token %}
+
+      {% if errors %}
+        <div class="warn-card card-tight">
+          <strong>Couldn't save:</strong>
+          <ul style="margin:6px 0 0; padding-left:18px;">
+            {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="field">
+        <label class="field-label" for="bf-title">Title</label>
+        <input class="input" type="text" name="title" id="bf-title" maxlength="200"
+               value="{{ form.title }}" required autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="bf-slug">URL slug <span class="field-optional">(optional)</span></label>
+        <input class="input" type="text" name="slug" id="bf-slug" maxlength="200"
+               value="{{ form.slug }}" placeholder="auto-generated-from-title" autocomplete="off">
+        <span class="field-hint">Lives at <code>/blog/&lt;slug&gt;/</code>. Leave blank to generate from the title.</span>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Body</label>
+        <div class="rt-toolbar" id="rt-toolbar">
+          <button type="button" data-cmd="formatBlock" data-arg="h2" title="Heading">H2</button>
+          <button type="button" data-cmd="formatBlock" data-arg="h3" title="Subheading">H3</button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+          <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+          <button type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+          <button type="button" data-cmd="formatBlock" data-arg="blockquote" title="Quote">❝</button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="createLink" title="Link">🔗 Link</button>
+          <button type="button" data-action="image" title="Insert image">🖼 Image</button>
+          <button type="button" data-cmd="removeFormat" title="Clear formatting">⨯</button>
+        </div>
+        <div class="cms-field-richtext rt-editor" id="blog-body-editor" contenteditable="true"
+             data-placeholder="Write your post…"></div>
+        <textarea name="body" id="blog-body-input" hidden>{{ form.body }}</textarea>
+        <input type="file" id="rt-image-input" accept="image/*" hidden>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="bf-excerpt">Excerpt <span class="field-optional">(optional)</span></label>
+        <textarea class="input" name="excerpt" id="bf-excerpt" rows="3" maxlength="500"
+                  style="font-family: var(--font-base);">{{ form.excerpt }}</textarea>
+        <span class="field-hint">Short summary for the index + strip. Auto-generated from the body if left blank.</span>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="bf-author">Author <span class="field-optional">(optional)</span></label>
+        <input class="input" type="text" name="author" id="bf-author" maxlength="120"
+               value="{{ form.author }}" placeholder="Shown under the post title" autocomplete="off">
+      </div>
+
+      <div class="card stack-4">
+        <h3 class="blog-card-title">Publish</h3>
+        <div class="field">
+          <label class="field-label" for="bf-status">Status</label>
+          <select class="select" name="status" id="bf-status">
+            {% for value, label in status_choices %}
+              <option value="{{ value }}" {% if form.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <span class="field-hint">Drafts never appear on the public site.</span>
+        </div>
+        <div class="field">
+          <label class="field-label" for="bf-date">Publish date <span class="field-optional">(optional)</span></label>
+          <input class="input" type="datetime-local" name="publish_date" id="bf-date" value="{{ form.publish_date }}">
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" name="featured" {% if form.featured %}checked{% endif %}>
+          Feature on homepage strip
+        </label>
+      </div>
+
+      <div class="card stack-4">
+        <h3 class="blog-card-title">Cover image</h3>
+        <label class="cms-field-image" for="bf-cover-file">
+          <img id="cover-preview" alt="" src="{{ form.cover_image }}"
+               {% if not form.cover_image %}style="display:none;"{% endif %}>
+          <div class="cms-field-image-info">
+            <strong style="color: var(--color-text); display:block; margin-bottom:2px;">Click to upload</strong>
+            <span id="cover-name">{% if form.cover_image %}Current image{% else %}No file chosen{% endif %}</span>
+          </div>
+          <input type="file" accept="image/*" id="bf-cover-file">
+        </label>
+        <input type="hidden" name="cover_image" id="cover-input" value="{{ form.cover_image }}">
+      </div>
+
+      <div class="card stack-4">
+        <h3 class="blog-card-title">Style</h3>
+        <div class="field">
+          <label class="field-label" for="bf-template">Template for this post</label>
+          <select class="select" name="template" id="bf-template">
+            <option value="" {% if not form.template %}selected{% endif %}>Use site default</option>
+            {% for value, label in template_choices %}
+              <option value="{{ value }}" {% if form.template == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <span class="field-hint">Preview updates when you switch styles.</span>
+        </div>
+      </div>
+
+      <div class="card stack-4">
+        <h3 class="blog-card-title">SEO</h3>
+        <div class="field">
+          <label class="field-label" for="bf-seo-title">SEO title</label>
+          <input class="input" type="text" name="seo_title" id="bf-seo-title" maxlength="200"
+                 value="{{ form.seo_title }}" placeholder="Defaults to the post title">
+        </div>
+        <div class="field">
+          <label class="field-label" for="bf-seo-desc">Meta description</label>
+          <textarea class="input" name="seo_description" id="bf-seo-desc" rows="3" maxlength="500"
+                    style="font-family: var(--font-base);" placeholder="Defaults to the excerpt">{{ form.seo_description }}</textarea>
+        </div>
+        <div class="field">
+          <label class="field-label" for="bf-og">Social share image URL</label>
+          <input class="input" type="url" name="og_image_url" id="bf-og"
+                 value="{{ form.og_image_url }}" placeholder="Defaults to the cover image">
+        </div>
+      </div>
+
+      {% if post %}
+        <div class="card danger-zone stack-3">
+          <h3 class="blog-card-title">Delete post</h3>
+          <p style="margin:0;">Permanently removes this post. This cannot be undone.</p>
+          <button type="submit" form="blog-delete-form" class="btn btn-danger">Delete post</button>
+        </div>
+      {% endif %}
+    </form>
+
+    <section class="editor-preview">
+      <div class="preview-toolbar">
+        <div class="preview-status">
+          <span class="status-dot"></span>
+          <span id="blog-preview-status">Live preview</span>
+        </div>
+        <div class="viewport-toggle" id="blog-viewport-toggle">
+          <button type="button" data-viewport="desktop" class="active">Desktop</button>
+          <button type="button" data-viewport="tablet">Tablet</button>
+          <button type="button" data-viewport="mobile">Mobile</button>
+        </div>
+      </div>
+      <div class="preview-frame-wrap">
+        <iframe id="blog-preview-frame" class="preview-frame"
+                src="{{ preview_url }}"
+                title="Post preview"></iframe>
+      </div>
+    </section>
+  </div>
+
+  {% if post %}
+    <form method="post" action="{{ delete_url }}" id="blog-delete-form"
+          onsubmit="return confirm('Delete “{{ post.title|escapejs }}”?');" hidden>
+      {% csrf_token %}
+    </form>
+  {% endif %}
+
+  <script>
+    window.CMS_BLOG = {
+      csrfToken: "{{ csrf_token }}",
+      uploadUrl: "{{ blog_urls.upload }}",
+      previewUrl: "{{ preview_url }}",
+      sanitizeUrl: "{{ blog_urls.sanitize }}",
+      defaultStyle: "{{ default_blog_style }}",
+    };
+  </script>
+  <script src="{% static 'js/blog_editor.js' %}"></script>
+{% endblock %}

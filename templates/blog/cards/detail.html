@@ -1,0 +1,31 @@
+{% extends "blog/_content.html" %}
+
+{% block styles %}
+  .cms-blog--cards .card-head{text-align:center;}
+  .cms-blog--cards .card-back{margin-bottom:30px;}
+  .cms-blog--cards .card-title{font-family:var(--blog-serif);font-weight:600;font-size:clamp(30px,4.6vw,46px);line-height:1.12;letter-spacing:-.015em;margin:20px auto 16px;max-width:20ch;}
+  .cms-blog--cards .card-meta{justify-content:center;margin-bottom:30px;}
+  .cms-blog--cards .card-cover{aspect-ratio:16/9;border-radius:22px;box-shadow:0 30px 70px rgba(20,20,31,.14);margin-bottom:clamp(40px,5vw,60px);}
+  .cms-blog--cards .blog-prose{margin-inline:auto;}
+{% endblock %}
+
+{% block body %}
+<div class="blog-wrap card-head">
+  <a class="blog-back card-back" href="{{ blog_base }}">← {{ settings.title }}</a>
+  <h1 class="card-title" data-blog-edit="title">{{ post.title }}</h1>
+  <div class="blog-meta card-meta">
+    <time data-blog-edit="publish_date"{% if not post.publish_date %} hidden{% endif %}>{{ post.publish_date|date:"F j, Y" }}</time>
+    <span class="dot" data-blog-meta="sep"{% if not post.author %} hidden{% endif %}></span>
+    <span data-blog-edit="author"{% if not post.author %} hidden{% endif %}>{% if post.author %}By {{ post.author }}{% endif %}</span>
+  </div>
+</div>
+{% if post.cover_image or preview_bridge %}
+  <div class="blog-wrap">
+    <img class="blog-cover card-cover" src="{{ post.cover_image }}" alt="{{ post.title }}"
+         data-blog-edit="cover_image"{% if not post.cover_image %} hidden{% endif %}>
+  </div>
+{% endif %}
+<div class="blog-narrow">
+  <div class="blog-prose" data-blog-edit="body">{{ safe_body|safe }}</div>
+</div>
+{% endblock %}

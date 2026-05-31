@@ -27,7 +27,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 
-VALID_FIELD_TYPES = {"text", "richtext", "image", "color", "link"}
+VALID_FIELD_TYPES = {"text", "richtext", "image", "color", "link", "video"}
 TOKEN_PATTERN = re.compile(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);")
 
 
@@ -68,6 +68,11 @@ def _parse_brand_tokens(soup: BeautifulSoup) -> dict[str, Any] | None:
 def _extract_default(el, ftype: str) -> str:
     if ftype == "image":
         return el.get("src", "")
+    if ftype == "video":
+        if el.get("src"):
+            return el.get("src", "")
+        source = el.find("source")
+        return source.get("src", "") if source else ""
     if ftype == "link":
         return el.get("href", "")
     if ftype == "color":
@@ -137,4 +142,20 @@ def build_schema(html: str) -> dict[str, Any]:
             sections.append(section_entry)
             defaults[sec_id] = section_defaults
 
-    return {"sections": sections, "defaults": defaults}
+    # In-page anchor destinations the template wires up (e.g. "#programs"), so the
+    # editor can offer non-technical clients a friendly dropdown of their own
+    # site's sections instead of asking them to type raw anchors. A link field can
+    # still hold a custom URL / mailto — this list is just the convenient choices.
+    section_labels = {s["id"]: s["label"] for s in sections}
+    link_targets: list[dict[str, str]] = []
+    seen_anchors: set[str] = set()
+    for el in soup.find_all(href=True):
+        href = (el.get("href") or "").strip()
+        if not href.startswith("#") or len(href) <= 1 or href in seen_anchors:
+            continue
+        seen_anchors.add(href)
+        anchor_id = href[1:]
+        label = section_labels.get(anchor_id) or _humanize(anchor_id)
+        link_targets.append({"value": href, "label": label})
+
+    return {"sections": sections, "defaults": defaults, "link_targets": link_targets}

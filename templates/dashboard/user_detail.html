@@ -5,14 +5,16 @@
 
 {% block content %}
   <div class="page">
+    <nav class="breadcrumb">
+      <a href="{% url 'dashboard:user_list' %}">Users</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>{{ user_obj.username }}</span>
+    </nav>
+
     <div class="page-head">
       <div>
-        <p class="page-subtitle" style="margin-bottom: 4px;">
-          <a href="{% url 'dashboard:user_list' %}">Users</a> ·
-          {{ user_obj.email|default:'no email on file' }}
-        </p>
-        <h1 class="page-title" style="margin-bottom: 4px;">
-          {{ user_obj.username }}
+        <h1 class="page-title">{{ user_obj.username }}</h1>
+        <div class="page-meta">
           {% if user_obj.is_staff or user_obj.is_superuser %}
             <span class="badge badge-purple">Agency staff</span>
           {% else %}
@@ -23,15 +25,14 @@
           {% else %}
             <span class="badge badge-soft">Inactive</span>
           {% endif %}
-        </h1>
-        <p class="page-subtitle">
-          Last login: {% if user_obj.last_login %}{{ user_obj.last_login|naturaltime }}{% else %}Never{% endif %}
-        </p>
+          <span>{{ user_obj.email|default:'No email on file' }}</span>
+          <span>Last login: {% if user_obj.last_login %}{{ user_obj.last_login|naturaltime }}{% else %}never{% endif %}</span>
+        </div>
       </div>
     </div>
 
-    <section class="card stack-4" style="margin-bottom: 32px;">
-      <h2 style="margin: 0;">Memberships</h2>
+    <section class="card stack-4 page-section">
+      <h2>Memberships</h2>
       {% if memberships %}
         <table class="data-table data-table-flush">
           <thead>
@@ -68,39 +69,44 @@
       {% endif %}
     </section>
 
-    <section class="card stack-4">
-      <h2 style="margin: 0;">Actions</h2>
-      <div class="action-grid">
+    <section class="card stack-4 page-section">
+      <h2>Actions</h2>
+      <div class="stack-3">
         <form method="post" action="{% url 'dashboard:user_reset_password' user_obj.pk %}"
               onsubmit="return confirm('Generate a new password for {{ user_obj.username }}? This will invalidate their current password.');"
               class="inline-form">
           {% csrf_token %}
-          <button type="submit" class="btn btn-secondary btn-block">Reset password</button>
+          <button type="submit" class="btn btn-secondary">Reset password</button>
         </form>
-
-        {% if user_obj.is_active %}
-          <form method="post" action="{% url 'dashboard:user_deactivate' user_obj.pk %}"
-                onsubmit="return confirm('Deactivate {{ user_obj.username }}? They will no longer be able to log in.');"
-                class="inline-form">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-danger btn-block">Deactivate user</button>
-          </form>
-        {% else %}
-          <form method="post" action="{% url 'dashboard:user_activate' user_obj.pk %}" class="inline-form">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-secondary btn-block">Activate user</button>
-          </form>
-        {% endif %}
 
         {% if request.user.is_superuser and not user_obj.is_staff and not user_obj.is_superuser %}
           <form method="post" action="{% url 'dashboard:user_make_staff' user_obj.pk %}"
                 onsubmit="return confirm('Promote {{ user_obj.username }} to agency staff? They will get access to the agency dashboard for all clients.');"
                 class="inline-form">
             {% csrf_token %}
-            <button type="submit" class="btn btn-secondary btn-block">Make agency staff</button>
+            <button type="submit" class="btn btn-secondary">Promote to agency staff</button>
           </form>
         {% endif %}
       </div>
+    </section>
+
+    <section class="card danger-zone stack-3 page-section">
+      <h2>Danger zone</h2>
+      {% if user_obj.is_active %}
+        <p>Deactivating prevents this user from logging in. Their data and memberships are preserved.</p>
+        <form method="post" action="{% url 'dashboard:user_deactivate' user_obj.pk %}"
+              onsubmit="return confirm('Deactivate {{ user_obj.username }}? They will no longer be able to log in.');"
+              class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Deactivate user</button>
+        </form>
+      {% else %}
+        <p>This user is currently inactive and cannot log in.</p>
+        <form method="post" action="{% url 'dashboard:user_activate' user_obj.pk %}" class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-secondary">Reactivate user</button>
+        </form>
+      {% endif %}
     </section>
   </div>
 {% endblock %}

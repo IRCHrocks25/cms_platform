@@ -5,31 +5,46 @@
 
 {% block content %}
   <div class="page">
+    <nav class="breadcrumb">
+      <a href="{% url 'dashboard:tenant_list' %}">Sites</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>{{ tenant.name }}</span>
+    </nav>
+
     <div class="page-head">
       <div>
-        <p class="page-subtitle" style="margin-bottom: 4px;">
-          <a href="{% url 'dashboard:tenant_list' %}">Sites</a> ·
-          <code>{{ tenant.subdomain }}</code>
-          {% if tenant.custom_domain %} · {{ tenant.custom_domain }}{% endif %}
-          · {{ tenant.template.name }}
-        </p>
-        <h1 class="page-title" style="margin-bottom: 4px;">
-          {{ tenant.name }}
+        <div class="row" style="gap: var(--space-3);">
+          <h1 class="page-title" style="margin: 0;">{{ tenant.name }}</h1>
           {% if tenant.is_published %}
             <span class="badge badge-success">Published</span>
           {% else %}
             <span class="badge badge-soft">Draft</span>
           {% endif %}
-        </h1>
+        </div>
+        <div class="page-meta">
+          <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener"
+             class="cell-link" title="Open the client's live site at {{ site_urls.public_url }}">
+            <code>{{ tenant.subdomain }}</code> ↗
+          </a>
+          {% if tenant.custom_domain %}
+            <span class="breadcrumb-sep">·</span>
+            <a href="https://{{ tenant.custom_domain }}/" target="_blank" rel="noopener" class="cell-link">{{ tenant.custom_domain }} ↗</a>
+          {% endif %}
+        </div>
       </div>
-      <div class="row">
+      <div class="row row-wrap">
+        <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
+        <a href="{% url 'dashboard:blog_list' tenant.pk %}" class="btn btn-secondary">Manage blog</a>
         <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-purple">Open editor</a>
       </div>
     </div>
 
-    <section id="members" class="card stack-4" style="margin-bottom: 32px;">
+    <div class="detail-grid">
+      <div class="detail-main">
+
+    <section class="card stack-4" id="members">
       <div class="row-between">
-        <h2 style="margin: 0;">Members</h2>
+        <h2 class="card-title">Members</h2>
         <button type="button" class="btn btn-secondary btn-sm" data-toggle="add-member">+ Add member</button>
       </div>
 
@@ -72,10 +87,10 @@
           </tbody>
         </table>
       {% else %}
-        <p class="cell-muted" style="margin: 0;">No members yet.</p>
+        <p class="cell-muted" style="margin: 0;">No members yet — add one to give a client access to this site's editor.</p>
       {% endif %}
 
-      <div id="add-member-panel" hidden class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md); margin-top: 8px;">
+      <div id="add-member-panel" hidden class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
         <form method="post" action="{% url 'dashboard:tenant_member_add' tenant.pk %}" class="row" style="gap: 8px; flex-wrap: wrap;">
           {% csrf_token %}
           <select name="user_id" class="select" required style="flex: 1; min-width: 200px;">
@@ -99,37 +114,19 @@
       </div>
     </section>
 
-    <section class="card stack-4" style="margin-bottom: 32px;">
-      <h2 style="margin: 0;">Settings</h2>
-      <form method="post" action="{% url 'dashboard:tenant_settings_update' tenant.pk %}" class="stack-4">
-        {% csrf_token %}
-        <div class="field">
-          <label class="field-label" for="settings_name">Site name</label>
-          <input class="input" type="text" name="name" id="settings_name" required value="{{ tenant.name }}">
-        </div>
-        <div class="field">
-          <label class="field-label" for="settings_subdomain">Subdomain</label>
-          <input class="input" type="text" name="subdomain" id="settings_subdomain" required
-                 pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-                 value="{{ tenant.subdomain }}">
-          <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
-        </div>
-        <div class="row-end">
-          <button type="submit" class="btn btn-primary">Save settings</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="card stack-4" id="custom-domain-section" style="margin-bottom: 32px;">
+    <section class="card stack-4" id="custom-domain-section">
       {% include "dashboard/partials/custom_domain.html" %}
     </section>
 
-    <section class="card stack-4" style="margin-bottom: 32px;">
-      <h2 style="margin: 0;">Activity</h2>
+    <section class="card stack-4" id="activity-section">
+      <div class="row-between">
+        <h2 class="card-title">Activity</h2>
+        <span class="cell-muted">Last {{ activity|length }} save{{ activity|length|pluralize }}</span>
+      </div>
       {% if activity %}
-        <ul class="activity-list activity-list-flush">
+        <ul class="activity-list activity-list-flush" id="activity-list">
           {% for v in activity %}
-            <li class="activity-row">
+            <li class="activity-row"{% if forloop.counter > 10 %} hidden{% endif %}>
               <div class="activity-row-main">
                 <strong>{{ v.saved_by.username|default:'unknown' }}</strong>
                 <span class="activity-row-sub">saved an edit</span>
@@ -138,16 +135,98 @@
             </li>
           {% endfor %}
         </ul>
+        {% if activity|length > 10 %}
+          <button type="button" class="btn btn-ghost btn-sm" id="show-all-activity">
+            Show all {{ activity|length }}
+          </button>
+        {% endif %}
       {% else %}
         <p class="cell-muted" style="margin: 0;">No saves yet.</p>
       {% endif %}
     </section>
 
-    <section class="card danger-zone stack-3">
-      <h2 style="margin: 0; color: var(--color-danger);">Danger zone</h2>
-      <p style="margin: 0; color: var(--color-text-soft);">
-        Deleting this site removes its content, history, members and uploads. This cannot be undone.
-      </p>
+      </div>{# /.detail-main #}
+
+      <aside class="detail-aside">
+        <section class="card stack-4">
+          <h2 class="card-title">At a glance</h2>
+          <div class="overview-list">
+            <div class="overview-row">
+              <span class="overview-key">Status</span>
+              <span class="overview-val">
+                {% if tenant.is_published %}
+                  <span class="badge badge-success">Published</span>
+                {% else %}
+                  <span class="badge badge-soft">Draft</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Template</span>
+              <span class="overview-val" title="{{ tenant.template.name }}">{{ tenant.template.name }}</span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Owner</span>
+              <span class="overview-val">
+                {% if tenant.owner %}
+                  <a href="{% url 'dashboard:user_detail' tenant.owner.pk %}">{{ tenant.owner.username }}</a>
+                {% else %}—{% endif %}
+              </span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Members</span>
+              <span class="overview-val"><a href="#members">{{ members|length }}</a></span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Custom domain</span>
+              <span class="overview-val">
+                {% if custom_domain %}
+                  {% if custom_domain.is_verified %}
+                    <span class="badge badge-success">Active</span>
+                  {% else %}
+                    <span class="badge badge-soft">Pending</span>
+                  {% endif %}
+                {% else %}<span class="cell-muted">None</span>{% endif %}
+              </span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Last edit</span>
+              <span class="overview-val">{% if activity %}{{ activity.0.saved_at|naturaltime }}{% else %}—{% endif %}</span>
+            </div>
+          </div>
+          <a href="{{ site_urls.fallback_url }}" target="_blank" rel="noopener"
+             class="cell-muted" style="font-size: 13px;"
+             title="Render this site on the current server — works without subdomain DNS, and lets you preview unpublished sites">
+            Preview on this server ↗
+          </a>
+        </section>
+
+        <section class="card stack-4">
+          <h2 class="card-title">Settings</h2>
+          <form method="post" action="{% url 'dashboard:tenant_settings_update' tenant.pk %}" class="stack-4">
+            {% csrf_token %}
+            <div class="field" style="margin-bottom: 0;">
+              <label class="field-label" for="settings_name">Site name</label>
+              <input class="input" type="text" name="name" id="settings_name" required value="{{ tenant.name }}">
+            </div>
+            <div class="field" style="margin-bottom: 0;">
+              <label class="field-label" for="settings_subdomain">Subdomain</label>
+              <input class="input" type="text" name="subdomain" id="settings_subdomain" required
+                     pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                     value="{{ tenant.subdomain }}">
+              <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
+            </div>
+            <div class="row-end">
+              <button type="submit" class="btn btn-primary btn-sm">Save settings</button>
+            </div>
+          </form>
+        </section>
+      </aside>
+    </div>{# /.detail-grid #}
+
+    <section class="card danger-zone stack-3 page-section">
+      <h2>Danger zone</h2>
+      <p>Deleting this site removes its content, history, members and uploads. This cannot be undone.</p>
       <details>
         <summary class="btn btn-danger" style="display: inline-flex; cursor: pointer;">Delete site</summary>
         <form method="post" action="{% url 'dashboard:tenant_delete' tenant.pk %}" class="stack-3" style="margin-top: 16px;">
@@ -180,6 +259,16 @@
           toggle.textContent = "+ Add member";
         }
       });
+
+      var showAll = document.getElementById("show-all-activity");
+      if (showAll) {
+        showAll.addEventListener("click", function () {
+          document.querySelectorAll("#activity-list li[hidden]").forEach(function (li) {
+            li.removeAttribute("hidden");
+          });
+          showAll.remove();
+        });
+      }
     })();
   </script>
   <script src="{% static 'js/section-fetch.js' %}"></script>

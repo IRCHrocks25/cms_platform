@@ -74,15 +74,34 @@ class TenantResolverMiddleware:
         if not host or host in self.APP_HOSTS:
             return None
 
-        base = (settings.TENANT_BASE_DOMAIN or "").lower().rstrip(".")
         reserved = set(getattr(settings, "TENANT_RESERVED_SUBDOMAINS", set()))
 
+        # Candidate base domains the host may sit under: the configured base,
+        # any additional configured bases, plus the local-dev wildcard bases
+        # (localhost / lvh.me) — but the dev bases only in DEBUG, so production
+        # behavior is unchanged.
+        bases = [
+            b for b in (
+                (settings.TENANT_BASE_DOMAIN or "").lower().rstrip("."),
+                *[
+                    (d or "").lower().rstrip(".")
+                    for d in getattr(settings, "TENANT_ADDITIONAL_BASE_DOMAINS", [])
+                ],
+            ) if b
+        ]
+        if settings.DEBUG:
+            for dev_base in ("localhost", (getattr(settings, "TENANT_DEV_BASE_DOMAIN", "") or "").lower().rstrip(".")):
+                if dev_base and dev_base not in bases:
+                    bases.append(dev_base)
+
         # Bare base domain (e.g. `localhost`, `yourdomain.com`) — agency host.
-        if host == base:
+        if host in bases:
             return None
 
-        # Subdomain pattern: host is `<sub>.<base>`.
-        if base and host.endswith("." + base):
+        # Subdomain pattern: host is `<sub>.<base>` for one of the bases.
+        for base in bases:
+            if not host.endswith("." + base):
+                continue
             sub_part = host[: -(len(base) + 1)]
             if sub_part and "." not in sub_part:
                 # Reserved subdomain — never fall through to custom-domain lookup.
@@ -95,6 +114,7 @@ class TenantResolverMiddleware:
                 )
                 if tenant:
                     return tenant
+            break
 
         # Fallback: verified custom domain (e.g. `training.acme.com`).
         custom = (

@@ -1,0 +1,57 @@
+{% load humanize %}
+<section class="cms-blog-strip cms-strip cms-strip--spotlight" data-cms-blog-strip>
+  <style>
+    .cms-strip--spotlight{--cbs-accent:{{ accent|default:"#2563eb" }};box-sizing:border-box;padding:clamp(48px,7vw,88px) 24px;background:#fff;font-family:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#14141f;}
+    .cms-strip--spotlight *{box-sizing:border-box;}
+    .cms-strip--spotlight .cbs-wrap{max-width:1160px;margin:0 auto;}
+    .cms-strip--spotlight .cbs-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:clamp(24px,4vw,40px);flex-wrap:wrap;}
+    .cms-strip--spotlight .cbs-eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--cbs-accent);margin:0 0 8px;}
+    .cms-strip--spotlight .cbs-heading{font-family:'Fraunces',Georgia,serif;font-size:clamp(26px,3.4vw,40px);line-height:1.1;letter-spacing:-.02em;margin:0;font-weight:600;}
+    .cms-strip--spotlight .cbs-all{font-size:14px;font-weight:600;color:var(--cbs-accent);text-decoration:none;white-space:nowrap;}
+    .cms-strip--spotlight .cbs-all:hover{text-decoration:underline;}
+    .cms-strip--spotlight .cbs-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:clamp(24px,3.5vw,48px);align-items:start;}
+    @media (max-width:820px){.cms-strip--spotlight .cbs-grid{grid-template-columns:1fr;}}
+    .cms-strip--spotlight .cbs-lead{text-decoration:none;color:inherit;display:block;}
+    .cms-strip--spotlight .cbs-lead-cover{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:20px;background:#eef0f6;display:block;margin-bottom:20px;transition:transform .25s ease;}
+    .cms-strip--spotlight .cbs-lead:hover .cbs-lead-cover{transform:translateY(-3px);}
+    .cms-strip--spotlight .cbs-date{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#9499ac;margin-bottom:10px;}
+    .cms-strip--spotlight .cbs-lead-title{font-family:'Fraunces',Georgia,serif;font-size:clamp(24px,2.8vw,34px);line-height:1.16;letter-spacing:-.02em;font-weight:600;margin:0 0 12px;}
+    .cms-strip--spotlight .cbs-lead-excerpt{font-size:16px;line-height:1.65;color:#5a5f72;margin:0;max-width:46ch;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+    .cms-strip--spotlight .cbs-rest{display:flex;flex-direction:column;}
+    .cms-strip--spotlight .cbs-row{display:flex;gap:16px;padding:16px 0;border-top:1px solid #ececf1;text-decoration:none;color:inherit;align-items:center;}
+    .cms-strip--spotlight .cbs-row:first-child{border-top:0;padding-top:0;}
+    .cms-strip--spotlight .cbs-thumb{width:84px;height:64px;flex:0 0 auto;object-fit:cover;border-radius:12px;background:#eef0f6;}
+    .cms-strip--spotlight .cbs-row-title{font-family:'Fraunces',Georgia,serif;font-size:17px;line-height:1.3;font-weight:600;margin:4px 0 0;transition:color .15s ease;display:block;}
+    .cms-strip--spotlight .cbs-row:hover .cbs-row-title{color:var(--cbs-accent);}
+  </style>
+  <div class="cbs-wrap">
+    <div class="cbs-head">
+      <div>
+        <p class="cbs-eyebrow">From the blog</p>
+        <h2 class="cbs-heading">{{ heading }}</h2>
+      </div>
+      <a class="cbs-all" href="{{ blog_base }}">View all posts →</a>
+    </div>
+    {% with lead=posts.0 rest=posts|slice:"1:" %}
+      <div class="cbs-grid">
+        <a class="cbs-lead" href="{{ blog_base }}{{ lead.slug }}/">
+          <img class="cbs-lead-cover" src="{{ lead.cover_image|default:'https://placehold.co/900x506?text=+' }}" alt="{{ lead.title }}" loading="lazy">
+          {% if lead.publish_date %}<div class="cbs-date">{{ lead.publish_date|date:"M j, Y" }}</div>{% endif %}
+          <h3 class="cbs-lead-title">{{ lead.title }}</h3>
+          <p class="cbs-lead-excerpt">{{ lead.display_excerpt }}</p>
+        </a>
+        <div class="cbs-rest">
+          {% for post in rest %}
+            <a class="cbs-row" href="{{ blog_base }}{{ post.slug }}/">
+              <img class="cbs-thumb" src="{{ post.cover_image|default:'https://placehold.co/168x128?text=+' }}" alt="{{ post.title }}" loading="lazy">
+              <span>
+                {% if post.publish_date %}<span class="cbs-date">{{ post.publish_date|date:"M j, Y" }}</span>{% endif %}
+                <span class="cbs-row-title">{{ post.title }}</span>
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endwith %}
+  </div>
+</section>

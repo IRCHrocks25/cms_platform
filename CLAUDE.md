@@ -16,8 +16,8 @@ safety." The selling point to clients is that they literally cannot break
 their site.
 
 This is a **Phase 1 MVP**. Many ideas from the brainstorm (section library,
-AI auto-annotation, agency white-label, real custom domain wiring) are out
-of scope until the core loop is solid.
+agency white-label) are out of scope until the core loop is solid. AI
+auto-annotation is now implemented — see "AI annotation pipeline" below.
 
 ---
 
@@ -101,6 +101,47 @@ A complete example template lives at `samples/restaurant.html`.
 
 ---
 
+## AI annotation pipeline
+
+The annotator (`core/services/annotator.py`, exposed at
+`POST /dashboard/templates/annotate/`) lets the agency paste raw HTML and
+get back a `data-section` / `data-edit` annotated version. The naive
+approach — "send the whole document to the model verbatim" — falls over
+on real-world pages because the CSS dominates the token budget and the
+output gets truncated. The pipeline solves that with strip-and-restore:
+
+1. **Strip** all `<style>` and `<script>` blocks before sending. Each is
+   replaced with a `<!--__BLOCK_n__-->` placeholder comment. Real-world
+   inputs shrink ~70%.
+2. **Send** the slimmed HTML + a slimmed few-shot example (the
+   `restaurant.html` sample is stripped the same way for parity). The
+   system prompt warns the model to leave placeholder comments alone.
+3. **Restore** the original blocks by replacing placeholders. If a
+   `<style>` block contains `:root { --var: ... }`, the post-processor
+   automatically adds the `data-tokens` attribute so brand colors are
+   exposed as Brand-section fields by the parser. The model does NOT
+   need to add `data-tokens` itself.
+4. **Validate** by running the restored HTML through `build_schema()`.
+   If no editable sections come back, the error response includes the
+   model name, `finish_reason`, output length, and the first ~500 chars
+   of the response — both in logs and in the UI error message — so you
+   can tell whether the model truncated, returned junk, or skipped
+   annotation. Don't strip these diagnostics; they're the only way to
+   debug a black-box LLM failure.
+
+Model selection: `settings.OPENAI_ANNOTATE_MODEL` (default `gpt-4o-mini`,
+override in `.env`). Bump to `gpt-4o` for large/complex pages.
+
+UI: `template_form.html` opens a full-screen **side-by-side compare
+overlay** when the AI returns — left column is the original input, right
+column is the AI output (editable). The user applies or discards before
+the textarea is touched. The annotated HTML never silently replaces the
+user's input. If the overlay elements aren't on the page (cached old
+HTML), the JS degrades to direct-replace with a console warning rather
+than crashing.
+
+---
+
 ## File map
 
 ```
@@ -115,13 +156,16 @@ cms_platform/
 │   └── wsgi.py / asgi.py
 │
 ├── core/                        # data + transforms + auth
-│   ├── models.py                # Template, Tenant, TenantMembership, MediaAsset, ContentVersion
+│   ├── models.py                # Template, Tenant, TenantMembership, MediaAsset, ContentVersion, CustomDomain
 │   ├── parser.py                # ★ annotated HTML → schema
 │   ├── renderer.py              # ★ template + content → HTML (+ preview bridge)
 │   ├── middleware.py            # subdomain → request.tenant
 │   ├── permissions.py           # ★ tenant_member_required, agency_operator_required
 │   ├── auth_views.py            # TenantAwareLoginView (host-aware login routing)
 │   ├── views.py                 # public_render, root_redirect
+│   ├── services/
+│   │   ├── annotator.py         # ★ OpenAI-powered HTML annotation (strip styles, send, restore)
+│   │   └── cloudflare.py        # Cloudflare for SaaS custom-hostname API
 │   ├── admin.py
 │   ├── migrations/              # 0001_initial, 0002_tenantmembership, 0003_tenant_custom_domain
 │   └── tests/
@@ -145,7 +189,9 @@ cms_platform/
 │       ├── credentials.html     # one-time password display (new client + reset)
 │       ├── user_list.html       # agency user management
 │       ├── user_detail.html
-│       ├── template_list.html / template_form.html
+│       ├── template_list.html / template_form.html  # ★ template_form has AI-annotate compare overlay
+│       ├── site_created.html
+│       ├── partials/custom_domain.html
 │       ├── no_access.html       # tenant-host 403 for non-members
 │       └── components/field.html  # renders one field by type
 │
@@ -345,6 +391,7 @@ All postMessages have `source: "cms-editor"` (parent) or `"cms-preview"`
 | Add a stat to the home dashboard            | `dashboard/views.py::agency_home` (compute), `templates/dashboard/home.html` (render) |
 | Add a column to the sites table             | `dashboard/views.py::tenant_list` (annotate the queryset), `templates/dashboard/tenant_list.html` |
 | Add a field to the new-client form          | `dashboard/views.py::tenant_create` (POST handler **and** the GET seed dict — see the `form_data` warning under "sharp edges"), `templates/dashboard/tenant_form.html` |
+| Tune AI annotation behavior                 | `core/services/annotator.py` (system prompt, strip/restore, diagnostics), `settings.py::OPENAI_ANNOTATE_MODEL`. Compare-overlay UI: `templates/dashboard/template_form.html` |
 
 ---
 
@@ -474,6 +521,13 @@ public DNS service that resolves all subdomains to `127.0.0.1`).
   `.lower()` first, so the form is more permissive than the live AJAX
   check. Don't silently diverge further; if users complain, normalize one
   direction or the other.
+- **Annotator strip-and-restore is structural, not cosmetic.** The model
+  never sees `<style>` / `<script>` content. If you change the placeholder
+  format (`<!--__BLOCK_n__-->`), update both the system prompt and
+  `_restore_blocks` in lockstep, or the model will drop the markers and
+  styles will get appended to the document end as a fallback (logged as a
+  warning). Don't ask the model to emit `data-tokens` — `_restore_blocks`
+  adds it automatically to any `<style>` containing `:root { --var: }`.
 
 ---
 

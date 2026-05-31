@@ -1,0 +1,134 @@
+{% load static %}{% comment %}
+Blog CONTENT fragment — no html/head/body. Rendered, then dropped INSIDE the
+client's real site chrome (navbar/footer/head) by wrap_in_site_chrome. All
+CSS is scoped under .cms-blog so it layers on top of the site's global styles
+instead of overriding them; the site's navbar/footer (outside .cms-blog) keep
+the site's own look. NOTE: this MUST be a comment-tag block, not a multi-line
+hash comment — Django only strips single-line hash comments; a multi-line one
+leaks into the page as literal text.
+{% endcomment %}<style>
+  /* ---- Base + design tokens (scoped; never touches the site chrome) ---- */
+  .cms-blog{
+    --blog-accent: {{ accent|default:"#2563eb" }};
+    --blog-ink:#16161d; --blog-soft:#4b4f5e; --blog-muted:#8a8fa3;
+    --blog-line:#e8e9f0; --blog-bg:#ffffff; --blog-surface:#f6f7fb;
+    --blog-sans:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --blog-serif:'Fraunces',Georgia,'Times New Roman',serif;
+    /* width + gutter detected from the client's own container (see
+       wrap_in_site_chrome); fallbacks keep it sane standalone. */
+    --site-cw:1100px; --site-gut:24px;
+    --blog-read: 720px;            /* comfortable reading measure */
+    font-family:var(--blog-sans); color:var(--blog-ink); line-height:1.7;
+    background:var(--blog-bg); padding:clamp(40px,6vw,80px) 0;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    position:relative;
+  }
+  .cms-blog *{box-sizing:border-box;}
+  /* Masthead backdrop: recreates the client hero's background behind a
+     transparent/overlay navbar so its text stays readable on blog pages.
+     --cms-masthead = detected hero bg; --cms-navh = nav height (set by the
+     offset script only when the nav is out-of-flow at the top). Both default
+     to nothing, so in-flow navs / undetectable heroes get no band. */
+  .cms-blog::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--cms-navh,0px);background:var(--cms-masthead,transparent);pointer-events:none;}
+  .cms-blog img{max-width:100%;display:block;}
+  .cms-blog a{color:var(--blog-accent);text-decoration:none;}
+  .cms-blog a:hover{text-decoration:underline;}
+
+  /* ---- Containers: aligned to the client's centered container ---------- */
+  .cms-blog .blog-wrap{max-width:var(--site-cw,1100px);margin-inline:auto;padding-inline:var(--site-gut,24px);}
+  .cms-blog .blog-narrow{max-width:min(var(--site-cw,1100px), calc(var(--blog-read) + 2 * var(--site-gut,24px)));margin-inline:auto;padding-inline:var(--site-gut,24px);}
+
+  /* ---- Back link (intentional pill, not floating text) ----------------- */
+  .cms-blog .blog-back{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;letter-spacing:.01em;color:var(--blog-soft);padding:7px 14px;border:1px solid var(--blog-line);border-radius:999px;transition:border-color .15s,color .15s,background .15s;}
+  .cms-blog .blog-back:hover{border-color:var(--blog-accent);color:var(--blog-accent);background:var(--blog-surface);text-decoration:none;}
+
+  /* ---- Byline / meta --------------------------------------------------- */
+  .cms-blog .blog-meta{color:var(--blog-muted);font-size:12.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .cms-blog .blog-meta .dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.55;}
+
+  /* ---- Cover image (sensible, never full-bleed-at-random) -------------- */
+  .cms-blog .blog-cover{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;background:var(--blog-surface);}
+
+  .cms-blog .blog-preview-banner{background:#fef3c7;color:#92400e;border:1px solid #fbbf24;border-radius:10px;text-align:center;padding:10px 16px;font-size:13px;font-weight:600;margin-bottom:24px;}
+
+  /* ---- Pager ----------------------------------------------------------- */
+  .cms-blog .blog-pager{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:64px;}
+  .cms-blog .blog-pager a,.cms-blog .blog-pager span{padding:9px 16px;border:1px solid var(--blog-line);border-radius:10px;font-size:14px;font-weight:600;color:var(--blog-soft);}
+  .cms-blog .blog-pager a:hover{border-color:var(--blog-accent);color:var(--blog-accent);text-decoration:none;}
+  .cms-blog .blog-pager .is-disabled{opacity:.4;}
+
+  .cms-blog .blog-empty{text-align:center;padding:96px 24px;color:var(--blog-muted);}
+  .cms-blog .blog-empty h2{font-family:var(--blog-serif);font-size:30px;color:var(--blog-ink);margin:0 0 8px;}
+
+  /* ---- Prose (sanitized post body): editorial rhythm, 8px-based -------- */
+  .cms-blog .blog-prose{font-size:18.5px;line-height:1.8;color:#26272f;}
+  .cms-blog .blog-prose > *:first-child{margin-top:0;}
+  .cms-blog .blog-prose > *:last-child{margin-bottom:0;}
+  .cms-blog .blog-prose h2{font-family:var(--blog-serif);font-weight:600;font-size:30px;line-height:1.25;letter-spacing:-.01em;margin:48px 0 16px;}
+  .cms-blog .blog-prose h3{font-family:var(--blog-serif);font-weight:600;font-size:23px;line-height:1.3;margin:36px 0 12px;}
+  .cms-blog .blog-prose h4{font-weight:700;font-size:18px;margin:28px 0 8px;}
+  .cms-blog .blog-prose p{margin:0 0 24px;}
+  .cms-blog .blog-prose a{text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;}
+  .cms-blog .blog-prose ul,.cms-blog .blog-prose ol{margin:0 0 24px;padding-left:28px;}
+  .cms-blog .blog-prose li{margin-bottom:10px;}
+  .cms-blog .blog-prose li::marker{color:var(--blog-muted);}
+  .cms-blog .blog-prose img{border-radius:12px;margin:32px 0;}
+  .cms-blog .blog-prose figure{margin:32px 0;}
+  .cms-blog .blog-prose figure img{margin:0;}
+  .cms-blog .blog-prose figcaption{font-size:13.5px;color:var(--blog-muted);text-align:center;margin-top:10px;}
+  .cms-blog .blog-prose blockquote{margin:32px 0;padding:4px 0 4px 24px;border-left:3px solid var(--blog-accent);font-family:var(--blog-serif);font-size:22px;line-height:1.5;font-style:italic;color:#33343e;}
+  .cms-blog .blog-prose pre{background:var(--blog-surface);border:1px solid var(--blog-line);border-radius:12px;padding:18px;overflow-x:auto;font-size:14px;line-height:1.6;margin:0 0 24px;}
+  .cms-blog .blog-prose :not(pre) > code{background:var(--blog-surface);border:1px solid var(--blog-line);border-radius:5px;padding:1px 6px;font-size:.9em;}
+  .cms-blog .blog-prose code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .cms-blog .blog-prose hr{border:0;border-top:1px solid var(--blog-line);margin:40px 0;}
+  {% block styles %}{% endblock %}
+</style>
+
+<div class="cms-blog cms-blog--{{ style }} blog blog--{{ style }}">
+  {% if is_preview %}
+    <div class="blog-narrow"><div class="blog-preview-banner">Draft preview — this post is not visible to the public yet.</div></div>
+  {% endif %}
+  {% block body %}{% endblock %}
+</div>
+
+<script>
+/* Blog chrome offset (inlined so the fragment stays self-contained when
+   injected into arbitrary client chrome). Some client templates pin the
+   navbar out of normal flow (position: fixed | absolute, top:0), which would
+   let it overlap the blog title. Measure it at runtime and pad .cms-blog only
+   when the nav is out of flow AND at the top — in-flow navs get no dead space. */
+(function () {
+  "use strict";
+  function findNav() {
+    var nav = document.querySelector('[data-section="nav"]');
+    if (nav) return nav;
+    var c = document.querySelectorAll("header, nav");
+    for (var i = 0; i < c.length; i++) { if (!c[i].closest(".cms-blog")) return c[i]; }
+    return null;
+  }
+  function adjust() {
+    var blog = document.querySelector(".cms-blog");
+    if (!blog) return;
+    var nav = findNav();
+    if (!nav) return;
+    var pos = window.getComputedStyle(nav).position;
+    var outOfFlow = pos === "fixed" || pos === "absolute";
+    if (outOfFlow && nav.getBoundingClientRect().top <= 8 && nav.offsetHeight > 0) {
+      blog.style.paddingTop = nav.offsetHeight + 24 + "px";
+      // Size the masthead backdrop band to the navbar so its (light) text has
+      // the dark hero-colored backdrop it was designed for.
+      blog.style.setProperty("--cms-navh", nav.offsetHeight + "px");
+    } else {
+      blog.style.paddingTop = "";
+      blog.style.setProperty("--cms-navh", "0px");
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", adjust);
+  else adjust();
+  window.addEventListener("load", adjust);
+  window.addEventListener("resize", adjust);
+})();
+</script>
+{% if preview_bridge %}
+  <script src="{% static 'js/blog_preview.js' %}"></script>
+{% endif %}

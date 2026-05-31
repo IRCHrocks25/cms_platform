@@ -1,0 +1,43 @@
+{% extends "blog/_content.html" %}
+
+{% block styles %}
+  .min-index-title { font-family: var(--blog-serif); font-size: 42px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .min-index-sub { color: var(--blog-muted); margin: 0 0 44px; }
+  .min-list { display: flex; flex-direction: column; }
+  .min-item { padding: 34px 0; border-bottom: 1px solid var(--blog-line); }
+  .min-item:first-child { padding-top: 0; }
+  .min-item-title { font-family: var(--blog-serif); font-size: 30px; line-height: 1.2; margin: 12px 0 12px; }
+  .min-item-title a { color: var(--blog-ink); }
+  .min-item-title a:hover { color: var(--blog-accent); text-decoration: none; }
+  .min-item-excerpt { color: var(--blog-soft); margin: 0 0 14px; }
+  .min-readmore { font-weight: 500; font-size: 14px; }
+{% endblock %}
+
+{% block body %}
+<main class="blog-narrow" style="padding-top: 64px;">
+  <h1 class="min-index-title">{{ settings.title }}</h1>
+  <p class="min-index-sub">Latest from {{ tenant.name }}</p>
+
+  {% if posts %}
+    <div class="min-list">
+      {% for post in posts %}
+        <article class="min-item">
+          <div class="blog-meta">
+            <time>{{ post.publish_date|date:"M j, Y" }}</time>
+            {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
+          </div>
+          <h2 class="min-item-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
+          <p class="min-item-excerpt">{{ post.display_excerpt }}</p>
+          <a class="min-readmore" href="{{ blog_base }}{{ post.slug }}/">Read more →</a>
+        </article>
+      {% endfor %}
+    </div>
+    {% include "blog/_pager.html" %}
+  {% else %}
+    <div class="blog-empty">
+      <h2>No posts yet</h2>
+      <p>Check back soon for the latest updates.</p>
+    </div>
+  {% endif %}
+</main>
+{% endblock %}

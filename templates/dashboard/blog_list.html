@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% load humanize static %}
+
+{% block title %}Blog · {{ tenant.name }} · Locked CMS{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/blog.css' %}">
+{% endblock %}
+
+{% block content %}
+  <div class="page">
+    {% if scope == "agency" %}
+      <nav class="breadcrumb">
+        <a href="{% url 'dashboard:tenant_list' %}">Sites</a>
+        <span class="breadcrumb-sep">/</span>
+        <a href="{{ blog_urls.back }}">{{ tenant.name }}</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>Blog</span>
+      </nav>
+    {% endif %}
+
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Blog</h1>
+        <p class="page-subtitle">Write and publish posts for {{ tenant.name }}.</p>
+      </div>
+      <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+    </div>
+
+    <form method="get" class="filter-bar">
+      <div class="filter-pills">
+        <a href="?status=all" class="filter-pill {% if status == 'all' %}active{% endif %}">All</a>
+        <a href="?status=published" class="filter-pill {% if status == 'published' %}active{% endif %}">Published</a>
+        <a href="?status=draft" class="filter-pill {% if status == 'draft' %}active{% endif %}">Draft</a>
+      </div>
+    </form>
+
+    {% if rows %}
+      <div class="card card-flush content-block">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Published</th>
+              <th>Featured</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>
+                  <a href="{{ row.urls.edit }}" class="cell-strong">{{ row.post.title }}</a>
+                  <div class="cell-muted"><code>/blog/{{ row.post.slug }}/</code></div>
+                </td>
+                <td>
+                  {% if row.post.status == 'published' %}
+                    <span class="badge badge-success">Published</span>
+                  {% else %}
+                    <span class="badge badge-soft">Draft</span>
+                  {% endif %}
+                </td>
+                <td class="cell-muted">
+                  {% if row.post.publish_date %}{{ row.post.publish_date|date:"M j, Y" }}{% else %}—{% endif %}
+                </td>
+                <td>
+                  <form method="post" action="{{ row.urls.featured }}" class="inline-form">
+                    {% csrf_token %}
+                    <button type="submit" class="star-toggle {% if row.post.featured %}is-on{% endif %}"
+                            title="{% if row.post.featured %}Remove from homepage strip{% else %}Feature on homepage{% endif %}">
+                      {% if row.post.featured %}★{% else %}☆{% endif %}
+                    </button>
+                  </form>
+                </td>
+                <td class="right">
+                  <div class="row-actions">
+                    <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
+                    {% if row.post.status == 'published' %}
+                      <a href="{{ row.urls.view }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
+                    {% endif %}
+                    <form method="post" action="{{ row.urls.delete }}" class="inline-form"
+                          onsubmit="return confirm('Delete “{{ row.post.title|escapejs }}”? This cannot be undone.');">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-ghost btn-sm">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty content-block">
+        {% if status != 'all' %}
+          <h3>No {{ status }} posts</h3>
+          <p>Try a different filter.</p>
+          <a href="?status=all" class="btn btn-secondary">Show all</a>
+        {% else %}
+          <h3>No posts yet</h3>
+          <p>Write your first post — it'll show on your site's blog once published.</p>
+          <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <section class="card stack-5 page-section content-block">
+      <div class="row-between">
+        <div>
+          <h2>Homepage strip</h2>
+          <p class="page-subtitle" style="margin:4px 0 0;">Choose the look and which posts appear on your homepage.</p>
+        </div>
+      </div>
+
+      <form method="post" action="{{ blog_urls.settings }}" class="stack-4">
+        {% csrf_token %}
+        <div class="blog-settings-grid">
+          <div class="field">
+            <label class="field-label" for="bs-strip-style">Homepage strip layout</label>
+            <select class="select" name="strip_style" id="bs-strip-style">
+              {% for value, label in strip_choices %}
+                <option value="{{ value }}" {% if blog_settings.strip_style == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <span class="field-hint">How featured posts look on your homepage. Preview updates below.</span>
+          </div>
+          <div class="field">
+            <label class="field-label" for="bs-template">Blog page style</label>
+            <select class="select" name="template" id="bs-template">
+              {% for value, label in template_choices %}
+                <option value="{{ value }}" {% if blog_settings.template == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <span class="field-hint">Applies to the blog index &amp; individual post pages.</span>
+          </div>
+          <div class="field">
+            <label class="field-label" for="bs-title">Blog title</label>
+            <input class="input" type="text" name="title" id="bs-title" maxlength="120" value="{{ blog_settings.title }}">
+          </div>
+          <div class="field">
+            <label class="field-label" for="bs-heading">Strip heading</label>
+            <input class="input" type="text" name="strip_heading" id="bs-heading" maxlength="120" value="{{ blog_settings.strip_heading }}">
+          </div>
+          <div class="field">
+            <label class="field-label" for="bs-count">Posts in strip</label>
+            <input class="input" type="number" name="strip_count" id="bs-count" min="1" max="{{ strip_max }}" value="{{ blog_settings.strip_count }}">
+          </div>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" name="strip_enabled" id="bs-enabled" {% if blog_settings.strip_enabled %}checked{% endif %}>
+          Show the blog strip on the homepage
+        </label>
+        <div class="row-end">
+          <button type="submit" class="btn btn-primary">Save strip settings</button>
+        </div>
+      </form>
+
+      <div class="strip-preview-panel">
+        <div class="strip-preview-head">
+          <span class="preview-status">
+            <span class="status-dot"></span>
+            <span id="strip-preview-status">Homepage strip preview</span>
+          </span>
+          <span class="field-hint" style="margin:0;">Reflects unsaved style, heading &amp; count.</span>
+        </div>
+        <div class="strip-preview-frame-wrap">
+          <iframe id="strip-preview-frame" class="strip-preview-frame"
+                  data-base="{{ blog_urls.strip_preview }}"
+                  title="Homepage strip preview" loading="lazy"></iframe>
+        </div>
+      </div>
+
+      <div>
+        <h3>Featured posts <span class="cell-muted" style="font-weight:400;">— drag to reorder</span></h3>
+        {% if featured_rows %}
+          <ul class="reorder-list" id="reorder-list" data-reorder-url="{{ blog_urls.reorder }}">
+            {% for row in featured_rows %}
+              <li class="reorder-item" draggable="true" data-pk="{{ row.post.pk }}">
+                <span class="reorder-handle" aria-hidden="true">⋮⋮</span>
+                <span class="reorder-title">{{ row.post.title }}</span>
+                {% if row.post.status != 'published' %}<span class="badge badge-soft">Draft</span>{% endif %}
+                <a href="{{ row.urls.edit }}" class="cell-link" style="margin-left:auto; font-size:13px;">Edit</a>
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="field-hint" id="reorder-status">Only published featured posts appear in the live strip.</p>
+        {% else %}
+          <p class="cell-muted" style="margin:0;">No featured posts yet. Tap the ☆ star next to a post to feature it on the homepage.</p>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+  <script>
+    window.CMS_BLOG = { csrfToken: "{{ csrf_token }}" };
+  </script>
+  <script src="{% static 'js/blog_reorder.js' %}"></script>
+  <script src="{% static 'js/blog_strip_preview.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,31 @@
+<section class="cms-blog-strip cms-blog-strip--minimal" data-cms-blog-strip>
+  <style>
+    .cms-blog-strip--minimal { box-sizing: border-box; padding: 72px 24px; background: #fafbfe; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #14141f; }
+    .cms-blog-strip--minimal * { box-sizing: border-box; }
+    .cms-blog-strip--minimal .cbs-wrap { max-width: 1080px; margin: 0 auto; }
+    .cms-blog-strip--minimal .cbs-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 32px; gap: 16px; }
+    .cms-blog-strip--minimal .cbs-heading { font-family: Georgia, 'Times New Roman', serif; font-size: 30px; margin: 0; color: #14141f; }
+    .cms-blog-strip--minimal .cbs-all { font-size: 14px; font-weight: 500; color: {{ accent|default:"#2563eb" }}; text-decoration: none; }
+    .cms-blog-strip--minimal .cbs-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 28px; }
+    .cms-blog-strip--minimal .cbs-item { display: block; text-decoration: none; color: inherit; padding-top: 18px; border-top: 2px solid #14141f; }
+    .cms-blog-strip--minimal .cbs-date { font-size: 13px; color: #8a8fa3; margin-bottom: 8px; }
+    .cms-blog-strip--minimal .cbs-title { font-family: Georgia, 'Times New Roman', serif; font-size: 20px; line-height: 1.3; margin-bottom: 8px; color: #14141f; }
+    .cms-blog-strip--minimal .cbs-excerpt { font-size: 14px; color: #5a5f72; margin: 0; }
+    .cms-blog-strip--minimal .cbs-item:hover .cbs-title { color: {{ accent|default:"#2563eb" }}; }
+  </style>
+  <div class="cbs-wrap">
+    <div class="cbs-head">
+      <h2 class="cbs-heading">{{ heading }}</h2>
+      <a class="cbs-all" href="{{ blog_base }}">View all →</a>
+    </div>
+    <div class="cbs-list">
+      {% for post in posts %}
+        <a class="cbs-item" href="{{ blog_base }}{{ post.slug }}/">
+          <div class="cbs-date">{{ post.publish_date|date:"M j, Y" }}</div>
+          <div class="cbs-title">{{ post.title }}</div>
+          <div class="cbs-excerpt">{{ post.display_excerpt }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>

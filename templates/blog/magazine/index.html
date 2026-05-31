@@ -1,0 +1,75 @@
+{% extends "blog/_content.html" %}
+
+{% block styles %}
+  .mag-masthead { border-bottom: 3px solid var(--blog-ink); padding-bottom: 14px; margin: 56px 0 40px; }
+  .mag-masthead h1 { font-family: var(--blog-serif); font-size: 52px; letter-spacing: -0.02em; margin: 0; }
+  .mag-masthead p { color: var(--blog-muted); margin: 6px 0 0; }
+
+  .mag-lead { display: grid; grid-template-columns: 1.2fr 1fr; gap: 36px; align-items: center; margin-bottom: 56px; }
+  .mag-lead-cover { aspect-ratio: 16/10; width: 100%; object-fit: cover; border-radius: 14px; background: var(--blog-surface); }
+  .mag-kicker { text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; font-weight: 700; color: var(--blog-accent); margin-bottom: 12px; }
+  .mag-lead-title { font-family: var(--blog-serif); font-size: 38px; line-height: 1.12; margin: 0 0 14px; }
+  .mag-lead-title a { color: var(--blog-ink); }
+  .mag-lead-title a:hover { color: var(--blog-accent); text-decoration: none; }
+  .mag-lead-excerpt { color: var(--blog-soft); font-size: 17px; margin: 0 0 16px; }
+
+  .mag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 36px 32px; }
+  .mag-card-cover { aspect-ratio: 16/9; width: 100%; object-fit: cover; border-radius: 10px; background: var(--blog-surface); margin-bottom: 14px; }
+  .mag-card-title { font-family: var(--blog-serif); font-size: 22px; line-height: 1.25; margin: 8px 0 8px; }
+  .mag-card-title a { color: var(--blog-ink); }
+  .mag-card-title a:hover { color: var(--blog-accent); text-decoration: none; }
+  .mag-card-excerpt { color: var(--blog-soft); font-size: 15px; margin: 0; }
+  @media (max-width: 720px) { .mag-lead { grid-template-columns: 1fr; } .mag-masthead h1 { font-size: 40px; } }
+{% endblock %}
+
+{% block body %}
+<main class="blog-wrap">
+  <div class="mag-masthead">
+    <h1>{{ settings.title }}</h1>
+    <p>{{ tenant.name }}</p>
+  </div>
+
+  {% if posts %}
+    {% for post in posts %}
+      {% if forloop.first and page_obj.number == 1 %}
+        <article class="mag-lead">
+          <a href="{{ blog_base }}{{ post.slug }}/">
+            <img class="mag-lead-cover" src="{{ post.cover_image|default:'https://placehold.co/800x500?text=+' }}" alt="{{ post.title }}">
+          </a>
+          <div>
+            <div class="mag-kicker">Featured</div>
+            <h2 class="mag-lead-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
+            <div class="blog-meta" style="margin-bottom: 14px;">
+              <time>{{ post.publish_date|date:"M j, Y" }}</time>
+              {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
+            </div>
+            <p class="mag-lead-excerpt">{{ post.display_excerpt }}</p>
+            <a href="{{ blog_base }}{{ post.slug }}/" style="font-weight:500;">Continue reading →</a>
+          </div>
+        </article>
+      {% endif %}
+    {% endfor %}
+
+    <div class="mag-grid">
+      {% for post in posts %}
+        {% if not forloop.first or page_obj.number != 1 %}
+          <article class="mag-card">
+            <a href="{{ blog_base }}{{ post.slug }}/">
+              <img class="mag-card-cover" src="{{ post.cover_image|default:'https://placehold.co/600x340?text=+' }}" alt="{{ post.title }}">
+            </a>
+            <div class="blog-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
+            <h3 class="mag-card-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h3>
+            <p class="mag-card-excerpt">{{ post.display_excerpt }}</p>
+          </article>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% include "blog/_pager.html" %}
+  {% else %}
+    <div class="blog-empty">
+      <h2>No stories yet</h2>
+      <p>The latest articles will appear here.</p>
+    </div>
+  {% endif %}
+</main>
+{% endblock %}

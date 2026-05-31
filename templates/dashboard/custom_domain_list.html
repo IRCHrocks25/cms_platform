@@ -37,7 +37,7 @@
     </form>
 
     {% if domains %}
-      <div class="card" style="padding: 0; margin-top: 24px;">
+      <div class="card card-flush content-block">
         <table class="data-table">
           <thead>
             <tr>
@@ -46,7 +46,7 @@
               <th>Status</th>
               <th>Cloudflare ID</th>
               <th>Added</th>
-              <th class="right">Overrides</th>
+              <th class="right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +100,7 @@
         </table>
       </div>
     {% else %}
-      <div class="empty" style="margin-top: 24px;">
+      <div class="empty content-block">
         {% if q or status and status != 'all' %}
           <h3>No domains match those filters</h3>
           <p>Try clearing the search or switching the status filter.</p>

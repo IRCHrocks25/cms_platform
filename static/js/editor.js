@@ -17,6 +17,33 @@
   var previewReady = false;
 
   // ---- helpers ---------------------------------------------------------
+  // Minimal in-browser HTML scrub — neutralizes stored richtext before it is
+  // injected into the (same-origin, authenticated) editor DOM. <template>
+  // content is inert so onerror/onload can't fire while we clean.
+  function cmsScrub(html) {
+    var tpl = document.createElement("template");
+    tpl.innerHTML = html || "";
+    var bad = tpl.content.querySelectorAll(
+      "script,style,iframe,object,embed,form,input,button,link,meta,base,svg,math,noscript"
+    );
+    for (var i = 0; i < bad.length; i++) { bad[i].remove(); }
+    var els = tpl.content.querySelectorAll("*");
+    for (var j = 0; j < els.length; j++) {
+      var el = els[j];
+      for (var k = el.attributes.length - 1; k >= 0; k--) {
+        var name = el.attributes[k].name.toLowerCase();
+        var val = (el.attributes[k].value || "").replace(/\s/g, "").toLowerCase();
+        if (name.indexOf("on") === 0) {
+          el.removeAttribute(el.attributes[k].name);
+        } else if ((name === "href" || name === "src" || name === "xlink:href") &&
+                   val.indexOf("javascript:") === 0) {
+          el.removeAttribute(el.attributes[k].name);
+        }
+      }
+    }
+    return tpl.innerHTML;
+  }
+
   function getValue(fieldId) {
     var parts = fieldId.split(".");
     return (content[parts[0]] || {})[parts[1]];
@@ -82,6 +109,14 @@
     );
   }
 
+  function scrollPreviewToSection(sectionId) {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "scroll-to-section", payload: { id: sectionId } },
+      "*"
+    );
+  }
+
   window.addEventListener("message", function (e) {
     var data = e.data || {};
     if (data.source !== "cms-preview") return;
@@ -107,6 +142,12 @@
   function focusFieldInForm(fieldId) {
     var node = document.querySelector('[data-field-id="' + fieldId + '"]');
     if (!node) return;
+    // Activate the tab / sub-tab that holds this field, else it's in a hidden
+    // panel and can't be scrolled to or seen.
+    var panel = node.closest && node.closest(".editor-tab-panel");
+    if (panel && window.cmsSwitchTab) window.cmsSwitchTab(panel.getAttribute("data-panel"));
+    var sub = node.closest && node.closest(".nav-subpanel");
+    if (sub && window.cmsSwitchSub) window.cmsSwitchSub(sub.getAttribute("data-subpanel"));
     node.scrollIntoView({ behavior: "smooth", block: "center" });
     var input = node.querySelector("[data-bind]");
     if (input) {
@@ -130,12 +171,14 @@
 
   // ---- bind fields -----------------------------------------------------
   function init() {
+    // Tab switching (Content / Brand) is wired inline in editor.html so it is
+    // immune to static-file caching; window.cmsSwitchTab is exposed there.
     document.querySelectorAll("[data-field-id]").forEach(function (node) {
       var fieldId = node.dataset.fieldId;
       var ftype = node.dataset.fieldType;
       var current = getValue(fieldId) || "";
 
-      if (ftype === "text" || ftype === "link") {
+      if (ftype === "text") {
         var input = node.querySelector("[data-bind]");
         input.value = current;
         input.addEventListener("input", function () {
@@ -146,9 +189,103 @@
         });
       }
 
+      if (ftype === "link") {
+        var sel = node.querySelector("[data-bind-link-select]");
+        var row = node.querySelector("[data-link-custom-row]");
+        var txt = node.querySelector("[data-bind]");
+        var testBtn = node.querySelector("[data-link-test]");
+        var warn = node.querySelector("[data-link-warn]");
+        txt.value = current;
+
+        function commitLink(v) {
+          setValue(fieldId, v);
+          var p = {}; p[fieldId] = v;
+          pushToPreview(p);
+          scheduleSave();
+        }
+
+        // A link is "ok" if it's empty, an in-page anchor, a relative path,
+        // a mailto:/tel:, or a parseable absolute URL.
+        function linkLooksValid(v) {
+          if (!v) return true;
+          if (v.charAt(0) === "#" || v.charAt(0) === "/") return true;
+          if (/^(mailto:|tel:)\S+/i.test(v)) return true;
+          try { var u = new URL(v); return !!(u.protocol && u.host); }
+          catch (e) { return false; }
+        }
+        function showWarn(on) {
+          if (!warn) return;
+          warn.hidden = !on;
+          if (on) txt.classList.add("input-error");
+          else txt.classList.remove("input-error");
+        }
+
+        function isAnchorOption(v) {
+          for (var j = 0; j < sel.options.length; j++) {
+            var o = sel.options[j].value;
+            if (o && o !== "__custom__" && o === v) return true;
+          }
+          return false;
+        }
+
+        // Pick the matching dropdown option, else fall back to the custom row.
+        var matchesOption = false;
+        for (var i = 0; i < sel.options.length; i++) {
+          var ov = sel.options[i].value;
+          if (ov && ov !== "__custom__" && ov === current) { matchesOption = true; break; }
+        }
+        if (current && matchesOption) {
+          sel.value = current; row.hidden = true;
+        } else if (current) {
+          sel.value = "__custom__"; row.hidden = false; showWarn(!linkLooksValid(current));
+        } else {
+          sel.value = ""; row.hidden = true;
+        }
+
+        sel.addEventListener("change", function () {
+          if (sel.value === "__custom__") {
+            if (isAnchorOption(txt.value)) txt.value = "";
+            row.hidden = false;
+            showWarn(false);
+            txt.focus();
+            commitLink(txt.value);
+          } else {
+            row.hidden = true;
+            showWarn(false);
+            commitLink(sel.value); // "" (not linked) or "#anchor"
+          }
+        });
+
+        // Save on every keystroke (non-blocking); clear any warning while typing.
+        txt.addEventListener("input", function () {
+          showWarn(false);
+          commitLink(txt.value);
+        });
+
+        // On blur: auto-prepend https:// for bare domains, then warn (but allow).
+        txt.addEventListener("blur", function () {
+          var v = txt.value.trim();
+          var hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(v);
+          if (v && !hasScheme && v.charAt(0) !== "#" && v.charAt(0) !== "/" &&
+              /^[^\s]+\.[^\s]+$/.test(v)) {
+            v = "https://" + v;
+            txt.value = v;
+            commitLink(v);
+          }
+          showWarn(!linkLooksValid(txt.value.trim()));
+        });
+
+        if (testBtn) {
+          testBtn.addEventListener("click", function () {
+            var v = txt.value.trim();
+            if (v) window.open(v, "_blank", "noopener");
+          });
+        }
+      }
+
       if (ftype === "richtext") {
         var rt = node.querySelector("[data-bind]");
-        rt.innerHTML = current;
+        rt.innerHTML = cmsScrub(current);
         rt.addEventListener("input", function () {
           setValue(fieldId, rt.innerHTML);
           var p = {}; p[fieldId] = rt.innerHTML;
@@ -200,30 +337,140 @@
             headers: { "X-CSRFToken": window.CMS.csrfToken },
             body: fd,
           })
-            .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-            .then(function (data) {
-              img.src = data.url;
+            .then(function (r) {
+              return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+            })
+            .then(function (res) {
+              if (!res.ok || !res.data.ok) {
+                nameEl.textContent = (res.data && res.data.error) || "Upload failed.";
+                fileInput.value = "";
+                return;
+              }
+              img.src = res.data.url;
               nameEl.textContent = file.name;
-              setValue(fieldId, data.url);
-              var p = {}; p[fieldId] = data.url;
+              setValue(fieldId, res.data.url);
+              var p = {}; p[fieldId] = res.data.url;
               pushToPreview(p);
               scheduleSave();
             })
-            .catch(function () { nameEl.textContent = "Upload failed"; });
+            .catch(function () { nameEl.textContent = "Upload failed — please try again."; });
+        });
+      }
+
+      if (ftype === "video") {
+        var vid = node.querySelector("[data-bind-video]");
+        var vname = node.querySelector("[data-bind-video-name]");
+        var vfile = node.querySelector('input[type="file"]');
+        if (current) {
+          vid.src = current;
+          vid.hidden = false;
+          vname.textContent = "Current video";
+        }
+        vfile.addEventListener("change", function () {
+          var file = vfile.files[0];
+          if (!file) return;
+          if (file.type.indexOf("video/") !== 0) {
+            vname.textContent = "Please choose a video file.";
+            vfile.value = "";
+            return;
+          }
+          vname.textContent = "Preparing upload…";
+          // 1) Ask our server for a signed, scoped upload signature.
+          fetch(window.CMS.videoSignUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "X-CSRFToken": window.CMS.csrfToken,
+              "Content-Type": "application/json",
+            },
+            body: "{}",
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (sig) {
+              if (!sig.ok) throw new Error(sig.error || "Could not start upload.");
+              // 2) Upload the file DIRECTLY to Cloudinary (bypasses our server).
+              var fd = new FormData();
+              fd.append("file", file);
+              fd.append("api_key", sig.api_key);
+              fd.append("timestamp", sig.timestamp);
+              fd.append("signature", sig.signature);
+              fd.append("folder", sig.folder);
+              var endpoint = "https://api.cloudinary.com/v1_1/" + sig.cloud_name + "/video/upload";
+              return new Promise(function (resolve, reject) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", endpoint);
+                xhr.upload.onprogress = function (e) {
+                  if (e.lengthComputable) {
+                    vname.textContent = "Uploading… " + Math.round((e.loaded / e.total) * 100) + "%";
+                  }
+                };
+                xhr.onload = function () {
+                  if (xhr.status >= 200 && xhr.status < 300) {
+                    try { resolve(JSON.parse(xhr.responseText)); }
+                    catch (err) { reject(new Error("Bad response from Cloudinary.")); }
+                  } else {
+                    reject(new Error("Cloudinary upload failed."));
+                  }
+                };
+                xhr.onerror = function () { reject(new Error("Network error during upload.")); };
+                xhr.send(fd);
+              });
+            })
+            .then(function (up) {
+              vname.textContent = "Finalizing…";
+              // 3) Send the public_id back so our server can verify + store it.
+              return fetch(window.CMS.videoConfirmUrl, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  "X-CSRFToken": window.CMS.csrfToken,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ public_id: up.public_id, original_name: file.name }),
+              }).then(function (r) { return r.json(); });
+            })
+            .then(function (conf) {
+              if (!conf.ok) throw new Error(conf.error || "Could not save video.");
+              vid.src = conf.url;
+              vid.hidden = false;
+              if (vid.load) vid.load();
+              vname.textContent = file.name;
+              setValue(fieldId, conf.url);
+              var p = {}; p[fieldId] = conf.url;
+              pushToPreview(p);
+              scheduleSave();
+            })
+            .catch(function (err) {
+              vname.textContent = err.message || "Upload failed.";
+              vfile.value = "";
+            });
         });
       }
     });
+
+    // Click / focus a field on the form -> highlight + scroll to it in the preview.
+    var formEl = document.getElementById("editor-form");
+    if (formEl) {
+      formEl.addEventListener("focusin", function (e) {
+        var node = e.target.closest ? e.target.closest("[data-field-id]") : null;
+        if (!node) return;
+        highlightField(node);
+        highlightInPreview(node.getAttribute("data-field-id"));
+      });
+    }
 
     // sidebar jump
     document.querySelectorAll(".sidebar-link").forEach(function (link) {
       link.addEventListener("click", function () {
         var id = link.dataset.jump;
+        if (window.cmsSwitchTab) window.cmsSwitchTab("content"); // sections live on the Content tab
         document.querySelectorAll(".sidebar-link").forEach(function (l) {
           l.classList.remove("active");
         });
         link.classList.add("active");
         var target = document.getElementById("section-" + id);
         if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        scrollPreviewToSection(id); // mirror the jump in the live preview
       });
     });
 
@@ -267,6 +514,192 @@
     sections.forEach(function (s) { observer.observe(s); });
 
     setStatus("saved");
+
+    // ---- site settings modal --------------------------------------------
+    var settingsModal = document.getElementById("settings-modal");
+    var openBtn = document.getElementById("open-settings-btn");
+    var closeBtn = document.getElementById("close-settings-btn");
+    var cancelBtn = document.getElementById("cancel-settings-btn");
+    var saveBtn = document.getElementById("save-settings-btn");
+    var statusEl = document.getElementById("settings-status");
+
+    var ssTitle = document.getElementById("ss-page-title");
+    var ssDesc = document.getElementById("ss-meta-desc");
+    var ssOgImage = document.getElementById("ss-og-image");
+    var ssGaId = document.getElementById("ss-ga-id");
+    var ssScript = document.getElementById("ss-custom-script");
+
+    function openSettings() {
+      statusEl.textContent = "Loading…";
+      settingsModal.style.display = "";
+      fetch(window.CMS.settingsUrl, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+        .then(function (data) {
+          var s = data.settings || {};
+          ssTitle.value = s.page_title || "";
+          ssDesc.value = s.meta_description || "";
+          ssOgImage.value = s.og_image_url || "";
+          ssGaId.value = s.ga_measurement_id || "";
+          ssScript.value = s.custom_head_script || "";
+          statusEl.textContent = "";
+        })
+        .catch(function () {
+          statusEl.textContent = "Failed to load settings.";
+        });
+    }
+
+    function closeSettings() {
+      settingsModal.style.display = "none";
+    }
+
+    function saveSettings() {
+      statusEl.textContent = "Saving…";
+      saveBtn.disabled = true;
+      fetch(window.CMS.settingsUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CMS.csrfToken,
+        },
+        body: JSON.stringify({
+          page_title: ssTitle.value,
+          meta_description: ssDesc.value,
+          og_image_url: ssOgImage.value,
+          ga_measurement_id: ssGaId.value,
+          custom_head_script: ssScript.value,
+        }),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (result) {
+          saveBtn.disabled = false;
+          if (!result.ok) {
+            statusEl.textContent = (result.data.errors || ["Save failed."]).join(" ");
+            return;
+          }
+          statusEl.textContent = "Saved!";
+          setTimeout(closeSettings, 600);
+        })
+        .catch(function () {
+          saveBtn.disabled = false;
+          statusEl.textContent = "Save failed — try again.";
+        });
+    }
+
+    if (openBtn) openBtn.addEventListener("click", openSettings);
+    if (closeBtn) closeBtn.addEventListener("click", closeSettings);
+    if (cancelBtn) cancelBtn.addEventListener("click", closeSettings);
+    if (saveBtn) saveBtn.addEventListener("click", saveSettings);
+    if (settingsModal) {
+      settingsModal.addEventListener("click", function (e) {
+        if (e.target === settingsModal) closeSettings();
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && settingsModal && settingsModal.style.display !== "none") {
+        closeSettings();
+      }
+    });
+
+    // ---- version history modal ------------------------------------------
+    var historyModal = document.getElementById("history-modal");
+    var openHistoryBtn = document.getElementById("open-history-btn");
+    var closeHistoryBtn = document.getElementById("close-history-btn");
+    var cancelHistoryBtn = document.getElementById("cancel-history-btn");
+    var versionList = document.getElementById("version-list");
+    var historyStatus = document.getElementById("history-status");
+
+    function closeHistory() { if (historyModal) historyModal.style.display = "none"; }
+
+    function fmtTime(iso) {
+      try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+    }
+
+    function renderVersions(versions) {
+      versionList.innerHTML = "";
+      if (!versions.length) {
+        historyStatus.textContent = "No saved versions yet — edit something and it'll appear here.";
+        return;
+      }
+      historyStatus.textContent = "";
+      versions.forEach(function (v) {
+        var li = document.createElement("li");
+        li.className = "version-row";
+
+        var meta = document.createElement("div");
+        meta.className = "version-meta";
+        var t = document.createElement("strong");
+        t.textContent = fmtTime(v.saved_at);
+        var by = document.createElement("span");
+        by.textContent = "by " + (v.saved_by || "unknown");
+        meta.appendChild(t); meta.appendChild(by);
+
+        var actions = document.createElement("div");
+        actions.className = "version-actions";
+        var prev = document.createElement("a");
+        prev.className = "btn btn-ghost btn-sm";
+        prev.textContent = "Preview";
+        prev.href = v.preview_url;
+        prev.target = "_blank";
+        prev.rel = "noopener";
+        var rest = document.createElement("button");
+        rest.type = "button";
+        rest.className = "btn btn-secondary btn-sm";
+        rest.textContent = "Restore";
+        rest.addEventListener("click", function () {
+          if (!window.confirm("Restore this version? Your current content is saved first, so you can undo this.")) return;
+          rest.disabled = true;
+          historyStatus.textContent = "Restoring…";
+          fetch(window.CMS.versionRestoreUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "X-CSRFToken": window.CMS.csrfToken, "Content-Type": "application/json" },
+            body: JSON.stringify({ version_id: v.id }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (!d.ok) { historyStatus.textContent = d.error || "Restore failed."; rest.disabled = false; return; }
+              historyStatus.textContent = "Restored — reloading…";
+              window.location.reload();
+            })
+            .catch(function () { historyStatus.textContent = "Restore failed — try again."; rest.disabled = false; });
+        });
+        actions.appendChild(prev); actions.appendChild(rest);
+
+        li.appendChild(meta); li.appendChild(actions);
+        versionList.appendChild(li);
+      });
+    }
+
+    function openHistory() {
+      if (!historyModal) return;
+      historyModal.style.display = "";
+      historyStatus.textContent = "Loading…";
+      versionList.innerHTML = "";
+      fetch(window.CMS.versionsUrl, {
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { renderVersions((d && d.versions) || []); })
+        .catch(function () { historyStatus.textContent = "Couldn't load history."; });
+    }
+
+    if (openHistoryBtn) openHistoryBtn.addEventListener("click", openHistory);
+    if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", closeHistory);
+    if (cancelHistoryBtn) cancelHistoryBtn.addEventListener("click", closeHistory);
+    if (historyModal) {
+      historyModal.addEventListener("click", function (e) {
+        if (e.target === historyModal) closeHistory();
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && historyModal && historyModal.style.display !== "none") closeHistory();
+    });
   }
 
   if (document.readyState === "loading") {

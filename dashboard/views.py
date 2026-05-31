@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST, require_GET
 
@@ -21,10 +22,17 @@ import httpx
 
 from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
+    BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
+    BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
 )
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
+from core.parser import build_schema
 from core.services import cloudflare as cloudflare_service
+from core.services import blog_render
+from core.services import cloudinary_media
+from core.services.annotator import annotate_html, AnnotatorError
+from core.services.sanitizer import sanitize_html, strip_to_text
 from core.urls_helpers import build_tenant_url_bundle
 
 
@@ -57,6 +65,7 @@ STARTER_TEMPLATE_HTML = """\
 """
 
 
+GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
@@ -224,6 +233,32 @@ def template_delete(request, pk):
     return redirect("dashboard:template_list")
 
 
+@agency_operator_required
+@require_POST
+def template_annotate(request):
+    """Send raw HTML to OpenAI, return annotated HTML + schema preview."""
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+    raw_html = (payload.get("html") or "").strip()
+    if not raw_html:
+        return JsonResponse({"error": "No HTML provided."}, status=400)
+
+    try:
+        annotated = annotate_html(raw_html)
+    except AnnotatorError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    schema = build_schema(annotated)
+    sections_summary = [
+        {"id": s["id"], "label": s["label"], "field_count": len(s.get("fields", []))}
+        for s in schema.get("sections", [])
+    ]
+    return JsonResponse({"html": annotated, "sections": sections_summary})
+
+
 # --------------------------------------------------------------------------- #
 # Agency: sites list                                                           #
 # --------------------------------------------------------------------------- #
@@ -270,7 +305,12 @@ def tenant_list(request):
 
 @agency_operator_required
 def tenant_create(request):
-    """One-screen new client flow: User + Tenant + Membership atomically."""
+    """One-screen new client flow: User + Tenant + Membership atomically.
+
+    Also supports creating a new Template inline by selecting `__new__`
+    in the template dropdown — the Template is created inside the same
+    transaction so a partial failure leaks nothing.
+    """
     templates = Template.objects.all().order_by("name")
 
     form_data = {
@@ -280,9 +320,13 @@ def tenant_create(request):
         "custom_domain": "",
         "client_username": "",
         "client_email": "",
+        "new_template_name": "",
+        "new_template_description": "",
+        "new_template_html": "",
     }
 
     if request.method != "POST":
+        form_data["new_template_html"] = STARTER_TEMPLATE_HTML
         return render(
             request,
             "dashboard/tenant_form.html",
@@ -300,6 +344,9 @@ def tenant_create(request):
     custom_domain = (request.POST.get("custom_domain") or "").strip()
     client_username = (request.POST.get("client_username") or "").strip()
     client_email = (request.POST.get("client_email") or "").strip()
+    new_template_name = (request.POST.get("new_template_name") or "").strip()
+    new_template_description = (request.POST.get("new_template_description") or "").strip()
+    new_template_html = request.POST.get("new_template_html") or ""
 
     if not subdomain and name:
         subdomain = _generate_unique_subdomain_from_name(name)
@@ -311,9 +358,13 @@ def tenant_create(request):
         "custom_domain": custom_domain,
         "client_username": client_username,
         "client_email": client_email,
+        "new_template_name": new_template_name,
+        "new_template_description": new_template_description,
+        "new_template_html": new_template_html,
     }
 
     errors = []
+    inline_new_template = template_id == "__new__"
 
     if not name:
         errors.append("Site name is required.")
@@ -326,10 +377,15 @@ def tenant_create(request):
             "taken": f"“{subdomain}” is already taken. Pick another.",
         }[sub_reason])
 
+    template = None
     if not template_id:
         errors.append("Pick a template.")
-    template = None
-    if template_id:
+    elif inline_new_template:
+        if not new_template_name:
+            errors.append("New template name is required.")
+        if not new_template_html.strip():
+            errors.append("New template HTML is required.")
+    else:
         try:
             template = Template.objects.get(pk=template_id)
         except (Template.DoesNotExist, ValueError):
@@ -361,6 +417,13 @@ def tenant_create(request):
 
     try:
         with transaction.atomic():
+            if inline_new_template:
+                template = Template.objects.create(
+                    name=new_template_name,
+                    description=new_template_description,
+                    html_source=new_template_html,
+                )
+
             user = User.objects.create_user(
                 username=client_username,
                 email=client_email,
@@ -592,6 +655,9 @@ def tenant_detail(request, pk):
             "custom_domain": custom_domain,
             "nav_section": "sites",
             "role_choices": TenantMembership.ROLE_CHOICES,
+            # URLs for visiting the client's live site (subdomain host) and a
+            # fallback that always works on the current host (/site/<sub>/).
+            "site_urls": build_tenant_url_bundle(request, tenant),
         },
     )
 
@@ -872,6 +938,20 @@ def tenant_upload(request, pk):
     return _save_upload(request, tenant)
 
 
+@agency_operator_required
+@require_POST
+def tenant_video_sign(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _video_sign(request, tenant)
+
+
+@agency_operator_required
+@require_POST
+def tenant_video_confirm(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _video_confirm(request, tenant)
+
+
 # --------------------------------------------------------------------------- #
 # Tenant surface (tenant resolved on host, member or staff only)               #
 # --------------------------------------------------------------------------- #
@@ -905,6 +985,18 @@ def tenant_upload_self(request):
     return _save_upload(request, request.tenant)
 
 
+@tenant_member_required
+@require_POST
+def tenant_video_sign_self(request):
+    return _video_sign(request, request.tenant)
+
+
+@tenant_member_required
+@require_POST
+def tenant_video_confirm_self(request):
+    return _video_confirm(request, request.tenant)
+
+
 # --------------------------------------------------------------------------- #
 # Shared helpers                                                               #
 # --------------------------------------------------------------------------- #
@@ -915,24 +1007,57 @@ def _render_editor(request, tenant, *, scope):
     content = merge_with_defaults(schema, tenant.content)
 
     sections = schema.get("sections", [])
+    # Brand tokens (global colors) and the header navigation are conceptually
+    # distinct from per-section content edits, so the editor surfaces each on its
+    # own tab ("Brand" / "Navigation"). Everything else is "Content".
+    brand_section = next((s for s in sections if s.get("id") == "brand"), None)
+    # The "Navigation" tab gathers the site chrome — both the header nav and the
+    # footer — so they live apart from the page-body content sections.
+    nav_groups = {"header", "footer"}
+    nav_sections = [
+        s for s in sections
+        if s.get("id") != "brand" and (s.get("group") or "").lower() in nav_groups
+    ]
+    nav_ids = {s.get("id") for s in nav_sections}
+    # Within the Navigation tab, split into Header / Footer sub-tabs.
+    header_sections = [s for s in nav_sections if (s.get("group") or "").lower() == "header"]
+    footer_sections = [s for s in nav_sections if (s.get("group") or "").lower() == "footer"]
+    content_sections = [
+        s for s in sections
+        if s.get("id") != "brand" and s.get("id") not in nav_ids
+    ]
+
     grouped: dict[str, list] = {}
-    for section in sections:
+    for section in content_sections:
         grouped.setdefault(section.get("group", "Sections"), []).append(section)
 
-    layout_mode = "compact" if len(sections) <= 6 else (
-        "standard" if len(sections) <= 15 else "dense"
+    # Layout mode is driven by how many entries land in the section nav.
+    layout_mode = "compact" if len(content_sections) <= 6 else (
+        "standard" if len(content_sections) <= 15 else "dense"
     )
 
     if scope == "tenant":
         preview_url = reverse("dashboard:tenant_preview_self")
         save_url = reverse("dashboard:tenant_save_self")
         upload_url = reverse("dashboard:tenant_upload_self")
+        video_sign_url = reverse("dashboard:tenant_video_sign_self")
+        video_confirm_url = reverse("dashboard:tenant_video_confirm_self")
+        versions_url = reverse("dashboard:tenant_versions_self")
+        version_restore_url = reverse("dashboard:tenant_version_restore_self")
         publish_url = reverse("dashboard:tenant_publish_self")
+        settings_url = reverse("dashboard:tenant_site_settings_self")
+        blog_url = reverse("dashboard:blog_list_self")
     else:
         preview_url = reverse("dashboard:tenant_preview", args=[tenant.pk])
         save_url = reverse("dashboard:tenant_save", args=[tenant.pk])
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
+        video_sign_url = reverse("dashboard:tenant_video_sign", args=[tenant.pk])
+        video_confirm_url = reverse("dashboard:tenant_video_confirm", args=[tenant.pk])
+        versions_url = reverse("dashboard:tenant_versions", args=[tenant.pk])
+        version_restore_url = reverse("dashboard:tenant_version_restore", args=[tenant.pk])
         publish_url = reverse("dashboard:tenant_publish", args=[tenant.pk])
+        settings_url = reverse("dashboard:tenant_site_settings", args=[tenant.pk])
+        blog_url = reverse("dashboard:blog_list", args=[tenant.pk])
 
     return render(
         request,
@@ -941,13 +1066,23 @@ def _render_editor(request, tenant, *, scope):
             "tenant": tenant,
             "schema": schema,
             "sections": sections,
+            "content_sections": content_sections,
+            "nav_sections": nav_sections,
+            "header_sections": header_sections,
+            "footer_sections": footer_sections,
+            "brand_section": brand_section,
+            "link_targets": schema.get("link_targets", []),
             "grouped_sections": grouped,
             "content_json": json.dumps(content),
             "layout_mode": layout_mode,
             "preview_url": preview_url,
             "save_url": save_url,
             "upload_url": upload_url,
+            "video_sign_url": video_sign_url,
+            "video_confirm_url": video_confirm_url,
             "publish_url": publish_url,
+            "settings_url": settings_url,
+            "blog_url": blog_url,
             "scope": scope,
         },
     )
@@ -985,6 +1120,98 @@ def _save_content(request, tenant):
     return JsonResponse({"ok": True, "updated_at": tenant.updated_at.isoformat()})
 
 
+# --------------------------------------------------------------------------- #
+# Version history / undo                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def _versions_list(tenant, scope):
+    items = []
+    for v in tenant.versions.select_related("saved_by").order_by("-saved_at")[:10]:
+        if scope == "tenant":
+            preview_url = reverse("dashboard:tenant_version_preview_self", args=[v.id])
+        else:
+            preview_url = reverse("dashboard:tenant_version_preview", args=[tenant.pk, v.id])
+        items.append({
+            "id": v.id,
+            "saved_at": v.saved_at.isoformat(),
+            "saved_by": v.saved_by.username if v.saved_by else "unknown",
+            "preview_url": preview_url,
+        })
+    return JsonResponse({"ok": True, "versions": items})
+
+
+def _version_restore(request, tenant):
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
+
+    version = tenant.versions.filter(id=payload.get("version_id")).first()
+    if version is None:
+        return JsonResponse({"ok": False, "error": "That version no longer exists."}, status=404)
+
+    restored = version.snapshot
+    # Snapshot the CURRENT content first, so the restore is itself undoable.
+    ContentVersion.objects.create(
+        tenant=tenant, snapshot=tenant.content, saved_by=request.user
+    )
+    keep_ids = list(
+        tenant.versions.values_list("id", flat=True).order_by("-saved_at")[:10]
+    )
+    tenant.versions.exclude(id__in=keep_ids).delete()
+
+    tenant.content = restored
+    tenant.save(update_fields=["content", "updated_at"])
+    return JsonResponse({"ok": True})
+
+
+def _version_preview(tenant, version_id):
+    version = get_object_or_404(tenant.versions, id=version_id)
+    content = merge_with_defaults(tenant.template.schema, version.snapshot)
+    html = render_site(tenant.template.html_source, content, preview=False)
+    return HttpResponse(html)
+
+
+@tenant_member_required
+@require_GET
+def tenant_versions_self(request):
+    return _versions_list(request.tenant, "tenant")
+
+
+@tenant_member_required
+@require_POST
+def tenant_version_restore_self(request):
+    return _version_restore(request, request.tenant)
+
+
+@tenant_member_required
+@require_GET
+def tenant_version_preview_self(request, version_id):
+    return _version_preview(request.tenant, version_id)
+
+
+@agency_operator_required
+@require_GET
+def tenant_versions(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _versions_list(tenant, "agency")
+
+
+@agency_operator_required
+@require_POST
+def tenant_version_restore(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _version_restore(request, tenant)
+
+
+@agency_operator_required
+@require_GET
+def tenant_version_preview(request, pk, version_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _version_preview(tenant, version_id)
+
+
 def _toggle_publish(request, tenant, *, redirect_name):
     tenant.is_published = not tenant.is_published
     tenant.save(update_fields=["is_published", "updated_at"])
@@ -996,16 +1223,157 @@ def _toggle_publish(request, tenant, *, redirect_name):
 
 
 def _save_upload(request, tenant):
+    """Image upload: validated at the door, then stored on Cloudinary and
+    served with f_auto,q_auto. Returns a clear error the editor can display."""
     upload = request.FILES.get("file")
     if not upload:
-        return HttpResponseBadRequest("No file")
+        return JsonResponse({"ok": False, "error": "No file received."}, status=400)
+
+    ok, error = cloudinary_media.validate_image(upload)
+    if not ok:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+
+    if not cloudinary_media.is_configured():
+        return JsonResponse(
+            {"ok": False, "error": "Image storage isn't configured."}, status=500
+        )
+
+    try:
+        result = cloudinary_media.upload_image(upload, tenant)
+    except Exception:
+        logger.exception("Cloudinary image upload failed for tenant %s", tenant.pk)
+        return JsonResponse(
+            {"ok": False, "error": "Upload failed — please try again."}, status=502
+        )
 
     asset = MediaAsset.objects.create(
         tenant=tenant,
-        file=upload,
-        original_name=upload.name,
+        original_name=upload.name[:240],
+        resource_type=MediaAsset.RESOURCE_IMAGE,
+        public_id=result["public_id"],
+        secure_url=result["secure_url"],
+        bytes=result.get("bytes", 0),
     )
-    return JsonResponse({"ok": True, "url": asset.file.url, "id": asset.id})
+    return JsonResponse({"ok": True, "url": result["delivery_url"], "id": asset.id})
+
+
+def _video_sign(request, tenant):
+    """Return signed params for a direct browser->Cloudinary video upload."""
+    if not cloudinary_media.is_configured():
+        return JsonResponse(
+            {"ok": False, "error": "Video storage isn't configured."}, status=500
+        )
+    return JsonResponse({"ok": True, **cloudinary_media.sign_video_upload(tenant)})
+
+
+def _video_confirm(request, tenant):
+    """Verify a directly-uploaded video (resource_type, size, duration) and store it."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
+
+    public_id = (payload.get("public_id") or "").strip()
+    if not public_id:
+        return JsonResponse({"ok": False, "error": "Missing video reference."}, status=400)
+
+    info, error = cloudinary_media.verify_video(public_id)
+    if error:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+
+    secure_url = info.get("secure_url", "")
+    asset = MediaAsset.objects.create(
+        tenant=tenant,
+        original_name=(payload.get("original_name") or "")[:240],
+        resource_type=MediaAsset.RESOURCE_VIDEO,
+        public_id=public_id,
+        secure_url=secure_url,
+        bytes=info.get("bytes", 0),
+    )
+    return JsonResponse({"ok": True, "url": secure_url, "id": asset.id})
+
+
+# --------------------------------------------------------------------------- #
+# Site settings (SEO, analytics, custom head)                                   #
+# --------------------------------------------------------------------------- #
+
+
+def _validate_site_settings(data):
+    """Validate and clean site settings dict. Returns (cleaned, errors)."""
+    if not isinstance(data, dict):
+        return {}, ["Request body must be a JSON object."]
+
+    errors = []
+    cleaned = {}
+
+    page_title = (data.get("page_title") or "")
+    if not isinstance(page_title, str):
+        page_title = ""
+    page_title = page_title.strip()
+    if len(page_title) > 200:
+        errors.append("Page title must be 200 characters or fewer.")
+    cleaned["page_title"] = page_title
+
+    meta_desc = (data.get("meta_description") or "")
+    if not isinstance(meta_desc, str):
+        meta_desc = ""
+    meta_desc = meta_desc.strip()
+    if len(meta_desc) > 500:
+        errors.append("Meta description must be 500 characters or fewer.")
+    cleaned["meta_description"] = meta_desc
+
+    og_image = (data.get("og_image_url") or "")
+    if not isinstance(og_image, str):
+        og_image = ""
+    og_image = og_image.strip()
+    if og_image and not og_image.startswith(("http://", "https://", "/")):
+        errors.append("OG image URL must start with http://, https://, or /.")
+    cleaned["og_image_url"] = og_image
+
+    ga_id = (data.get("ga_measurement_id") or "")
+    if not isinstance(ga_id, str):
+        ga_id = ""
+    ga_id = ga_id.strip()
+    if ga_id and not GA_ID_RE.match(ga_id):
+        errors.append("GA Measurement ID must be like G-XXXXXXX or UA-XXXXX-X.")
+    cleaned["ga_measurement_id"] = ga_id
+
+    custom_script = (data.get("custom_head_script") or "")
+    if not isinstance(custom_script, str):
+        custom_script = ""
+    cleaned["custom_head_script"] = custom_script.strip()
+
+    return cleaned, errors
+
+
+def _get_or_save_site_settings(request, tenant):
+    """Shared GET/POST handler for site settings endpoints."""
+    if request.method == "GET":
+        return JsonResponse({"settings": tenant.site_settings or {}})
+
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    cleaned, errors = _validate_site_settings(payload)
+    if errors:
+        return JsonResponse({"errors": errors}, status=400)
+
+    tenant.site_settings = cleaned
+    tenant.save(update_fields=["site_settings", "updated_at"])
+    return JsonResponse({"ok": True, "settings": cleaned})
+
+
+@agency_operator_required
+def tenant_site_settings(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _get_or_save_site_settings(request, tenant)
+
+
+@tenant_member_required
+def tenant_site_settings_self(request):
+    return _get_or_save_site_settings(request, request.tenant)
 
 
 # --------------------------------------------------------------------------- #
@@ -1259,3 +1627,509 @@ def custom_domain_force_delete_local(request, pk):
         f"“{label}” deleted locally. Cloudflare was not touched — clean up the CF hostname manually if needed.",
     )
     return redirect("dashboard:custom_domain_list")
+
+
+# --------------------------------------------------------------------------- #
+# Blog — shared helpers (two surfaces: agency by pk, tenant by host)           #
+# --------------------------------------------------------------------------- #
+
+
+BLOG_STRIP_MAX = 6
+
+
+def _blog_nav_urls(scope, tenant):
+    """Reverse the per-surface blog dashboard URLs + the reused upload URL."""
+    if scope == "tenant":
+        return {
+            "list": reverse("dashboard:blog_list_self"),
+            "create": reverse("dashboard:blog_create_self"),
+            "reorder": reverse("dashboard:blog_reorder_self"),
+            "settings": reverse("dashboard:blog_settings_self"),
+            "upload": reverse("dashboard:tenant_upload_self"),
+            "preview_new": reverse("dashboard:blog_preview_new_self"),
+            "sanitize": reverse("dashboard:blog_sanitize_self"),
+            "strip_preview": reverse("dashboard:blog_strip_preview_self"),
+            "back": reverse("dashboard:tenant_home"),
+            "public_base": "/blog/",
+        }
+    return {
+        "list": reverse("dashboard:blog_list", args=[tenant.pk]),
+        "create": reverse("dashboard:blog_create", args=[tenant.pk]),
+        "reorder": reverse("dashboard:blog_reorder", args=[tenant.pk]),
+        "settings": reverse("dashboard:blog_settings", args=[tenant.pk]),
+        "upload": reverse("dashboard:tenant_upload", args=[tenant.pk]),
+        "preview_new": reverse("dashboard:blog_preview_new", args=[tenant.pk]),
+        "sanitize": reverse("dashboard:blog_sanitize", args=[tenant.pk]),
+        "strip_preview": reverse("dashboard:blog_strip_preview", args=[tenant.pk]),
+        "back": reverse("dashboard:tenant_detail", args=[tenant.pk]),
+        "public_base": f"/site/{tenant.subdomain}/blog/",
+    }
+
+
+def _blog_post_urls(scope, tenant, post):
+    base = _blog_nav_urls(scope, tenant)["public_base"]
+    if scope == "tenant":
+        return {
+            "edit": reverse("dashboard:blog_edit_self", args=[post.pk]),
+            "delete": reverse("dashboard:blog_delete_self", args=[post.pk]),
+            "featured": reverse("dashboard:blog_featured_toggle_self", args=[post.pk]),
+            "preview": reverse("dashboard:blog_preview_self", args=[post.pk]),
+            "view": f"{base}{post.slug}/",
+        }
+    return {
+        "edit": reverse("dashboard:blog_edit", args=[tenant.pk, post.pk]),
+        "delete": reverse("dashboard:blog_delete", args=[tenant.pk, post.pk]),
+        "featured": reverse("dashboard:blog_featured_toggle", args=[tenant.pk, post.pk]),
+        "preview": reverse("dashboard:blog_preview", args=[tenant.pk, post.pk]),
+        "view": f"{base}{post.slug}/",
+    }
+
+
+def _blog_post_to_form(post):
+    if post is None:
+        return {
+            "title": "", "slug": "", "cover_image": "", "excerpt": "",
+            "body": "", "author": "", "status": BlogPost.STATUS_DRAFT,
+            "publish_date": "", "seo_title": "", "seo_description": "",
+            "og_image_url": "", "template": "", "featured": False,
+        }
+    pub = (
+        timezone.localtime(post.publish_date).strftime("%Y-%m-%dT%H:%M")
+        if post.publish_date else ""
+    )
+    return {
+        "title": post.title, "slug": post.slug, "cover_image": post.cover_image,
+        "excerpt": post.excerpt, "body": post.body, "author": post.author,
+        "status": post.status, "publish_date": pub,
+        "seo_title": post.seo_title, "seo_description": post.seo_description,
+        "og_image_url": post.og_image_url, "template": post.template,
+        "featured": post.featured,
+    }
+
+
+def _blog_list(request, tenant, scope):
+    status = (request.GET.get("status") or "all").lower()
+    posts_qs = tenant.blog_posts.all()
+    if status == "published":
+        posts_qs = posts_qs.filter(status=BlogPost.STATUS_PUBLISHED)
+    elif status == "draft":
+        posts_qs = posts_qs.filter(status=BlogPost.STATUS_DRAFT)
+    posts_qs = posts_qs.order_by("-updated_at")
+
+    rows = [{"post": p, "urls": _blog_post_urls(scope, tenant, p)} for p in posts_qs]
+    featured = (
+        tenant.blog_posts.filter(featured=True)
+        .order_by("featured_order", "-publish_date")
+    )
+    featured_rows = [
+        {"post": p, "urls": _blog_post_urls(scope, tenant, p)} for p in featured
+    ]
+
+    return render(
+        request,
+        "dashboard/blog_list.html",
+        {
+            "tenant": tenant,
+            "scope": scope,
+            "rows": rows,
+            "featured_rows": featured_rows,
+            "status": status,
+            "blog_urls": _blog_nav_urls(scope, tenant),
+            "blog_settings": blog_render.get_blog_settings(tenant),
+            "template_choices": BLOG_TEMPLATE_CHOICES,
+            "strip_choices": BLOG_STRIP_CHOICES,
+            "strip_max": BLOG_STRIP_MAX,
+            "nav_section": "blog",
+        },
+    )
+
+
+def _blog_form(request, tenant, scope, post):
+    if request.method == "POST":
+        return _blog_save(request, tenant, scope, post)
+    return _blog_render_form(request, tenant, scope, post)
+
+
+def _blog_render_form(request, tenant, scope, post, *, form_data=None, errors=None, status=200):
+    nav = _blog_nav_urls(scope, tenant)
+    if post is not None:
+        urls = _blog_post_urls(scope, tenant, post)
+        save_url, delete_url, view_url = urls["edit"], urls["delete"], urls["view"]
+        preview_url = urls["preview"]
+    else:
+        save_url, delete_url, view_url = nav["create"], None, None
+        preview_url = nav["preview_new"]
+
+    return render(
+        request,
+        "dashboard/blog_form.html",
+        {
+            "tenant": tenant,
+            "scope": scope,
+            "post": post,
+            "form": form_data if form_data is not None else _blog_post_to_form(post),
+            "errors": errors or [],
+            "save_url": save_url,
+            "delete_url": delete_url,
+            "view_url": view_url,
+            "preview_url": preview_url,
+            "blog_urls": nav,
+            "default_blog_style": blog_render.get_blog_settings(tenant)["template"],
+            "template_choices": BLOG_TEMPLATE_CHOICES,
+            "status_choices": BlogPost.STATUS_CHOICES,
+            "nav_section": "blog",
+        },
+        status=status,
+    )
+
+
+def _blog_preview(request, tenant, scope, post):
+    """Server-rendered live preview of a single post (saved or unsaved).
+
+    Rendered with the bridge script so blog_editor.js can patch title/body/
+    cover in place. ``?style=`` forces a blog style for live style switching.
+    """
+    if post is None:
+        post = BlogPost(tenant=tenant, title="Untitled post")
+    style = (request.GET.get("style") or "").strip()
+    html, _ = blog_render.render_detail(
+        tenant,
+        post,
+        style=style or None,
+        request=request,
+        blog_base=_blog_nav_urls(scope, tenant)["public_base"],
+        preview_bridge=True,
+        is_preview=False,
+    )
+    return HttpResponse(html)
+
+
+def _blog_sanitize(request):
+    """Return the post body sanitized exactly as the public render sanitizes.
+
+    The live preview patches the post body into the iframe; doing so with raw
+    contenteditable HTML would (a) be a self-XSS vector and (b) diverge from
+    the public page, which strips it. Rather than fork the allowlist into JS,
+    the editor round-trips the body through this endpoint so the preview body
+    is byte-identical to what the public site renders. Single source of truth.
+    """
+    body = request.POST.get("body") or ""
+    return JsonResponse({"html": sanitize_html(body)})
+
+
+def _blog_strip_preview(request, tenant, scope):
+    """Live homepage-strip preview honoring *unsaved* settings overrides."""
+    g = request.GET
+    enabled = None
+    if "enabled" in g:
+        enabled = g.get("enabled") in ("1", "true", "on", "yes")
+    html = blog_render.render_strip_doc(
+        tenant,
+        strip_style=(g.get("strip_style") or "").strip() or None,
+        count=g.get("count"),
+        heading=g.get("heading"),
+        enabled=enabled,
+        request=request,
+        blog_base=_blog_nav_urls(scope, tenant)["public_base"],
+    )
+    return HttpResponse(html)
+
+
+def _blog_save(request, tenant, scope, post):
+    title = (request.POST.get("title") or "").strip()
+    slug_in = (request.POST.get("slug") or "").strip()
+    cover_image = (request.POST.get("cover_image") or "").strip()
+    excerpt = (request.POST.get("excerpt") or "").strip()
+    body = sanitize_html(request.POST.get("body") or "")
+    author = (request.POST.get("author") or "").strip()
+    status = (request.POST.get("status") or BlogPost.STATUS_DRAFT).strip()
+    publish_in = (request.POST.get("publish_date") or "").strip()
+    seo_title = (request.POST.get("seo_title") or "").strip()
+    seo_description = (request.POST.get("seo_description") or "").strip()
+    og_image_url = (request.POST.get("og_image_url") or "").strip()
+    template_override = (request.POST.get("template") or "").strip()
+    featured = (request.POST.get("featured") or "") in ("on", "true", "1", "yes")
+
+    if status not in dict(BlogPost.STATUS_CHOICES):
+        status = BlogPost.STATUS_DRAFT
+    if template_override and template_override not in BLOG_TEMPLATE_IDS:
+        template_override = ""
+
+    errors = []
+    if not title:
+        errors.append("Title is required.")
+
+    publish_date = None
+    if publish_in:
+        parsed = parse_datetime(publish_in)
+        if parsed is None:
+            errors.append("Publish date isn't a valid date/time.")
+        else:
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+            publish_date = parsed
+
+    form_data = {
+        "title": title, "slug": slug_in, "cover_image": cover_image,
+        "excerpt": excerpt, "body": body, "author": author, "status": status,
+        "publish_date": publish_in, "seo_title": seo_title,
+        "seo_description": seo_description, "og_image_url": og_image_url,
+        "template": template_override, "featured": featured,
+    }
+
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return _blog_render_form(
+            request, tenant, scope, post, form_data=form_data, errors=errors, status=400
+        )
+
+    is_new = post is None
+    previously_featured = bool(post.featured) if post is not None else False
+    if is_new:
+        post = BlogPost(tenant=tenant)
+
+    post.title = title
+    post.slug = _unique_blog_slug(tenant, slug_in or title, instance=post)
+    post.cover_image = cover_image
+    post.excerpt = excerpt
+    post.body = body
+    post.author = author
+    post.status = status
+    post.seo_title = seo_title
+    post.seo_description = seo_description
+    post.og_image_url = og_image_url
+    post.template = template_override
+
+    # Stamp a publish date when first published, or honor an explicit one.
+    if publish_date is not None:
+        post.publish_date = publish_date
+    elif status == BlogPost.STATUS_PUBLISHED and post.publish_date is None:
+        post.publish_date = timezone.now()
+
+    post.featured = featured
+    if featured and not previously_featured:
+        agg = tenant.blog_posts.aggregate(m=Max("featured_order"))
+        post.featured_order = (agg["m"] or 0) + 1
+
+    post.save()
+    messages.success(request, f"Post “{post.title}” saved.")
+    return redirect(_blog_nav_urls(scope, tenant)["list"])
+
+
+def _blog_delete_post(request, tenant, scope, post_pk):
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=tenant)
+    title = post.title
+    post.delete()
+    messages.success(request, f"Post “{title}” deleted.")
+    return redirect(_blog_nav_urls(scope, tenant)["list"])
+
+
+def _blog_featured_toggle(request, tenant, scope, post_pk):
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=tenant)
+    post.featured = not post.featured
+    if post.featured:
+        agg = tenant.blog_posts.aggregate(m=Max("featured_order"))
+        post.featured_order = (agg["m"] or 0) + 1
+    post.save(update_fields=["featured", "featured_order", "updated_at"])
+    return redirect(_blog_nav_urls(scope, tenant)["list"])
+
+
+def _blog_reorder(request, tenant):
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+    order = payload.get("order")
+    if not isinstance(order, list):
+        return HttpResponseBadRequest("order must be a list")
+
+    pks = []
+    for raw in order:
+        try:
+            pks.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    posts = {p.pk: p for p in tenant.blog_posts.filter(pk__in=pks)}
+    for idx, pk in enumerate(pks):
+        post = posts.get(pk)
+        if post is not None:
+            post.featured_order = idx
+            post.save(update_fields=["featured_order", "updated_at"])
+    return JsonResponse({"ok": True})
+
+
+def _blog_settings_save(request, tenant, scope):
+    template = (request.POST.get("template") or "").strip()
+    if template not in BLOG_TEMPLATE_IDS:
+        template = blog_render.DEFAULT_BLOG_TEMPLATE
+    strip_style = (request.POST.get("strip_style") or "").strip()
+    if strip_style not in BLOG_STRIP_IDS:
+        strip_style = DEFAULT_BLOG_STRIP
+    title = (request.POST.get("title") or "Blog").strip() or "Blog"
+    heading = (request.POST.get("strip_heading") or "").strip() or "From the blog"
+    strip_enabled = (request.POST.get("strip_enabled") or "") in ("on", "true", "1", "yes")
+    try:
+        strip_count = int(request.POST.get("strip_count") or 3)
+    except (TypeError, ValueError):
+        strip_count = 3
+    strip_count = max(1, min(BLOG_STRIP_MAX, strip_count))
+
+    tenant.blog_settings = {
+        "template": template,
+        "title": title[:120],
+        "strip_enabled": strip_enabled,
+        "strip_count": strip_count,
+        "strip_heading": heading[:120],
+        "strip_style": strip_style,
+    }
+    tenant.save(update_fields=["blog_settings", "updated_at"])
+    messages.success(request, "Blog settings updated.")
+    return redirect(_blog_nav_urls(scope, tenant)["list"])
+
+
+# --------------------------------------------------------------------------- #
+# Blog — agency surface (by pk)                                                #
+# --------------------------------------------------------------------------- #
+
+
+@agency_operator_required
+def blog_list(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_list(request, tenant, "agency")
+
+
+@agency_operator_required
+def blog_create(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_form(request, tenant, "agency", None)
+
+
+@agency_operator_required
+def blog_edit(request, pk, post_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=tenant)
+    return _blog_form(request, tenant, "agency", post)
+
+
+@agency_operator_required
+def blog_preview(request, pk, post_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=tenant)
+    return _blog_preview(request, tenant, "agency", post)
+
+
+@agency_operator_required
+def blog_preview_new(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_preview(request, tenant, "agency", None)
+
+
+@agency_operator_required
+@require_POST
+def blog_delete(request, pk, post_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_delete_post(request, tenant, "agency", post_pk)
+
+
+@agency_operator_required
+@require_POST
+def blog_featured_toggle(request, pk, post_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_featured_toggle(request, tenant, "agency", post_pk)
+
+
+@agency_operator_required
+@require_POST
+def blog_reorder(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_reorder(request, tenant)
+
+
+@agency_operator_required
+@require_POST
+def blog_settings(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_settings_save(request, tenant, "agency")
+
+
+@agency_operator_required
+@require_POST
+def blog_sanitize(request, pk):
+    get_object_or_404(Tenant, pk=pk)
+    return _blog_sanitize(request)
+
+
+@agency_operator_required
+@require_GET
+def blog_strip_preview(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_strip_preview(request, tenant, "agency")
+
+
+# --------------------------------------------------------------------------- #
+# Blog — tenant surface (host resolves to a tenant)                            #
+# --------------------------------------------------------------------------- #
+
+
+@tenant_member_required
+def blog_list_self(request):
+    return _blog_list(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+def blog_create_self(request):
+    return _blog_form(request, request.tenant, "tenant", None)
+
+
+@tenant_member_required
+def blog_edit_self(request, post_pk):
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=request.tenant)
+    return _blog_form(request, request.tenant, "tenant", post)
+
+
+@tenant_member_required
+def blog_preview_self(request, post_pk):
+    post = get_object_or_404(BlogPost, pk=post_pk, tenant=request.tenant)
+    return _blog_preview(request, request.tenant, "tenant", post)
+
+
+@tenant_member_required
+def blog_preview_new_self(request):
+    return _blog_preview(request, request.tenant, "tenant", None)
+
+
+@tenant_member_required
+@require_POST
+def blog_delete_self(request, post_pk):
+    return _blog_delete_post(request, request.tenant, "tenant", post_pk)
+
+
+@tenant_member_required
+@require_POST
+def blog_featured_toggle_self(request, post_pk):
+    return _blog_featured_toggle(request, request.tenant, "tenant", post_pk)
+
+
+@tenant_member_required
+@require_POST
+def blog_reorder_self(request):
+    return _blog_reorder(request, request.tenant)
+
+
+@tenant_member_required
+@require_POST
+def blog_settings_self(request):
+    return _blog_settings_save(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+@require_POST
+def blog_sanitize_self(request):
+    return _blog_sanitize(request)
+
+
+@tenant_member_required
+@require_GET
+def blog_strip_preview_self(request):
+    return _blog_strip_preview(request, request.tenant, "tenant")

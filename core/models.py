@@ -1,8 +1,39 @@
+import re
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 from .parser import build_schema
+
+
+BLOG_TEMPLATE_MINIMAL = "minimal"
+BLOG_TEMPLATE_MAGAZINE = "magazine"
+BLOG_TEMPLATE_CARDS = "cards"
+BLOG_TEMPLATE_CHOICES = [
+    (BLOG_TEMPLATE_MINIMAL, "Minimal Reading"),
+    (BLOG_TEMPLATE_MAGAZINE, "Magazine"),
+    (BLOG_TEMPLATE_CARDS, "Card Grid"),
+]
+BLOG_TEMPLATE_IDS = {c[0] for c in BLOG_TEMPLATE_CHOICES}
+DEFAULT_BLOG_TEMPLATE = BLOG_TEMPLATE_MINIMAL
+
+# Homepage "featured posts" strip layouts. Chosen independently of the blog
+# index/detail style so the strip can be tuned to match the site's homepage.
+# Each maps to a self-contained template under templates/blog/strips/.
+BLOG_STRIP_CARDS = "cards"
+BLOG_STRIP_OVERLAY = "overlay"
+BLOG_STRIP_SPOTLIGHT = "spotlight"
+BLOG_STRIP_LIST = "list"
+BLOG_STRIP_CHOICES = [
+    (BLOG_STRIP_CARDS, "Cards — cover image, title & excerpt"),
+    (BLOG_STRIP_OVERLAY, "Overlay — title on a full-bleed image"),
+    (BLOG_STRIP_SPOTLIGHT, "Spotlight — one lead post + a list"),
+    (BLOG_STRIP_LIST, "Minimal list — clean, text-forward"),
+]
+BLOG_STRIP_IDS = {c[0] for c in BLOG_STRIP_CHOICES}
+DEFAULT_BLOG_STRIP = BLOG_STRIP_CARDS
 
 
 class Template(models.Model):
@@ -44,6 +75,8 @@ class Tenant(models.Model):
     )
 
     content = models.JSONField(default=dict, blank=True)
+    site_settings = models.JSONField(default=dict, blank=True)
+    blog_settings = models.JSONField(default=dict, blank=True)
     is_published = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -104,15 +137,36 @@ class CustomDomain(models.Model):
 
 
 class MediaAsset(models.Model):
+    RESOURCE_IMAGE = "image"
+    RESOURCE_VIDEO = "video"
+
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name="assets"
     )
-    file = models.ImageField(upload_to="tenants/%Y/%m/")
+    # Legacy local storage — kept so already-stored /media/ assets still resolve.
+    # New uploads go to Cloudinary and leave this blank.
+    file = models.ImageField(upload_to="tenants/%Y/%m/", blank=True, null=True)
     original_name = models.CharField(max_length=240, blank=True)
+
+    # Cloudinary-backed fields (new uploads).
+    resource_type = models.CharField(max_length=10, default=RESOURCE_IMAGE)
+    public_id = models.CharField(max_length=255, blank=True, default="")
+    secure_url = models.URLField(max_length=600, blank=True, default="")
+    bytes = models.PositiveBigIntegerField(default=0)
+
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-uploaded_at"]
+
+    @property
+    def url(self) -> str:
+        """Best available URL: Cloudinary first, then legacy local file."""
+        if self.secure_url:
+            return self.secure_url
+        if self.file:
+            return self.file.url
+        return ""
 
 
 class ContentVersion(models.Model):
@@ -130,3 +184,123 @@ class ContentVersion(models.Model):
 
     class Meta:
         ordering = ["-saved_at"]
+
+
+def _unique_blog_slug(tenant, base: str, *, instance=None) -> str:
+    """A slug unique within ``tenant``, derived from ``base``, suffixed on
+    collision (``-2``, ``-3`` …). Excludes ``instance`` from the check so
+    re-saving a post keeps its slug."""
+    base = slugify(base or "")[:200].strip("-") or "post"
+    candidate = base
+    suffix = 2
+    while True:
+        qs = BlogPost.objects.filter(tenant=tenant, slug=candidate)
+        if instance is not None and instance.pk:
+            qs = qs.exclude(pk=instance.pk)
+        if not qs.exists():
+            return candidate
+        token = f"-{suffix}"
+        candidate = f"{base[: 200 - len(token)].rstrip('-')}{token}"
+        suffix += 1
+
+
+class BlogPost(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_PUBLISHED = "published"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_PUBLISHED, "Published"),
+    ]
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="blog_posts"
+    )
+    title = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, blank=True)
+
+    cover_image = models.CharField(max_length=500, blank=True, default="")
+    excerpt = models.TextField(blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    author = models.CharField(max_length=120, blank=True, default="")
+
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT
+    )
+    publish_date = models.DateTimeField(null=True, blank=True)
+
+    seo_title = models.CharField(max_length=200, blank=True, default="")
+    seo_description = models.CharField(max_length=500, blank=True, default="")
+    og_image_url = models.CharField(max_length=500, blank=True, default="")
+
+    template = models.CharField(
+        max_length=20, choices=BLOG_TEMPLATE_CHOICES, blank=True, default=""
+    )
+    featured = models.BooleanField(default=False)
+    featured_order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-publish_date", "-created_at"]
+        unique_together = [("tenant", "slug")]
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "featured"]),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.tenant.subdomain})"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _unique_blog_slug(self.tenant, self.title, instance=self)
+        # Invariant: a published post MUST have a publish_date. The public
+        # queries (`published_posts`, `is_live`) require publish_date IS NOT
+        # NULL for stable ordering/display, so a published post without one
+        # would never appear in the blog index, post page, or homepage strip.
+        # Stamping it here (not only in the dashboard form) keeps the rule true
+        # for every write path: admin, the featured-star toggle, reorder, data
+        # scripts. An explicit date the caller set is left untouched.
+        if self.status == self.STATUS_PUBLISHED and self.publish_date is None:
+            self.publish_date = timezone.now()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None and "publish_date" not in update_fields:
+                kwargs["update_fields"] = list(update_fields) + ["publish_date"]
+        super().save(*args, **kwargs)
+
+    @property
+    def is_live(self) -> bool:
+        # Visibility is status-based (see blog_render.published_posts): a
+        # published post is live. We don't gate on `publish_date <= now`, since
+        # the timezone-naive datetime-local input routinely stores a "publish
+        # now" a few hours in the future, which would wrongly flag a published
+        # post as a draft preview on its detail page.
+        return self.status == self.STATUS_PUBLISHED and self.publish_date is not None
+
+    def effective_template(self, site_default: str) -> str:
+        if self.template in BLOG_TEMPLATE_IDS:
+            return self.template
+        return site_default
+
+    def display_excerpt(self, length: int = 200) -> str:
+        if self.excerpt.strip():
+            return self.excerpt.strip()
+        text = re.sub(r"<[^>]+>", " ", self.body or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) <= length:
+            return text
+        return text[:length].rsplit(" ", 1)[0].rstrip() + "…"
+
+    def resolved_seo(self, site_settings: dict | None = None) -> dict:
+        """Per-post head settings, layered over the site's settings so blog
+        pages keep the site GA snippet + custom head script."""
+        merged = dict(site_settings or {})
+        merged["page_title"] = (self.seo_title or self.title).strip()
+        merged["meta_description"] = (
+            self.seo_description or self.display_excerpt()
+        ).strip()
+        og = (self.og_image_url or self.cover_image).strip()
+        if og:
+            merged["og_image_url"] = og
+        return merged

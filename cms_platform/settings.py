@@ -19,10 +19,25 @@ _tenant_base_domains = [
     if domain.strip()
 ]
 TENANT_BASE_DOMAIN = _tenant_base_domains[0] if _tenant_base_domains else "localhost"
-_additional_tenant_base_domains = _tenant_base_domains[1:]
+TENANT_ADDITIONAL_BASE_DOMAINS = _tenant_base_domains[1:]
+# kept for backwards-compat with existing references
+_additional_tenant_base_domains = TENANT_ADDITIONAL_BASE_DOMAINS
+
+# Local-dev wildcard base. `lvh.me` (and any `*.lvh.me`) publicly resolves to
+# 127.0.0.1, so `acme.lvh.me:8000` reaches the local server with subdomain
+# tenant routing working — no hosts-file edits needed. Only honored in DEBUG
+# (see TenantResolverMiddleware + tenant_public_url); production is untouched.
+TENANT_DEV_BASE_DOMAIN = os.environ.get("TENANT_DEV_BASE_DOMAIN", "lvh.me").strip(".").lower()
 
 _allowed_hosts_env = os.environ.get("DJANGO_ALLOWED_HOSTS", "*")
 ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(",") if h.strip()] or ["*"]
+
+# In local dev, accept the localhost/lvh.me wildcard hosts used for tenant
+# subdomain previews (no-op when ALLOWED_HOSTS is already "*").
+if DEBUG:
+    for _h in ("localhost", "127.0.0.1", ".localhost", TENANT_DEV_BASE_DOMAIN, f".{TENANT_DEV_BASE_DOMAIN}"):
+        if _h and _h not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_h)
 
 # Behind Traefik / Cloudflare — trust the X-Forwarded-Proto header so Django
 # knows requests are HTTPS even though the inner hop is plain HTTP.
@@ -62,6 +77,15 @@ CSRF_TRUSTED_ORIGINS.extend(
         "http://*.sites.katek.app",
     ]
 )
+if DEBUG and TENANT_DEV_BASE_DOMAIN:
+    CSRF_TRUSTED_ORIGINS.extend(
+        [
+            f"http://{TENANT_DEV_BASE_DOMAIN}:8000",
+            f"http://*.{TENANT_DEV_BASE_DOMAIN}:8000",
+            f"http://{TENANT_DEV_BASE_DOMAIN}",
+            f"http://*.{TENANT_DEV_BASE_DOMAIN}",
+        ]
+    )
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS))
 
 
@@ -186,7 +210,37 @@ CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = os.environ.get("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_DCV_DELEGATION_TARGET = "711b5e8ed3b3aa16.dcv.cloudflare.com"
 
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
+
 RAILWAY_TOKEN = os.environ.get("RAILWAY_TOKEN", "")
 RAILWAY_SERVICE_ID = os.environ.get("RAILWAY_SERVICE_ID", "")
 RAILWAY_ENVIRONMENT_ID = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
 RAILWAY_PROJECT_ID = os.environ.get("RAILWAY_PROJECT_ID", "")
+
+# --------------------------------------------------------------------------- #
+# Email — sent via the Resend HTTP API (see core/email_backend.py).            #
+# --------------------------------------------------------------------------- #
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+# Prefer RESEND_FROM_EMAIL; fall back to DEFAULT_FROM_EMAIL from the environment.
+DEFAULT_FROM_EMAIL = (
+    os.environ.get("RESEND_FROM_EMAIL")
+    or os.environ.get("DEFAULT_FROM_EMAIL")
+    or "noreply@example.com"
+)
+EMAIL_BACKEND = "core.email_backend.ResendBackend"
+
+# Password-reset tokens (default_token_generator) — signed + expiring.
+PASSWORD_RESET_TIMEOUT = int(os.environ.get("PASSWORD_RESET_TIMEOUT", 60 * 60))  # 1h
+
+# --------------------------------------------------------------------------- #
+# Cloudinary — client media (images server-routed; video signed direct upload) #
+# --------------------------------------------------------------------------- #
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+# Validate-at-the-door limits for client uploads.
+MEDIA_ALLOWED_IMAGE_FORMATS = {"png", "jpg", "jpeg", "gif", "webp"}
+MEDIA_MAX_IMAGE_BYTES = int(os.environ.get("MEDIA_MAX_IMAGE_BYTES", 10 * 1024 * 1024))      # 10 MB
+MEDIA_MAX_VIDEO_BYTES = int(os.environ.get("MEDIA_MAX_VIDEO_BYTES", 200 * 1024 * 1024))     # 200 MB
+MEDIA_MAX_VIDEO_DURATION = int(os.environ.get("MEDIA_MAX_VIDEO_DURATION", 180))             # seconds

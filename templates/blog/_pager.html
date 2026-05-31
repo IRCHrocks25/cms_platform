@@ -1,0 +1,15 @@
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="blog-pager">
+  {% if page_obj.has_previous %}
+    <a href="{{ blog_base }}?page={{ page_obj.previous_page_number }}">← Newer</a>
+  {% else %}
+    <span class="is-disabled">← Newer</span>
+  {% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+    <a href="{{ blog_base }}?page={{ page_obj.next_page_number }}">Older →</a>
+  {% else %}
+    <span class="is-disabled">Older →</span>
+  {% endif %}
+</nav>
+{% endif %}

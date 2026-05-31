@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import Template, Tenant, TenantMembership, MediaAsset, ContentVersion
+from .models import (
+    Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
+)
 
 
 @admin.register(Template)
@@ -34,3 +36,11 @@ class TenantMembershipAdmin(admin.ModelAdmin):
 
 admin.site.register(MediaAsset)
 admin.site.register(ContentVersion)
+
+
+@admin.register(BlogPost)
+class BlogPostAdmin(admin.ModelAdmin):
+    list_display = ("title", "tenant", "status", "featured", "publish_date", "updated_at")
+    list_filter = ("status", "featured", "tenant")
+    search_fields = ("title", "slug", "tenant__name", "tenant__subdomain")
+    readonly_fields = ("created_at", "updated_at")

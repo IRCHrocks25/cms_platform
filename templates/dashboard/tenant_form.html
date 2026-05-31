@@ -4,12 +4,17 @@
 
 {% block content %}
   <div class="page">
+    <nav class="breadcrumb">
+      <a href="{% url 'dashboard:tenant_list' %}">Sites</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>New client site</span>
+    </nav>
+
     <div class="page-head">
       <div>
         <h1 class="page-title">New client site</h1>
         <p class="page-subtitle">Pick a template, set a subdomain, and create the client's user — all in one step.</p>
       </div>
-      <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-ghost">← Back to sites</a>
     </div>
 
     <div class="card" style="max-width: 720px;">
@@ -53,13 +58,143 @@
                 {{ template.name }} ({{ template.schema.sections|length }} sections)
               </option>
             {% endfor %}
+            <option value="__new__" {% if form_data.template == "__new__" %}selected{% endif %}>
+              + Create new template inline…
+            </option>
           </select>
-          {% if not templates %}
+          <span class="field-hint">
+            {% if not templates %}
+              No templates yet — pick <em>+ Create new template inline</em> to author one without leaving this page.
+            {% else %}
+              Or <a href="{% url 'dashboard:template_create' %}">manage templates →</a>
+            {% endif %}
+          </span>
+        </div>
+
+        {# ---- Inline template-create block (revealed when "__new__" is chosen) ---- #}
+        <div id="new-template-block"
+             {% if form_data.template != "__new__" %}hidden{% endif %}
+             style="border: 1px dashed var(--color-border); border-radius: var(--radius-md); padding: 16px; background: var(--color-surface-2);">
+          <div style="margin-bottom: 12px;">
+            <h4 style="margin: 0 0 4px;">New template</h4>
+            <p style="color: var(--color-text-muted); font-size: 13px; margin: 0;">
+              Paste annotated HTML, or paste raw HTML and click <em>Annotate with AI</em>.
+              The template will be created and assigned to this site in one step.
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="id_new_template_name">Template name</label>
+            <input class="input" type="text" name="new_template_name" id="id_new_template_name"
+                   placeholder="Restaurant landing, Salon homepage, etc."
+                   value="{{ form_data.new_template_name }}">
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="id_new_template_description">Description <span class="field-optional">(optional)</span></label>
+            <input class="input" type="text" name="new_template_description" id="id_new_template_description"
+                   value="{{ form_data.new_template_description }}">
+          </div>
+
+          <div class="field">
+            <div class="row-between" style="align-items: center; margin-bottom: 6px;">
+              <label class="field-label" for="id_new_template_html" style="margin: 0;">HTML source</label>
+              <div class="row" style="gap: 8px;">
+                <button type="button" id="annotate-btn" class="btn btn-ghost btn-sm"
+                        data-url="{% url 'dashboard:template_annotate' %}"
+                        title="Send raw HTML to AI and get back annotated HTML with data-section / data-edit markers">
+                  Annotate with AI
+                </button>
+                <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
+              </div>
+            </div>
+            <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
+            <textarea class="textarea" name="new_template_html" id="id_new_template_html" rows="16">{{ form_data.new_template_html }}</textarea>
             <span class="field-hint">
-              No templates yet —
-              <a href="{% url 'dashboard:template_create' %}">create one first</a>.
+              Use <code>data-section</code> on wrappers and <code>data-edit="section.field"</code> on editable elements.
+              Field types: <code>text</code>, <code>richtext</code>, <code>image</code>, <code>color</code>, <code>link</code>.
             </span>
-          {% endif %}
+
+            <div id="preview-panel" hidden style="margin-top: 12px; border: 1px solid var(--color-border, #e5e7eb); border-radius: var(--radius-md); overflow: hidden;">
+              <div class="row-between" style="padding: 8px 12px; background: var(--color-surface-2); font-size: 13px; color: var(--color-text-soft);">
+                <span>Live preview (raw — no content substitution)</span>
+                <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
+              </div>
+              <iframe id="preview-iframe" style="width: 100%; height: 480px; border: 0; background: white;"></iframe>
+            </div>
+          </div>
+        </div>
+
+        {# ---- Side-by-side AI annotation compare overlay --------------- #}
+        <div id="compare-overlay" hidden
+             style="position: fixed; inset: 0; background: rgba(10,10,20,0.55); z-index: 1000; padding: 24px;">
+          <div style="background: var(--color-surface); border-radius: var(--radius-md); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.35);">
+            <div class="row-between" style="padding: 14px 20px; border-bottom: 1px solid var(--color-border); align-items: center;">
+              <div>
+                <div style="font-weight: 600; font-size: 15px;">Compare AI annotation</div>
+                <div id="compare-summary" style="font-size: 12px; color: var(--color-text-soft); margin-top: 2px;"></div>
+              </div>
+              <button type="button" id="compare-close" class="btn btn-ghost btn-sm">✕ Close</button>
+            </div>
+            <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--color-border); overflow: hidden;">
+              <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
+                <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
+                  <div style="font-size: 13px; font-weight: 500;">Your input</div>
+                  <div class="row" style="gap: 4px;">
+                    <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="code">Code</button>
+                    <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="preview">Preview</button>
+                  </div>
+                </div>
+                <div style="flex: 1; position: relative; overflow: hidden;">
+                  <textarea id="compare-left-code" readonly
+                            style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
+                  <iframe id="compare-left-preview" hidden
+                          style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
+                </div>
+              </div>
+              <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
+                <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
+                  <div style="font-size: 13px; font-weight: 500;">AI annotated</div>
+                  <div class="row" style="gap: 4px;">
+                    <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="code">Code</button>
+                    <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="preview">Preview</button>
+                  </div>
+                </div>
+                <div style="flex: 1; position: relative; overflow: hidden;">
+                  <textarea id="compare-right-code"
+                            style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
+                  <iframe id="compare-right-preview" hidden
+                          style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
+                  <div id="compare-loading" class="compare-loading"
+                       style="position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; background: var(--color-surface);">
+                    <div class="compare-loading-inner" style="text-align: center; max-width: 340px; padding: 32px;">
+                      <div class="compare-loading-dots" style="display: inline-flex; gap: 7px;">
+                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                      </div>
+                      <div class="compare-loading-title" style="font-weight:500;font-size:15px;margin-top:14px;color:var(--color-text);">AI is annotating… <em style="font-style:normal;font-family:var(--font-mono);color:var(--color-purple);">beep boop</em></div>
+                      <div class="compare-progress" style="height:6px;width:280px;max-width:100%;margin:16px auto 0;background:var(--color-surface-2);border-radius:999px;overflow:hidden;">
+                        <div class="compare-progress-bar" id="compare-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--color-blue),var(--color-purple));border-radius:999px;transition:width .45s ease;"></div>
+                      </div>
+                      <div class="compare-loading-sub" id="compare-loading-sub" style="font-size:12px;color:var(--color-text-muted);margin-top:10px;">Reading your HTML…</div>
+                      <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm" hidden style="margin-top: 14px;">Try again</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row-between" style="padding: 12px 20px; border-top: 1px solid var(--color-border); align-items: center; background: var(--color-surface-2);">
+              <div style="font-size: 12px; color: var(--color-text-soft);">
+                You can edit the AI output on the right before applying.
+              </div>
+              <div class="row" style="gap: 8px;">
+                <button type="button" id="compare-retry" class="btn btn-ghost btn-sm">↻ Re-run AI</button>
+                <button type="button" id="compare-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                <button type="button" id="compare-apply" class="btn btn-primary btn-sm">Apply annotation</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="field">
@@ -149,6 +284,301 @@
         timer = setTimeout(check, 300);
       });
       input.addEventListener("blur", check);
+    })();
+  </script>
+
+  <script>
+    // ---- Inline template-create: toggle visibility on dropdown ------------ //
+    (function () {
+      var select = document.getElementById("id_template");
+      var block = document.getElementById("new-template-block");
+      var nameInput = document.getElementById("id_new_template_name");
+      var htmlInput = document.getElementById("id_new_template_html");
+      if (!select || !block) return;
+
+      function sync() {
+        var isNew = select.value === "__new__";
+        if (isNew) {
+          block.removeAttribute("hidden");
+          if (nameInput) nameInput.setAttribute("required", "required");
+          if (htmlInput) htmlInput.setAttribute("required", "required");
+        } else {
+          block.setAttribute("hidden", "");
+          if (nameInput) nameInput.removeAttribute("required");
+          if (htmlInput) htmlInput.removeAttribute("required");
+        }
+      }
+      select.addEventListener("change", sync);
+      sync();
+    })();
+  </script>
+
+  <script>
+    // ---- Inline template-create: AI annotate + live preview --------------- //
+    // Mirrors templates/dashboard/template_form.html, scoped to the inline
+    // textarea (id_new_template_html). Keep behavior in sync if you change
+    // the template_form version.
+    (function () {
+      var toggle = document.getElementById("preview-toggle");
+      var refresh = document.getElementById("preview-refresh");
+      var panel = document.getElementById("preview-panel");
+      var iframe = document.getElementById("preview-iframe");
+      var textarea = document.getElementById("id_new_template_html");
+      if (!toggle || !panel || !iframe || !textarea) return;
+
+      function render() {
+        iframe.srcdoc = textarea.value;
+      }
+
+      toggle.addEventListener("click", function () {
+        if (panel.hasAttribute("hidden")) {
+          panel.removeAttribute("hidden");
+          toggle.textContent = "Hide preview";
+          render();
+          panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } else {
+          panel.setAttribute("hidden", "");
+          toggle.textContent = "Preview";
+        }
+      });
+
+      if (refresh) refresh.addEventListener("click", render);
+
+      var annotateBtn = document.getElementById("annotate-btn");
+      var statusBox = document.getElementById("annotate-status");
+      if (!annotateBtn || !statusBox) return;
+
+      function csrfToken() {
+        var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        if (m) return decodeURIComponent(m[1]);
+        var input = document.querySelector("input[name=csrfmiddlewaretoken]");
+        return input ? input.value : "";
+      }
+
+      function setStatus(kind, message) {
+        statusBox.removeAttribute("hidden");
+        var bg = kind === "error" ? "#fef2f2" : kind === "ok" ? "#ecfdf5" : "#eff6ff";
+        var fg = kind === "error" ? "#991b1b" : kind === "ok" ? "#065f46" : "#1e3a8a";
+        statusBox.style.background = bg;
+        statusBox.style.color = fg;
+        statusBox.textContent = message;
+      }
+
+      var overlay = document.getElementById("compare-overlay");
+      var overlaySummary = document.getElementById("compare-summary");
+      var leftCode = document.getElementById("compare-left-code");
+      var leftPreview = document.getElementById("compare-left-preview");
+      var rightCode = document.getElementById("compare-right-code");
+      var rightPreview = document.getElementById("compare-right-preview");
+      var compareApply = document.getElementById("compare-apply");
+      var compareCancel = document.getElementById("compare-cancel");
+      var compareClose = document.getElementById("compare-close");
+      var compareRetry = document.getElementById("compare-retry");
+      var compareReady = !!(overlay && overlaySummary && leftCode && rightCode && compareApply && compareCancel && compareClose && compareRetry);
+      if (!compareReady) {
+        console.warn("[annotate] compare overlay missing — falling back to direct replace.");
+      }
+      var savedInputForRetry = "";
+
+      var compareLoading = document.getElementById("compare-loading");
+      var progressBar = document.getElementById("compare-progress-bar");
+      var loadingSub = document.getElementById("compare-loading-sub");
+      var loadingRetry = document.getElementById("compare-loading-retry");
+      var progressTimer = null, elapsedTimer = null, loadStart = 0, progressPct = 0;
+
+      function stopProgress() {
+        clearInterval(progressTimer); clearInterval(elapsedTimer);
+        progressTimer = elapsedTimer = null;
+      }
+      function startProgress() {
+        stopProgress();
+        progressPct = 0;
+        loadStart = Date.now();
+        if (progressBar) progressBar.style.width = "0%";
+        if (loadingSub) loadingSub.textContent = "Reading your HTML…";
+        if (loadingRetry) loadingRetry.hidden = true;
+        // Estimated progress: eases toward 95% (we can't know real % from one call).
+        progressTimer = setInterval(function () {
+          progressPct += (95 - progressPct) * 0.045;
+          if (progressBar) progressBar.style.width = progressPct.toFixed(1) + "%";
+        }, 200);
+        elapsedTimer = setInterval(function () {
+          var s = Math.round((Date.now() - loadStart) / 1000);
+          if (loadingSub) loadingSub.textContent = s + "s · usually 10–30s";
+        }, 1000);
+      }
+      function openCompareLoading(originalHtml) {
+        if (!compareReady) return;
+        leftCode.value = originalHtml;
+        rightCode.value = "";
+        setView("left", "code");
+        setView("right", "code");
+        overlaySummary.textContent = "Annotating your HTML…";
+        overlay.removeAttribute("hidden");
+        document.body.style.overflow = "hidden";
+        if (compareLoading) compareLoading.style.display = "flex";
+        if (compareApply) compareApply.disabled = true;
+        startProgress();
+      }
+      function fillCompareResult(annotatedHtml, sections) {
+        stopProgress();
+        if (progressBar) progressBar.style.width = "100%";
+        rightCode.value = annotatedHtml;
+        setView("left", "code");
+        setView("right", "code");
+        var summary = sections.length
+          ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
+            ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
+          : "AI returned HTML but no editable sections were detected — review the output carefully.";
+        overlaySummary.textContent = summary;
+        if (compareApply) compareApply.disabled = false;
+        setTimeout(function () { if (compareLoading) compareLoading.style.display = "none"; }, 250);
+      }
+      function showLoadingError(msg) {
+        stopProgress();
+        if (progressBar) progressBar.style.width = "100%";
+        if (loadingSub) loadingSub.textContent = msg || "Annotation failed.";
+        if (loadingRetry) loadingRetry.hidden = false;
+      }
+
+      function setView(side, view) {
+        if (!compareReady) return;
+        var codeEl = side === "left" ? leftCode : rightCode;
+        var previewEl = side === "left" ? leftPreview : rightPreview;
+        if (view === "preview") {
+          previewEl.srcdoc = codeEl.value;
+          codeEl.setAttribute("hidden", "");
+          previewEl.removeAttribute("hidden");
+        } else {
+          previewEl.setAttribute("hidden", "");
+          codeEl.removeAttribute("hidden");
+        }
+        var tabs = document.querySelectorAll('.compare-tab[data-side="' + side + '"]');
+        tabs.forEach(function (t) {
+          if (t.dataset.view === view) {
+            t.style.background = "var(--color-surface)";
+            t.style.fontWeight = "600";
+          } else {
+            t.style.background = "";
+            t.style.fontWeight = "";
+          }
+        });
+      }
+
+      if (compareReady) {
+        document.querySelectorAll(".compare-tab").forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            setView(tab.dataset.side, tab.dataset.view);
+          });
+        });
+      }
+
+      function openCompare(originalHtml, annotatedHtml, sections) {
+        if (!compareReady) {
+          textarea.value = annotatedHtml;
+          setStatus("ok", "Annotation applied (compare overlay unavailable).");
+          if (!panel.hasAttribute("hidden")) render();
+          return;
+        }
+        leftCode.value = originalHtml;
+        rightCode.value = annotatedHtml;
+        setView("left", "code");
+        setView("right", "code");
+        var summary = sections.length
+          ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
+            ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
+          : "AI returned HTML but no editable sections were detected — review the output carefully.";
+        overlaySummary.textContent = summary;
+        overlay.removeAttribute("hidden");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeCompare() {
+        if (!compareReady) return;
+        stopProgress();
+        if (compareLoading) compareLoading.style.display = "none";
+        overlay.setAttribute("hidden", "");
+        document.body.style.overflow = "";
+      }
+
+      if (compareReady) {
+        compareClose.addEventListener("click", closeCompare);
+        compareCancel.addEventListener("click", closeCompare);
+        compareApply.addEventListener("click", function () {
+          textarea.value = rightCode.value;
+          setStatus("ok", "Annotation applied. Fill in the rest and create the site.");
+          closeCompare();
+          if (!panel.hasAttribute("hidden")) render();
+        });
+        overlay.addEventListener("click", function (e) {
+          if (e.target === overlay) closeCompare();
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && !overlay.hasAttribute("hidden")) closeCompare();
+        });
+      }
+
+      function runAnnotate(sourceHtml) {
+        annotateBtn.disabled = true;
+        if (compareRetry) compareRetry.disabled = true;
+        var originalText = annotateBtn.textContent;
+        annotateBtn.textContent = "Annotating…";
+        setStatus("info", "Sending to OpenAI — usually 10–30 seconds.");
+        savedInputForRetry = sourceHtml;
+        // Show the compare view immediately, right column in a loading state.
+        if (compareReady) openCompareLoading(sourceHtml);
+
+        return fetch(annotateBtn.dataset.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken(),
+          },
+          body: JSON.stringify({ html: sourceHtml }),
+        })
+          .then(function (res) {
+            return res.json().then(function (body) {
+              return { ok: res.ok, body: body };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) {
+              var msg = (result.body && result.body.error) || "Annotation failed.";
+              setStatus("error", msg);
+              if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError(msg);
+              return;
+            }
+            setStatus("info", "AI returned — compare the two versions and choose whether to apply.");
+            if (compareReady) fillCompareResult(result.body.html, result.body.sections || []);
+            else openCompare(sourceHtml, result.body.html, result.body.sections || []);
+          })
+          .catch(function (err) {
+            setStatus("error", "Network error: " + err.message);
+            if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError("Network error: " + err.message);
+          })
+          .finally(function () {
+            annotateBtn.disabled = false;
+            if (compareRetry) compareRetry.disabled = false;
+            annotateBtn.textContent = originalText;
+          });
+      }
+
+      annotateBtn.addEventListener("click", function () {
+        var raw = textarea.value.trim();
+        if (!raw) {
+          setStatus("error", "Paste some HTML first.");
+          return;
+        }
+        runAnnotate(raw);
+      });
+
+      function retryAnnotate() {
+        var source = savedInputForRetry || (leftCode ? leftCode.value : "");
+        if (!source) return;
+        runAnnotate(source);
+      }
+      if (compareRetry) compareRetry.addEventListener("click", retryAnnotate);
+      if (loadingRetry) loadingRetry.addEventListener("click", retryAnnotate);
     })();
   </script>
 {% endblock %}

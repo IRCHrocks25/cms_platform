@@ -1,0 +1,41 @@
+{% load humanize %}
+<section class="cms-blog-strip cms-strip cms-strip--overlay" data-cms-blog-strip>
+  <style>
+    .cms-strip--overlay{--cbs-accent:{{ accent|default:"#2563eb" }};box-sizing:border-box;padding:clamp(48px,7vw,88px) 24px;background:#0d0d14;font-family:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff;}
+    .cms-strip--overlay *{box-sizing:border-box;}
+    .cms-strip--overlay .cbs-wrap{max-width:1160px;margin:0 auto;}
+    .cms-strip--overlay .cbs-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:clamp(24px,4vw,40px);flex-wrap:wrap;}
+    .cms-strip--overlay .cbs-eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--cbs-accent);margin:0 0 8px;}
+    .cms-strip--overlay .cbs-heading{font-family:'Fraunces',Georgia,serif;font-size:clamp(26px,3.4vw,40px);line-height:1.1;letter-spacing:-.02em;margin:0;font-weight:600;color:#fff;}
+    .cms-strip--overlay .cbs-all{font-size:14px;font-weight:600;color:#fff;opacity:.8;text-decoration:none;white-space:nowrap;}
+    .cms-strip--overlay .cbs-all:hover{opacity:1;}
+    .cms-strip--overlay .cbs-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(16px,2vw,24px);}
+    .cms-strip--overlay .cbs-item{position:relative;display:flex;align-items:flex-end;min-height:320px;border-radius:18px;overflow:hidden;text-decoration:none;color:#fff;isolation:isolate;}
+    .cms-strip--overlay .cbs-cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2;transition:transform .4s ease;}
+    .cms-strip--overlay .cbs-item::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(13,13,20,0) 30%,rgba(13,13,20,.85) 100%);}
+    .cms-strip--overlay .cbs-item:hover .cbs-cover{transform:scale(1.06);}
+    .cms-strip--overlay .cbs-text{padding:22px 24px 26px;width:100%;}
+    .cms-strip--overlay .cbs-date{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:rgba(255,255,255,.16);backdrop-filter:blur(4px);padding:5px 10px;border-radius:999px;margin-bottom:12px;}
+    .cms-strip--overlay .cbs-title{font-family:'Fraunces',Georgia,serif;font-size:clamp(20px,2.2vw,26px);line-height:1.2;font-weight:600;margin:0;letter-spacing:-.01em;text-shadow:0 1px 20px rgba(0,0,0,.35);}
+  </style>
+  <div class="cbs-wrap">
+    <div class="cbs-head">
+      <div>
+        <p class="cbs-eyebrow">Featured</p>
+        <h2 class="cbs-heading">{{ heading }}</h2>
+      </div>
+      <a class="cbs-all" href="{{ blog_base }}">View all posts →</a>
+    </div>
+    <div class="cbs-list">
+      {% for post in posts %}
+        <a class="cbs-item" href="{{ blog_base }}{{ post.slug }}/">
+          <img class="cbs-cover" src="{{ post.cover_image|default:'https://placehold.co/800x600?text=+' }}" alt="{{ post.title }}" loading="lazy">
+          <span class="cbs-text">
+            {% if post.publish_date %}<span class="cbs-date">{{ post.publish_date|date:"M j, Y" }}</span>{% endif %}
+            <span class="cbs-title">{{ post.title }}</span>
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>

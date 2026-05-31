@@ -1,0 +1,45 @@
+{% extends "blog/_content.html" %}
+
+{% block styles %}
+  .cms-blog--magazine{--blog-read:760px;padding-top:0;}
+  /* The masthead band (behind the navbar) and this hero share the same dark
+     color and meet seamlessly: extend the band over the content gap so there's
+     no light strip between the navbar backdrop and the hero. */
+  .cms-blog--magazine::before{height:calc(var(--cms-navh,0px) + 24px);background:var(--cms-masthead, var(--blog-ink));}
+  .cms-blog--magazine .mag-hero{background:var(--cms-masthead, var(--blog-ink));color:#fff;padding:clamp(52px,8vw,104px) 0 clamp(40px,6vw,72px);}
+  .cms-blog--magazine .mag-hero .blog-back{color:#fff;border-color:rgba(255,255,255,.28);}
+  .cms-blog--magazine .mag-hero .blog-back:hover{border-color:#fff;background:rgba(255,255,255,.10);color:#fff;}
+  .cms-blog--magazine .mag-kicker{text-transform:uppercase;letter-spacing:.2em;font-size:12px;font-weight:700;color:rgba(255,255,255,.6);margin:26px 0 16px;}
+  .cms-blog--magazine .mag-title{font-family:var(--blog-serif);font-weight:600;font-size:clamp(34px,6vw,60px);line-height:1.04;letter-spacing:-.025em;margin:0 0 22px;color:#fff;max-width:17ch;}
+  .cms-blog--magazine .mag-hero .blog-meta{color:rgba(255,255,255,.72);}
+  .cms-blog--magazine .mag-cover{aspect-ratio:21/9;border-radius:0;margin-bottom:clamp(40px,6vw,64px);}
+  .cms-blog--magazine .mag-body{padding-top:0;}
+  .cms-blog--magazine .blog-prose{font-size:19.5px;}
+  .cms-blog--magazine .blog-prose > p:first-of-type::first-letter{font-family:var(--blog-serif);font-weight:600;font-size:3.4em;line-height:.82;float:left;padding:6px 14px 0 0;color:var(--blog-accent);}
+{% endblock %}
+
+{% block body %}
+<article>
+  <header class="mag-hero">
+    <div class="blog-wrap">
+      <a class="blog-back" href="{{ blog_base }}">← {{ settings.title }}</a>
+      <div class="mag-kicker">{{ settings.title }}</div>
+      <h1 class="mag-title" data-blog-edit="title">{{ post.title }}</h1>
+      <div class="blog-meta">
+        <time data-blog-edit="publish_date"{% if not post.publish_date %} hidden{% endif %}>{{ post.publish_date|date:"F j, Y" }}</time>
+        <span class="dot" data-blog-meta="sep"{% if not post.author %} hidden{% endif %}></span>
+        <span data-blog-edit="author"{% if not post.author %} hidden{% endif %}>{% if post.author %}By {{ post.author }}{% endif %}</span>
+      </div>
+    </div>
+  </header>
+  {% if post.cover_image or preview_bridge %}
+    <div class="blog-wrap">
+      <img class="blog-cover mag-cover" src="{{ post.cover_image }}" alt="{{ post.title }}"
+           data-blog-edit="cover_image"{% if not post.cover_image %} hidden{% endif %}>
+    </div>
+  {% endif %}
+  <div class="blog-narrow mag-body">
+    <div class="blog-prose" data-blog-edit="body">{{ safe_body|safe }}</div>
+  </div>
+</article>
+{% endblock %}

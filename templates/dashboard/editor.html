@@ -26,6 +26,9 @@
         <span class="status-dot" id="save-dot"></span>
         <span id="save-text">All changes saved</span>
       </div>
+      <a href="{{ blog_url }}" class="btn btn-secondary">Blog</a>
+      <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
+      <button type="button" class="btn btn-secondary" id="open-settings-btn">Settings</button>
       <form method="post" action="{{ publish_url }}" style="display: inline;">
         {% csrf_token %}
         <button type="submit" class="btn {% if tenant.is_published %}btn-secondary{% else %}btn-purple{% endif %}">
@@ -37,12 +40,24 @@
 
   <div class="editor-shell {{ layout_mode }}" id="editor-shell">
 
+    <button type="button" class="sidebar-reopen" data-sidebar-toggle
+            title="Show sections" aria-label="Show sections panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+
     <aside class="editor-sidebar">
+      <div class="sidebar-toolbar">
+        <span class="sidebar-toolbar-label">Sections</span>
+        <button type="button" class="sidebar-mini-btn" data-sidebar-toggle
+                title="Hide sections" aria-label="Hide sections panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+      </div>
       <div class="sidebar-search">
         <input type="text" id="section-search" placeholder="Jump to section…">
       </div>
 
-      {% regroup sections by group as section_groups %}
+      {% regroup content_sections by group as section_groups %}
       {% for group in section_groups %}
         <div class="sidebar-group">
           <div class="sidebar-group-label">{{ group.grouper }}</div>
@@ -57,20 +72,106 @@
     </aside>
 
     <section class="editor-form" id="editor-form">
-      {% for section in sections %}
-        <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
-          <div class="editor-form-section-head">
-            <h2>{{ section.label }}</h2>
-            <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+      {% if brand_section or nav_sections %}
+        <div class="editor-tabs" role="tablist" aria-label="Editor sections">
+          <button type="button" class="editor-tab active" data-tab="content" role="tab" aria-selected="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Content
+          </button>
+          {% if nav_sections %}
+            <button type="button" class="editor-tab" data-tab="nav" role="tab" aria-selected="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M7 6h.01"/><path d="M11 6h.01"/></svg>
+              Navigation
+            </button>
+          {% endif %}
+          {% if brand_section %}
+            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Brand" title="Brand colors">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class="editor-tab-panel" data-panel="content">
+        {% for section in content_sections %}
+          <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
+            <div class="editor-form-section-head">
+              <h2>{{ section.label }}</h2>
+              <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+            </div>
+
+            <div class="stack-5">
+              {% for field in section.fields %}
+                {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if nav_sections %}
+        <div class="editor-tab-panel" data-panel="nav" hidden>
+          <div class="brand-intro">
+            <h2>Navigation</h2>
+            <p>Your site's header and footer — menu links, logo, and footer content. Changes preview live on the right.</p>
           </div>
 
-          <div class="stack-5">
-            {% for field in section.fields %}
-              {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+          {% if header_sections and footer_sections %}
+            <div class="nav-subtabs" role="tablist" aria-label="Navigation areas">
+              <button type="button" class="nav-subtab active" data-subtab="header" role="tab" aria-selected="true">Header</button>
+              <button type="button" class="nav-subtab" data-subtab="footer" role="tab" aria-selected="false">Footer</button>
+            </div>
+          {% endif %}
+
+          <div class="nav-subpanel" data-subpanel="header"{% if not header_sections %} hidden{% endif %}>
+            {% for section in header_sections %}
+              <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
+                <div class="editor-form-section-head">
+                  <h2>{{ section.label }}</h2>
+                  <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+                </div>
+                <div class="stack-5">
+                  {% for field in section.fields %}
+                    {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="nav-subpanel" data-subpanel="footer"{% if header_sections %} hidden{% endif %}>
+            {% for section in footer_sections %}
+              <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
+                <div class="editor-form-section-head">
+                  <h2>{{ section.label }}</h2>
+                  <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+                </div>
+                <div class="stack-5">
+                  {% for field in section.fields %}
+                    {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+                  {% endfor %}
+                </div>
+              </div>
             {% endfor %}
           </div>
         </div>
-      {% endfor %}
+      {% endif %}
+
+      {% if brand_section %}
+        <div class="editor-tab-panel" data-panel="brand" hidden>
+          <div class="brand-intro">
+            <h2>Brand colors</h2>
+            <p>These apply across every section of your site — headers, buttons, backgrounds. Changes preview live on the right.</p>
+          </div>
+          <div class="editor-form-section" id="section-{{ brand_section.id }}" data-section-id="{{ brand_section.id }}">
+            <div class="stack-5">
+              {% for field in brand_section.fields %}
+                {% include "dashboard/components/field.html" with field=field section_id=brand_section.id %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
     </section>
 
     <section class="editor-preview">
@@ -91,12 +192,254 @@
 
   </div>
 
+  <!-- Site Settings modal -->
+  <div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Site Settings</h2>
+        <button type="button" class="modal-close" id="close-settings-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label class="field-label" for="ss-page-title">Page Title</label>
+          <input class="input" type="text" id="ss-page-title" maxlength="200"
+                 placeholder="My Awesome Site">
+          <span class="field-hint">Appears in the browser tab. Max 200 characters.</span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="ss-meta-desc">Meta Description</label>
+          <textarea class="input" id="ss-meta-desc" rows="3" maxlength="500"
+                    placeholder="A short description of your site for search engines."></textarea>
+          <span class="field-hint">Shown in search engine results. Max 500 characters.</span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="ss-og-image">OG Image URL</label>
+          <input class="input" type="url" id="ss-og-image"
+                 placeholder="https://example.com/image.jpg">
+          <span class="field-hint">Image shown when your site is shared on social media.</span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="ss-ga-id">Google Analytics Measurement ID</label>
+          <input class="input" type="text" id="ss-ga-id"
+                 placeholder="G-XXXXXXXXXX" pattern="^(G-[A-Za-z0-9]+|UA-\d+-\d+)$">
+          <span class="field-hint">GA4 (G-XXXXXXX) or Universal Analytics (UA-XXXXXXX-X). The tracking snippet is injected automatically.</span>
+        </div>
+
+        <div class="field">
+          <div class="settings-warning">
+            <strong>Custom Head Script</strong> &mdash; Scripts entered here run on your public site.
+            Only paste code from services you trust (e.g. chat widgets, analytics, pixels).
+          </div>
+          <textarea class="input" id="ss-custom-script" rows="5"
+                    placeholder='<script src="..."></script>' style="font-family: var(--font-mono); font-size: 13px;"></textarea>
+          <span class="field-hint">Injected into the &lt;head&gt; of your published site.</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="settings-status" id="settings-status"></span>
+        <button type="button" class="btn btn-secondary" id="cancel-settings-btn">Cancel</button>
+        <button type="button" class="btn btn-purple" id="save-settings-btn">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Version history modal -->
+  <div class="modal-overlay" id="history-modal" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Version history</h2>
+        <button type="button" class="modal-close" id="close-history-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint" style="margin: 0 0 var(--space-2);">
+          The last 10 saves. Restoring snapshots your current version first, so you can always undo a restore.
+        </p>
+        <ul class="version-list" id="version-list"></ul>
+        <p class="settings-status" id="history-status"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancel-history-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  {# Tab switching is inline (server-rendered) so it can never be served from a
+     stale static cache — the elements above already exist when this runs. #}
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll(".editor-tab");
+      var panels = document.querySelectorAll(".editor-tab-panel");
+      var form = document.getElementById("editor-form");
+      function switchTab(name) {
+        tabs.forEach(function (t) {
+          var on = t.getAttribute("data-tab") === name;
+          t.classList.toggle("active", on);
+          t.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        panels.forEach(function (p) {
+          if (p.getAttribute("data-panel") === name) p.removeAttribute("hidden");
+          else p.setAttribute("hidden", "");
+        });
+        if (form) form.scrollTop = 0;
+      }
+      tabs.forEach(function (t) {
+        t.addEventListener("click", function () { switchTab(t.getAttribute("data-tab")); });
+      });
+      window.cmsSwitchTab = switchTab;
+
+      // Header / Footer sub-tabs inside the Navigation tab.
+      var subtabs = document.querySelectorAll(".nav-subtab");
+      var subpanels = document.querySelectorAll(".nav-subpanel");
+      function switchSub(name) {
+        subtabs.forEach(function (t) {
+          var on = t.getAttribute("data-subtab") === name;
+          t.classList.toggle("active", on);
+          t.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        subpanels.forEach(function (p) {
+          if (p.getAttribute("data-subpanel") === name) p.removeAttribute("hidden");
+          else p.setAttribute("hidden", "");
+        });
+      }
+      subtabs.forEach(function (t) {
+        t.addEventListener("click", function () { switchSub(t.getAttribute("data-subtab")); });
+      });
+      window.cmsSwitchSub = switchSub;
+    })();
+  </script>
+
+  {# Rich-text selection toolbar (Bold / Italic / Link / Clear). Inline so it is
+     never served from a stale static cache. Only shows for .cms-field-richtext. #}
+  <script>
+    (function () {
+      var bar = document.createElement("div");
+      bar.className = "cms-fmt-bar";
+      bar.setAttribute("role", "toolbar");
+      bar.setAttribute("aria-label", "Text formatting");
+      bar.style.position = "fixed";
+      bar.style.display = "none";
+      bar.style.zIndex = "1200";
+      bar.innerHTML =
+        '<button type="button" data-cmd="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>' +
+        '<button type="button" data-cmd="italic" title="Italic (Ctrl/Cmd+I)"><em>I</em></button>' +
+        '<button type="button" data-cmd="createLink" title="Add or remove link">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>' +
+        '<button type="button" data-cmd="removeFormat" title="Clear formatting">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg></button>';
+      document.body.appendChild(bar);
+
+      function activeRichtext() {
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        var n = sel.anchorNode;
+        if (!n) return null;
+        var el = n.nodeType === 1 ? n : n.parentNode;
+        return el && el.closest ? el.closest(".cms-field-richtext") : null;
+      }
+
+      function selectionInLink() {
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return false;
+        var n = sel.anchorNode;
+        var el = n && n.nodeType === 1 ? n : (n ? n.parentNode : null);
+        return !!(el && el.closest && el.closest(".cms-field-richtext a"));
+      }
+
+      function refreshStates() {
+        ["bold", "italic"].forEach(function (c) {
+          var b = bar.querySelector('[data-cmd="' + c + '"]');
+          if (!b) return;
+          try { b.classList.toggle("is-active", document.queryCommandState(c)); }
+          catch (e) {}
+        });
+        var link = bar.querySelector('[data-cmd="createLink"]');
+        if (link) link.classList.toggle("is-active", selectionInLink());
+      }
+
+      function showBar() {
+        if (!activeRichtext()) { bar.style.display = "none"; return; }
+        var rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) { bar.style.display = "none"; return; }
+        bar.style.display = "flex";
+        var top = rect.top - bar.offsetHeight - 8;
+        var left = rect.left + rect.width / 2 - bar.offsetWidth / 2;
+        bar.style.top = Math.max(8, top) + "px";
+        bar.style.left = Math.min(window.innerWidth - bar.offsetWidth - 8, Math.max(8, left)) + "px";
+        refreshStates();
+      }
+
+      // Keep the selection alive when clicking a toolbar button.
+      bar.addEventListener("mousedown", function (e) { e.preventDefault(); });
+
+      bar.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-cmd]");
+        if (!btn) return;
+        var rt = activeRichtext();
+        if (!rt) return;
+        var cmd = btn.getAttribute("data-cmd");
+        if (cmd === "createLink") {
+          if (selectionInLink()) {
+            document.execCommand("unlink", false, null); // toggle the existing link off
+          } else {
+            var url = window.prompt("Link address:", "https://");
+            if (!url) return;
+            document.execCommand("createLink", false, url);
+          }
+        } else {
+          document.execCommand(cmd, false, null);
+        }
+        rt.dispatchEvent(new Event("input", { bubbles: true })); // save + live preview
+        showBar();
+      });
+
+      var t = null;
+      document.addEventListener("selectionchange", function () {
+        clearTimeout(t);
+        t = setTimeout(showBar, 10);
+      });
+      document.addEventListener("scroll", function () {
+        if (bar.style.display === "flex") showBar();
+      }, true);
+    })();
+  </script>
+
+  {# Collapsible section-nav (leftmost column only). Inline + localStorage. #}
+  <script>
+    (function () {
+      var shell = document.getElementById("editor-shell");
+      var toggles = document.querySelectorAll("[data-sidebar-toggle]");
+      if (!shell || !toggles.length) return;
+      var KEY = "cms-editor-sidebar-collapsed";
+      function apply(collapsed) {
+        shell.classList.toggle("sidebar-collapsed", collapsed);
+      }
+      var saved = false;
+      try { saved = localStorage.getItem(KEY) === "1"; } catch (e) {}
+      apply(saved);
+      toggles.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var collapsed = !shell.classList.contains("sidebar-collapsed");
+          apply(collapsed);
+          try { localStorage.setItem(KEY, collapsed ? "1" : "0"); } catch (e) {}
+        });
+      });
+    })();
+  </script>
+
   <script>
     window.CMS = {
       tenantId: {{ tenant.pk }},
       saveUrl: "{{ save_url }}",
       uploadUrl: "{{ upload_url }}",
+      videoSignUrl: "{{ video_sign_url }}",
+      videoConfirmUrl: "{{ video_confirm_url }}",
+      versionsUrl: "{{ versions_url }}",
+      versionRestoreUrl: "{{ version_restore_url }}",
       previewUrl: "{{ preview_url }}",
+      settingsUrl: "{{ settings_url }}",
       csrfToken: "{{ csrf_token }}",
       content: {{ content_json|safe }},
     };

@@ -52,7 +52,30 @@
       "Bash(python -c ' *)",
       "Bash(timeout 6 python manage.py runserver 0.0.0.0:8080 --noreload)",
       "Bash(echo \"---exit:$?---\")",
-      "PowerShell(python -c \"import ast; ast.parse\\(open\\(r'E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\\\\cms_platform\\\\settings.py'\\).read\\(\\)\\); print\\('settings.py OK'\\)\")"
+      "PowerShell(python -c \"import ast; ast.parse\\(open\\(r'E:\\\\New Downloads\\\\New_clone_projects\\\\cms_platform\\\\cms_platform\\\\settings.py'\\).read\\(\\)\\); print\\('settings.py OK'\\)\")",
+      "PowerShell(Resolve-DnsName *)",
+      "PowerShell(python manage.py check --database default 2>&1 | Select-Object -First 30)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv;C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\Scripts;$env:Path\"; python -c \"import django; print\\(django.get_version\\(\\)\\)\"; python manage.py migrate --check 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv;C:\\\\Users\\\\ADMIN\\\\.conda\\\\envs\\\\myenv\\\\Scripts;$env:Path\"; python -c \"import django; django.setup\\(\\)\" 2>&1; python manage.py check 2>&1 | Select-Object -Last 10)",
+      "PowerShell(pip install *)",
+      "Bash(awk -F= '{print \"length:\", length\\($2\\)}')",
+      "Bash(python manage.py test core.tests.test_agency_admin)",
+      "Bash(python manage.py test core.tests.test_agency_admin --verbosity=2)",
+      "Bash(grep *)",
+      "Bash(python manage.py makemigrations core --name tenant_site_settings)",
+      "Bash(python manage.py test core.tests.test_site_settings -v2)",
+      "Bash(python -c \"import django; print\\('django', django.get_version\\(\\)\\)\")",
+      "Bash(DJANGO_SETTINGS_MODULE=cms_platform.settings python -c ' *)",
+      "Bash(python manage.py test core.tests.test_blog -v1)",
+      "Bash(python manage.py test core.tests.test_blog -v2)",
+      "Bash(python manage.py test core.tests.test_blog.BlogDashboardTests -v1)",
+      "Bash(DATABASE_URL=\"sqlite:///test_blog.sqlite3\" python manage.py test core.tests.test_blog --noinput -v1)",
+      "Bash(DATABASE_URL=\"sqlite:///test_blog.sqlite3\" python manage.py test --noinput -v1)",
+      "Bash(python manage.py collectstatic --noinput)",
+      "Bash(DATABASE_URL=\"sqlite:///test_blog.sqlite3\" DJANGO_ALLOWED_HOSTS=\"*\" TENANT_BASE_DOMAIN=\"localhost\" python manage.py test --noinput -v1)",
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.template.loader import get_template; get_template\\('dashboard/tenant_detail.html'\\); print\\('TEMPLATE OK'\\)\")",
+      "Bash(python \"C:/Users/ADMIN/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"SaaS multi-tenant CMS admin dashboard operator console professional modern\" --design-system -p \"Locked CMS\")"
     ]
   }
 }
