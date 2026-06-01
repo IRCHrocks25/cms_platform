@@ -93,9 +93,12 @@ traefik.http.services.cms-web.loadbalancer.server.port=8000
 |--------------|-------------------------------------------------|----------|
 | `cms-apex`   | `HostRegexp(`^sites\.katek\.app$`)`             | 100      |
 | `cms-tenants`| `HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)` | 10       |
-| `cms-custom` | `HostRegexp(`^.+$`)` (custom-domain catch-all)  | 1        |
 
-**All three routers use HostRegexp on purpose** — see "Default certResolver" below.
+There is **no** `.+` catch-all router (shared host — see "Custom client domains"
+below). Custom client domains are routed by per-domain routers in a dynamic file,
+not by a compose label.
+
+**Both routers use HostRegexp on purpose** — see "Default certResolver" below.
 The apex would naturally be `Host(`sites.katek.app`)`, but that form is avoided
 deliberately.
 
@@ -161,7 +164,7 @@ expected to work — but confirm after every (re)deploy:
 
 ```bash
 docker exec dokploy-traefik wget -qO- http://localhost:8080/api/http/routers \
-  | grep -o '"name":"cms-[^"]*"'        # expect cms-apex@docker, cms-tenants@docker, cms-custom@docker
+  | grep -o '"name":"cms-[^"]*"'        # expect cms-apex@docker, cms-tenants@docker (custom-domain routers come from the dynamic file, named cms-cd-<pk>@file)
 ```
 
 If nothing comes back, it deployed as a Swarm service: move every
@@ -184,8 +187,17 @@ regenerated wholesale from the DB — never edited by hand, never patched
 incrementally.
 
 **Who writes it:** the isolated **`route-syncer`** compose service, and only it.
-- It mounts `/etc/dokploy/traefik/dynamic/cms-custom-domains` (a subdir of the
-  recursive `directory:` watch) and writes `custom-domains.json` there atomically.
+- It mounts the dynamic-config **root** `/etc/dokploy/traefik/dynamic` and writes
+  `custom-domains.json` there atomically. (We *wanted* a confined
+  `cms-custom-domains/` subdir, but Traefik's file provider watches `directory:`
+  **non-recursively** on this host — a subdir file is never read — so the file
+  must live in the root.)
+- Because the mount now spans the whole dynamic dir, the writer is confined by
+  **code, not mount scope**: `traefik_routes.py` only ever creates/replaces its
+  own `custom-domains.json` (plus its own `.custom-domains.*` temp file) via an
+  atomic same-dir rename. It never enumerates, modifies, or deletes sibling files
+  (`dokploy.yml`, `middlewares.yml`, `traefik.yml`, `acme.json`,
+  `origin-cert.yml`).
 - The **web** container has **no** Traefik mount, so an internet-facing app
   compromise has no path to Traefik config. The syncer serves no traffic
   (`traefik.enable=false`, no ports) and only reads the DB + writes one file.
@@ -214,7 +226,7 @@ hard-skips (skip + log) any row whose host is our own infrastructure —
 never emit a router.
 
 **Container facts the syncer relies on:** the image has **no `USER`** so it runs
-as **root** and can write the root-owned `cms-custom-domains` bind-mount. The
+as **root** and can write the root-owned dynamic dir. The
 syncer **overrides `entrypoint.sh`** so it does *not* run `migrate` — `web` owns
 migrations, and running them in both containers would race (concurrent DDL) on
 first deploy. The sync command is loop-resilient: a pre-migration DB error just
@@ -252,8 +264,11 @@ If that switch ever happens:
 2. **Either** repoint our routers at that name, **or** (preferred) re-add the
    explicit `traefik.http.services.cms-web.loadbalancer.server.port=8000` label so
    you keep the stable `cms-web` name and don't depend on the generated one.
-3. Re-attach the three routers (`cms-apex`, `cms-tenants`, `cms-custom`) with the
-   rules/priorities in the table above, pointing at `cms-web`.
+3. Re-attach both routers (`cms-apex`, `cms-tenants`) with the rules/priorities in
+   the table above, pointing at `cms-web`. (There is no `cms-custom` label —
+   custom domains stay in the `route-syncer` dynamic file, which references
+   `cms-web@docker` and is unaffected by the service-name change as long as the
+   service is still named `cms-web`.)
 4. Confirm the Origin Cert dynamic file is still mounted and is still the default
    store cert.
 

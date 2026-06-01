@@ -82,17 +82,20 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       TRAEFIK_DYNAMIC_DIR: /traefik-dynamic
     volumes:
-      # Dedicated subdir under the watched dynamic dir (provider is recursive
-      # `directory:` watch). Confines the writer — it can't touch origin-cert.yml
-      # or any other Dokploy/Traefik config.
-      - /etc/dokploy/traefik/dynamic/cms-custom-domains:/traefik-dynamic
+      # Mounts the dynamic-config ROOT (not a subdir): Traefik's file provider
+      # watches `directory:` non-recursively, so a subdir file would be ignored.
+      # The writer is confined by CODE, not by mount scope — traefik_routes.py
+      # only ever creates/replaces its own custom-domains.json (+ its own temp
+      # file) and never enumerates, modifies, or deletes siblings (dokploy.yml,
+      # middlewares.yml, traefik.yml, acme.json, origin-cert.yml).
+      - /etc/dokploy/traefik/dynamic:/traefik-dynamic
     networks:
       - dokploy-network
     # Override entrypoint.sh: it runs `migrate` before exec-ing the command, and
     # `web` already owns migrations — running them here too would race the web
     # container's migrate (concurrent DDL) on first deploy. The syncer only reads
     # the DB and writes one file. The image runs as root (no USER in Dockerfile),
-    # so it can write the root-owned bind-mount above.
+    # so it can write the root-owned dynamic dir above.
     entrypoint: ["sh", "-c"]
     command: ["while true; do python manage.py sync_traefik_routes; sleep 60; done"]
     labels:
