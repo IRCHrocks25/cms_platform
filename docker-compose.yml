@@ -30,33 +30,73 @@ services:
       # container name. Every router below points at it (see deploy/DOKPLOY.md).
       - traefik.http.services.cms-web.loadbalancer.server.port=8000
 
-      # Agency apex / bare base domain
-      - traefik.http.routers.cms-apex.rule=Host(`sites.katek.app`)
+      # Agency apex / bare base domain.
+      # Deliberately HostRegexp, NOT Host(`sites.katek.app`): the websecure
+      # entrypoint sets a default certResolver=letsencrypt, and a tls=true router
+      # with an extractable domain (Host()) would inherit it and try to ACME-issue
+      # for sites.katek.app. HostRegexp exposes no extractable domain, so Traefik
+      # skips ACME and serves the default-store cert (the CF Origin CA) — which is
+      # what we want at the origin. ^...$ anchors to the apex exactly (no subdomains).
+      - traefik.http.routers.cms-apex.rule=HostRegexp(`^sites\.katek\.app$`)
       - traefik.http.routers.cms-apex.entrypoints=websecure
       - traefik.http.routers.cms-apex.tls=true
       - traefik.http.routers.cms-apex.service=cms-web
       - traefik.http.routers.cms-apex.priority=100
 
       # Free tenant subdomains: *.sites.katek.app
-      # Traefik v3 HostRegexp = RE2 (no negative lookahead), so reserved names
-      # (www, app, api, admin, dashboard, static, media, mail) can't be excluded
-      # in-pattern. They nominally match here but route to the same app; the day
-      # one needs a different service, give it an exact Host() router — its
-      # higher priority outranks this priority=10 wildcard.
+      # Single-level wildcard Host() matchers — Host(`*.sites.katek.app`) — were
+      # added in Traefik v3.7.0. This host runs an older v3 (Dokploy bundles
+      # ~3.6.x; exact version recorded in deploy/DOKPLOY.md), so we use HostRegexp,
+      # which works on all of v3. We'd keep HostRegexp even after a 3.7+ upgrade:
+      # the wildcard Host() matcher's only real edge is per-router TLS options,
+      # and we serve one default-store cert, not per-router options.
+      # HostRegexp = RE2 (no negative lookahead), so reserved names (www, app, api,
+      # admin, dashboard, static, media, mail) can't be excluded in-pattern. They
+      # nominally match here but route to the same app; the day one needs a
+      # different service, give it an exact Host() router — its higher priority
+      # outranks this priority=10 wildcard.
       - traefik.http.routers.cms-tenants.rule=HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)
       - traefik.http.routers.cms-tenants.entrypoints=websecure
       - traefik.http.routers.cms-tenants.tls=true
       - traefik.http.routers.cms-tenants.service=cms-web
       - traefik.http.routers.cms-tenants.priority=10
 
-      # Custom client domains (CF for SaaS → proxy.sites.katek.app). Host header
-      # arrives as the client domain; Django resolves it via the verified
-      # CustomDomain table. Catch-all, lowest priority.
-      - traefik.http.routers.cms-custom.rule=HostRegexp(`^.+$`)
-      - traefik.http.routers.cms-custom.entrypoints=websecure
-      - traefik.http.routers.cms-custom.tls=true
-      - traefik.http.routers.cms-custom.service=cms-web
-      - traefik.http.routers.cms-custom.priority=1
+      # NOTE: no `.+` catch-all router. This Dokploy host is SHARED with other
+      # stacks, and a catch-all would make this app the default backend for every
+      # unmatched host on the box. Custom client domains are routed instead by
+      # per-domain routers in a Traefik dynamic file, regenerated from the DB by
+      # the `route-syncer` service below. See deploy/DOKPLOY.md.
+
+  # Isolated writer for the custom-domain Traefik dynamic file. Reads the DB and
+  # regenerates one router per verified CustomDomain on a loop. It is the ONLY
+  # container with a Traefik mount — the web app (internet-facing) has none, so a
+  # web-app compromise has no path to Traefik config. Serves no traffic.
+  route-syncer:
+    image: cms-platform:latest
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DATABASE_URL: ${DATABASE_URL}
+      TRAEFIK_DYNAMIC_DIR: /traefik-dynamic
+    volumes:
+      # Dedicated subdir under the watched dynamic dir (provider is recursive
+      # `directory:` watch). Confines the writer — it can't touch origin-cert.yml
+      # or any other Dokploy/Traefik config.
+      - /etc/dokploy/traefik/dynamic/cms-custom-domains:/traefik-dynamic
+    networks:
+      - dokploy-network
+    # Override entrypoint.sh: it runs `migrate` before exec-ing the command, and
+    # `web` already owns migrations — running them here too would race the web
+    # container's migrate (concurrent DDL) on first deploy. The syncer only reads
+    # the DB and writes one file. The image runs as root (no USER in Dockerfile),
+    # so it can write the root-owned bind-mount above.
+    entrypoint: ["sh", "-c"]
+    command: ["while true; do python manage.py sync_traefik_routes; sleep 60; done"]
+    labels:
+      - traefik.enable=false
 
 volumes:
   media:

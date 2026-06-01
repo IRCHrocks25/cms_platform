@@ -210,6 +210,12 @@ CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = os.environ.get("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_DCV_DELEGATION_TARGET = "711b5e8ed3b3aa16.dcv.cloudflare.com"
 
+# Directory where the custom-domain Traefik dynamic file is written. Only the
+# isolated `route-syncer` compose service sets this (and mounts the dir); the web
+# container leaves it empty, so route-writing is a no-op there. See
+# core/services/traefik_routes.py + deploy/DOKPLOY.md.
+TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "")
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
 
