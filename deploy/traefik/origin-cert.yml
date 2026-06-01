@@ -1,0 +1,28 @@
+# Cloudflare Origin Certificate for the CMS origin (sites.katek.app + *.sites.katek.app).
+#
+# No ACME / certresolver at the origin — Cloudflare for SaaS terminates public TLS at the
+# edge; this cert only has to satisfy the edge->origin hop under Full (strict).
+#
+# Deploy:
+#   1. Create the cert in Cloudflare -> SSL/TLS -> Origin Server -> Create Certificate,
+#      hostnames:  sites.katek.app  AND  *.sites.katek.app
+#   2. On the Dokploy host:
+#        sudo mkdir -p /etc/dokploy/traefik/dynamic/certs
+#        sudo tee /etc/dokploy/traefik/dynamic/certs/katek-origin.crt >/dev/null   # paste PEM cert
+#        sudo tee /etc/dokploy/traefik/dynamic/certs/katek-origin.key >/dev/null   # paste PEM key
+#        sudo chmod 600 /etc/dokploy/traefik/dynamic/certs/katek-origin.key
+#   3. Copy THIS file to /etc/dokploy/traefik/dynamic/origin-cert.yml  (Traefik hot-reloads it).
+#
+# Verify the paths resolve INSIDE the Traefik container before relying on them:
+#   docker inspect dokploy-traefik --format '{{json .Mounts}}' | jq
+#   docker exec dokploy-traefik ls -l /etc/dokploy/traefik/dynamic/certs/
+# If the mount maps to a different container path, adjust certFile/keyFile below to match.
+tls:
+  certificates:
+    - certFile: /etc/dokploy/traefik/dynamic/certs/katek-origin.crt
+      keyFile: /etc/dokploy/traefik/dynamic/certs/katek-origin.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/dokploy/traefik/dynamic/certs/katek-origin.crt
+        keyFile: /etc/dokploy/traefik/dynamic/certs/katek-origin.key

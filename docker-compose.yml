@@ -23,6 +23,40 @@ services:
       - media:/app/media
     networks:
       - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # We declare our OWN service name — stable, never a Dokploy-generated
+      # container name. Every router below points at it (see deploy/DOKPLOY.md).
+      - traefik.http.services.cms-web.loadbalancer.server.port=8000
+
+      # Agency apex / bare base domain
+      - traefik.http.routers.cms-apex.rule=Host(`sites.katek.app`)
+      - traefik.http.routers.cms-apex.entrypoints=websecure
+      - traefik.http.routers.cms-apex.tls=true
+      - traefik.http.routers.cms-apex.service=cms-web
+      - traefik.http.routers.cms-apex.priority=100
+
+      # Free tenant subdomains: *.sites.katek.app
+      # Traefik v3 HostRegexp = RE2 (no negative lookahead), so reserved names
+      # (www, app, api, admin, dashboard, static, media, mail) can't be excluded
+      # in-pattern. They nominally match here but route to the same app; the day
+      # one needs a different service, give it an exact Host() router — its
+      # higher priority outranks this priority=10 wildcard.
+      - traefik.http.routers.cms-tenants.rule=HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)
+      - traefik.http.routers.cms-tenants.entrypoints=websecure
+      - traefik.http.routers.cms-tenants.tls=true
+      - traefik.http.routers.cms-tenants.service=cms-web
+      - traefik.http.routers.cms-tenants.priority=10
+
+      # Custom client domains (CF for SaaS → proxy.sites.katek.app). Host header
+      # arrives as the client domain; Django resolves it via the verified
+      # CustomDomain table. Catch-all, lowest priority.
+      - traefik.http.routers.cms-custom.rule=HostRegexp(`^.+$`)
+      - traefik.http.routers.cms-custom.entrypoints=websecure
+      - traefik.http.routers.cms-custom.tls=true
+      - traefik.http.routers.cms-custom.service=cms-web
+      - traefik.http.routers.cms-custom.priority=1
 
 volumes:
   media:
