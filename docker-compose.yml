@@ -85,7 +85,7 @@ services:
       # Mounts the dynamic-config ROOT (not a subdir): Traefik's file provider
       # watches `directory:` non-recursively, so a subdir file would be ignored.
       # The writer is confined by CODE, not by mount scope — traefik_routes.py
-      # only ever creates/replaces its own custom-domains.json (+ its own temp
+      # only ever creates/replaces its own custom-domains.yml (+ its own temp
       # file) and never enumerates, modifies, or deletes siblings (dokploy.yml,
       # middlewares.yml, traefik.yml, acme.json, origin-cert.yml).
       - /etc/dokploy/traefik/dynamic:/traefik-dynamic

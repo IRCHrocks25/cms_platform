@@ -188,13 +188,13 @@ incrementally.
 
 **Who writes it:** the isolated **`route-syncer`** compose service, and only it.
 - It mounts the dynamic-config **root** `/etc/dokploy/traefik/dynamic` and writes
-  `custom-domains.json` there atomically. (We *wanted* a confined
+  `custom-domains.yml` there atomically. (We *wanted* a confined
   `cms-custom-domains/` subdir, but Traefik's file provider watches `directory:`
   **non-recursively** on this host — a subdir file is never read — so the file
   must live in the root.)
 - Because the mount now spans the whole dynamic dir, the writer is confined by
   **code, not mount scope**: `traefik_routes.py` only ever creates/replaces its
-  own `custom-domains.json` (plus its own `.custom-domains.*` temp file) via an
+  own `custom-domains.yml` (plus its own `.custom-domains.*` temp file) via an
   atomic same-dir rename. It never enumerates, modifies, or deletes sibling files
   (`dokploy.yml`, `middlewares.yml`, `traefik.yml`, `acme.json`,
   `origin-cert.yml`).
@@ -217,6 +217,12 @@ incrementally.
 extractable domain, so the default `letsencrypt` resolver can't ACME-issue for
 the client domain — Traefik serves the default-store CF Origin CA cert, correct
 under Cloudflare SSL=Full. Keyed by `<pk>` because slugified domains can collide.
+
+**File extension matters:** the file is named `custom-domains.yml`, not `.json`.
+Traefik's file provider picks its parser from the extension and silently ignores
+`.json` dynamic files — a `.json` router never loads (404s on a correct Host even
+hit directly). We still emit JSON *content* (shown above): JSON is a strict subset
+of YAML, so the `.yml` parser reads it as-is, and we avoid a PyYAML dependency.
 
 **Denylist safety net:** with the catch-all gone, a stray or hostile verified
 `CustomDomain` row is the only way a wrong router could appear. `traefik_routes.py`

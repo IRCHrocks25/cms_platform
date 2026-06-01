@@ -32,7 +32,11 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-ROUTES_FILENAME = "custom-domains.json"
+# Must end in .yml/.yaml/.toml: Traefik's file provider selects its parser by
+# extension and silently ignores .json files, so the router would never load.
+# We still emit JSON *content* below — JSON is a strict subset of YAML, so the
+# YAML parser reads it fine — which avoids taking on a PyYAML dependency.
+ROUTES_FILENAME = "custom-domains.yml"
 
 # Hosts a CustomDomain row must NEVER emit a router for — our own infrastructure.
 # With the `.+` catch-all gone, a stray or hostile verified row is the only way a
