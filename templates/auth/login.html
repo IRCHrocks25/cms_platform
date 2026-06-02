@@ -504,36 +504,37 @@
     <header class="katek-brand">
       <span class="katek-brand-mark">K</span>
       <span>Katek &nbsp;/&nbsp; Site Engine</span>
-      <span class="katek-brand-meta">v3.2 · stable</span>
+      <span class="katek-brand-meta">site portal</span>
     </header>
 
     <section class="katek-hero">
-      <div class="katek-eyebrow">Content management, refined</div>
+      <div class="katek-eyebrow">Your site, beautifully managed</div>
       <h2 class="katek-headline">
-        Build, publish <span class="ampersand">&amp;</span><br>
-        <em>maintain</em> every<br>
-        client site.
+        Update, publish <span class="ampersand">&amp;</span><br>
+        <em>polish</em> your<br>
+        site.
       </h2>
       <p class="katek-lede">
-        One engine. Every site. A calm, structured place to manage content,
-        deployments, and clients — without the chaos of plugin sprawl.
+        A calm, structured place to update your pages, publish changes,
+        and keep your site looking its best — without the usual clutter
+        or guesswork.
       </p>
 
       <ul class="katek-specs" style="list-style:none; padding:0; margin:0;">
         <li class="spec-row">
           <span class="spec-num">01</span>
-          <span class="spec-label">Multi-site dashboard with isolated environments</span>
+          <span class="spec-label">A clear dashboard for everything on your site</span>
           <span class="spec-tag">core</span>
         </li>
         <li class="spec-row">
           <span class="spec-num">02</span>
-          <span class="spec-label">Block-based content editor &amp; revision history</span>
+          <span class="spec-label">Block-based editor with full revision history</span>
           <span class="spec-tag">editor</span>
         </li>
         <li class="spec-row">
           <span class="spec-num">03</span>
-          <span class="spec-label">Role-based access for teams and clients</span>
-          <span class="spec-tag">auth</span>
+          <span class="spec-label">Secure, role-based access for you and your team</span>
+          <span class="spec-tag">access</span>
         </li>
       </ul>
     </section>
@@ -549,7 +550,7 @@
     <div class="katek-form-wrap">
 
       <div class="katek-form-top">
-        <span class="session-id">SESSION · 0xKATEK</span>
+        <span class="session-id">KATEK · SITES</span>
         <span class="session-status">
           <span class="status-dot"></span> secure
         </span>
@@ -557,7 +558,7 @@
 
       <h1 class="katek-title">Sign <em>in.</em></h1>
       <p class="katek-subtitle">
-        Enter your credentials to access the site engine and your client workspaces.
+        Enter your details to sign in to your site and manage your content.
       </p>
 
       {% if form.non_field_errors %}
@@ -577,7 +578,7 @@
             name="username"
             id="id_username"
             autocomplete="username"
-            placeholder="your.handle"
+            placeholder="your username"
             required autofocus>
         </div>
 
@@ -606,14 +607,14 @@
         </div>
 
         <button type="submit" class="btn-submit">
-          <span>Enter the engine</span>
+          <span>Enter your dashboard</span>
           <span class="arrow">→</span>
         </button>
       </form>
 
       <div class="katek-help">
-        <span>Need access?</span>
-        <a href="#">Contact your admin →</a>
+        <span>Trouble signing in?</span>
+        <a href="#">Contact support →</a>
       </div>
 
     </div>
@@ -641,7 +642,7 @@
     form.addEventListener('submit', () => {
       const btn = form.querySelector('.btn-submit');
       if (!btn) return;
-      btn.querySelector('span').textContent = 'Authenticating…';
+      btn.querySelector('span').textContent = 'Signing in…';
       btn.style.opacity = '0.7';
       btn.disabled = true;
     });
