@@ -266,8 +266,6 @@
     </div>
   </div>
 
-  {# Tab switching is inline (server-rendered) so it can never be served from a
-     stale static cache — the elements above already exist when this runs. #}
   <script>
     (function () {
       var tabs = document.querySelectorAll(".editor-tab");
@@ -311,8 +309,6 @@
     })();
   </script>
 
-  {# Rich-text selection toolbar (Bold / Italic / Link / Clear). Inline so it is
-     never served from a stale static cache. Only shows for .cms-field-richtext. #}
   <script>
     (function () {
       var bar = document.createElement("div");

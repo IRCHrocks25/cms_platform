@@ -75,7 +75,18 @@
       "Bash(DATABASE_URL=\"sqlite:///test_blog.sqlite3\" DJANGO_ALLOWED_HOSTS=\"*\" TENANT_BASE_DOMAIN=\"localhost\" python manage.py test --noinput -v1)",
       "Bash(python manage.py shell -c ' *)",
       "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.template.loader import get_template; get_template\\('dashboard/tenant_detail.html'\\); print\\('TEMPLATE OK'\\)\")",
-      "Bash(python \"C:/Users/ADMIN/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"SaaS multi-tenant CMS admin dashboard operator console professional modern\" --design-system -p \"Locked CMS\")"
+      "Bash(python \"C:/Users/ADMIN/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"SaaS multi-tenant CMS admin dashboard operator console professional modern\" --design-system -p \"Locked CMS\")",
+      "Bash(python -c \"import yaml,sys; d=yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('compose OK, web labels:', len\\(d['services']['web']['labels']\\)\\); yaml.safe_load\\(open\\('deploy/traefik/origin-cert.yml'\\)\\); print\\('origin-cert.yml OK'\\)\")",
+      "Bash(ls deploy/traefik/ deploy/cloudflare/)",
+      "Bash(ls deploy/DOKPLOY.md)",
+      "Bash(ls core/services/railway.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/services/traefik_routes.py'\\).read\\(\\)\\); ast.parse\\(open\\('core/management/commands/sync_traefik_routes.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python manage.py help sync_traefik_routes)",
+      "Bash(python manage.py sync_traefik_routes)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(mkdir -p .tmp_traefik_test)",
+      "Bash(TRAEFIK_DYNAMIC_DIR=\"$\\(pwd\\)/.tmp_traefik_test\" python manage.py sync_traefik_routes)",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.conf import settings; print\\('ALLOWED_HOSTS=', settings.ALLOWED_HOSTS\\); print\\('CSRF type=', type\\(settings.CSRF_TRUSTED_ORIGINS\\)\\); print\\('CSRF=', list\\(settings.CSRF_TRUSTED_ORIGINS\\)\\)\")"
     ]
   }
 }
