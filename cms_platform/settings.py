@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import dj_database_url
+from django.utils.functional import lazy
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,15 +30,23 @@ _additional_tenant_base_domains = TENANT_ADDITIONAL_BASE_DOMAINS
 # (see TenantResolverMiddleware + tenant_public_url); production is untouched.
 TENANT_DEV_BASE_DOMAIN = os.environ.get("TENANT_DEV_BASE_DOMAIN", "lvh.me").strip(".").lower()
 
-_allowed_hosts_env = os.environ.get("DJANGO_ALLOWED_HOSTS", "*")
-ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(",") if h.strip()] or ["*"]
-
-# In local dev, accept the localhost/lvh.me wildcard hosts used for tenant
-# subdomain previews (no-op when ALLOWED_HOSTS is already "*").
-if DEBUG:
-    for _h in ("localhost", "127.0.0.1", ".localhost", TENANT_DEV_BASE_DOMAIN, f".{TENANT_DEV_BASE_DOMAIN}"):
-        if _h and _h not in ALLOWED_HOSTS:
-            ALLOWED_HOSTS.append(_h)
+# ALLOWED_HOSTS = ["*"] is deliberate. Client custom domains are dynamic — added
+# and verified at runtime via the CustomDomain table — so the set of valid hosts
+# cannot be enumerated at deploy time. The host allowlist is enforced at the EDGE,
+# not in Django:
+#   - Traefik has NO catch-all router. It forwards only the apex (`sites.katek.app`),
+#     the tenant wildcard (`*.sites.katek.app`), and one router per VERIFIED
+#     CustomDomain (emitted to custom-domains.yml by the route-syncer). Any other
+#     Host is dropped before it ever reaches this app.
+#   - Cloudflare fronts the origin (SSL=Full); requests arrive through the edge.
+#   - TenantResolverMiddleware maps only recognized hosts (known subdomains /
+#     verified custom domains) to a tenant; an unrecognized host resolves to no
+#     tenant and never serves tenant content.
+# A second static allowlist in Django would only re-check that edge-vetted set and
+# would 400 every newly-onboarded custom domain until a redeploy. So host
+# restriction lives at the edge (see deploy/DOKPLOY.md). NOTE: the DJANGO_ALLOWED_HOSTS
+# env var is intentionally no longer consulted.
+ALLOWED_HOSTS = ["*"]
 
 # Behind Traefik / Cloudflare — trust the X-Forwarded-Proto header so Django
 # knows requests are HTTPS even though the inner hop is plain HTTP.
@@ -87,6 +96,47 @@ if DEBUG and TENANT_DEV_BASE_DOMAIN:
         ]
     )
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS))
+
+# --- Custom-domain CSRF trust (dynamic) -------------------------------------
+# The wildcard origins above (e.g. https://*.sites.katek.app) cover tenant
+# SUBDOMAINS but NOT client custom domains, which are arbitrary and only known at
+# runtime (verified CustomDomain rows). We derive their trusted origins from the DB.
+#
+# The common case already works WITHOUT this entry: login and the editor POST to
+# the SAME custom domain that served the page, and Django accepts a same-origin
+# request via its Origin/Referer check as soon as get_host() succeeds (which it
+# now does — ALLOWED_HOSTS=["*"]). CSRF_TRUSTED_ORIGINS only matters for
+# CROSS-origin POSTs; we register verified custom domains so those work too.
+#
+# Evaluated LAZILY so the DB query runs at request time, never at settings-import
+# / app-load time (a model query there raises AppRegistryNotReady). Caveat: the
+# result is cached per worker, so a domain verified after a worker started is
+# trusted only once that worker recycles. That's fine in practice because
+# same-origin POST works regardless; a domain needing CROSS-origin trust
+# immediately may still need per-domain handling (worker restart or an explicit
+# origin entry).
+_CSRF_STATIC_ORIGINS = list(CSRF_TRUSTED_ORIGINS)
+
+
+def _csrf_trusted_origins():
+    origins = list(_CSRF_STATIC_ORIGINS)
+    try:
+        from core.models import CustomDomain
+
+        for domain in (
+            CustomDomain.objects.filter(is_verified=True).values_list(
+                "domain", flat=True
+            )
+        ):
+            origins.append(f"https://{domain}")
+            origins.append(f"http://{domain}")
+    except Exception:
+        # DB not ready (early boot / pre-migrate) — fall back to static origins.
+        pass
+    return list(dict.fromkeys(origins))
+
+
+CSRF_TRUSTED_ORIGINS = lazy(_csrf_trusted_origins, list)()
 
 
 INSTALLED_APPS = [
