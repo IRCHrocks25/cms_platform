@@ -41,4 +41,10 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 # and the proxy served an HTML 502, which the dashboard fetch tried to JSON.parse
 # ("Unexpected token '<'"). The OpenAI client timeout (settings.OPENAI_TIMEOUT,
 # default 120s) is set BELOW this so a hung API returns a clean JSON error first.
-CMD ["gunicorn", "cms_platform.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-"]
+# gthread workers: the AI annotation endpoint blocks on a synchronous OpenAI
+# call for up to ~120s. With sync workers, 3 concurrent annotations would occupy
+# all 3 workers and freeze the entire dashboard for everyone. Threads let each
+# worker keep serving other requests while one thread is parked on OpenAI.
+# --timeout 180 is the hard worker budget; OPENAI_TIMEOUT (120s) fires first so a
+# hung API returns a clean JSON error instead of a killed worker (HTML 502).
+CMD ["gunicorn", "cms_platform.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--worker-class", "gthread", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-"]

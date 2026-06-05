@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -24,7 +25,7 @@ from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
     BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
-    Page, RESERVED_PAGE_SLUGS,
+    Page, RESERVED_PAGE_SLUGS, AnnotationJob,
 )
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
@@ -234,10 +235,60 @@ def template_delete(request, pk):
     return redirect("dashboard:template_list")
 
 
+# How long a job may sit non-terminal before the status endpoint declares it
+# stale and fails it. The worker thread itself is bounded by OPENAI_TIMEOUT
+# (~120s); this only catches a worker that DIED (process restart) and left a row
+# stuck "running" forever. Comfortably above the 180s Gunicorn worker budget.
+ANNOTATION_JOB_STALE_SECONDS = 300
+
+
+def _run_annotation_job(job_id, raw_html):
+    """Worker body (runs in a background thread, NOT a web request).
+
+    Has no request/proxy timeout, so the OpenAI call may take as long as
+    settings.OPENAI_TIMEOUT. Writes the outcome back onto the AnnotationJob row.
+    Must never raise out of the thread — any escape is logged and recorded as an
+    error status so the poller stops cleanly instead of hanging forever.
+    """
+    from django.db import connection
+
+    AnnotationJob.objects.filter(id=job_id).update(status=AnnotationJob.STATUS_RUNNING)
+    try:
+        annotated = annotate_html(raw_html)
+        schema = build_schema(annotated)
+        sections_summary = [
+            {"id": s["id"], "label": s["label"], "field_count": len(s.get("fields", []))}
+            for s in schema.get("sections", [])
+        ]
+        AnnotationJob.objects.filter(id=job_id).update(
+            status=AnnotationJob.STATUS_DONE,
+            result_html=annotated,
+            sections=sections_summary,
+        )
+    except AnnotatorError as exc:
+        AnnotationJob.objects.filter(id=job_id).update(
+            status=AnnotationJob.STATUS_ERROR, error=str(exc)
+        )
+    except Exception as exc:  # noqa: BLE001 — background thread must never crash silently
+        logger.exception("Annotation job %s crashed", job_id)
+        AnnotationJob.objects.filter(id=job_id).update(
+            status=AnnotationJob.STATUS_ERROR,
+            error=f"Unexpected error during annotation: {exc}",
+        )
+    finally:
+        # Threads get their own DB connection; close it so it isn't leaked.
+        connection.close()
+
+
 @agency_operator_required
 @require_POST
 def template_annotate(request):
-    """Send raw HTML to OpenAI, return annotated HTML + schema preview."""
+    """Kick off a background AI annotation job and return its id immediately.
+
+    The slow OpenAI call runs in a worker thread (see _run_annotation_job), so
+    this request returns in milliseconds and can never be killed by the Gunicorn
+    worker timeout / proxy. The browser polls template_annotate_status.
+    """
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -247,17 +298,65 @@ def template_annotate(request):
     if not raw_html:
         return JsonResponse({"error": "No HTML provided."}, status=400)
 
-    try:
-        annotated = annotate_html(raw_html)
-    except AnnotatorError as exc:
-        return JsonResponse({"error": str(exc)}, status=502)
+    # Opportunistic sweep of transient rows so result_html blobs don't accumulate.
+    AnnotationJob.objects.filter(
+        created_at__lt=timezone.now() - timedelta(days=1)
+    ).delete()
 
-    schema = build_schema(annotated)
-    sections_summary = [
-        {"id": s["id"], "label": s["label"], "field_count": len(s.get("fields", []))}
-        for s in schema.get("sections", [])
-    ]
-    return JsonResponse({"html": annotated, "sections": sections_summary})
+    job = AnnotationJob.objects.create(
+        created_by=request.user if request.user.is_authenticated else None,
+    )
+    threading.Thread(
+        target=_run_annotation_job,
+        args=(str(job.id), raw_html),
+        name=f"annotate-{job.id}",
+        daemon=True,
+    ).start()
+
+    return JsonResponse({"job_id": str(job.id), "status": job.status}, status=202)
+
+
+@agency_operator_required
+@require_GET
+def template_annotate_status(request, job_id):
+    """Poll a background annotation job. Returns its status, and on completion
+    the annotated HTML + section summary (mirrors the old synchronous payload)."""
+    try:
+        job = AnnotationJob.objects.get(id=job_id)
+    except AnnotationJob.DoesNotExist:
+        return JsonResponse({"error": "Job not found."}, status=404)
+
+    # Scope to the creator so one operator can't poll another's job (superusers
+    # see everything for debugging).
+    if (
+        job.created_by_id
+        and job.created_by_id != request.user.id
+        and not request.user.is_superuser
+    ):
+        return JsonResponse({"error": "Job not found."}, status=404)
+
+    # Stale guard: a job stuck non-terminal well past the worker budget means the
+    # worker thread died (e.g. the process was recycled). Fail it so the UI can
+    # offer a retry instead of polling forever.
+    if not job.is_terminal:
+        age = (timezone.now() - job.updated_at).total_seconds()
+        if age > ANNOTATION_JOB_STALE_SECONDS:
+            AnnotationJob.objects.filter(
+                id=job.id,
+                status__in=[AnnotationJob.STATUS_PENDING, AnnotationJob.STATUS_RUNNING],
+            ).update(
+                status=AnnotationJob.STATUS_ERROR,
+                error="Annotation timed out on the server. Please try again.",
+            )
+            job.refresh_from_db()
+
+    body = {"job_id": str(job.id), "status": job.status}
+    if job.status == AnnotationJob.STATUS_DONE:
+        body["html"] = job.result_html
+        body["sections"] = job.sections
+    elif job.status == AnnotationJob.STATUS_ERROR:
+        body["error"] = job.error or "Annotation failed."
+    return JsonResponse(body)
 
 
 # --------------------------------------------------------------------------- #

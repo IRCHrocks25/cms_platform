@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
-    Page,
+    Page, AnnotationJob,
 )
 
 
@@ -53,3 +53,14 @@ class BlogPostAdmin(admin.ModelAdmin):
     list_filter = ("status", "featured", "tenant")
     search_fields = ("title", "slug", "tenant__name", "tenant__subdomain")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AnnotationJob)
+class AnnotationJobAdmin(admin.ModelAdmin):
+    list_display = ("id", "status", "created_by", "created_at", "updated_at")
+    list_filter = ("status",)
+    search_fields = ("id", "created_by__username")
+    readonly_fields = (
+        "id", "status", "created_by", "result_html", "sections", "error",
+        "created_at", "updated_at",
+    )

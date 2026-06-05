@@ -1,4 +1,5 @@
 import re
+import uuid
 
 from django.conf import settings
 from django.db import models
@@ -358,3 +359,60 @@ class BlogPost(models.Model):
         if og:
             merged["og_image_url"] = og
         return merged
+
+
+class AnnotationJob(models.Model):
+    """Background job for AI HTML annotation.
+
+    The OpenAI annotation call can run 1–2 minutes on large pages (5000+ lines).
+    Running it synchronously inside the web request meant a slow call got killed
+    by the Gunicorn worker timeout and the proxy returned an HTML 502 page (the
+    dashboard fetch then choked on ``<!DOCTYPE`` → "Unexpected token '<'").
+
+    Instead, ``dashboard.views.template_annotate`` creates one of these rows and
+    a worker thread runs ``annotate_html()`` with NO web-request clock; the
+    browser polls ``template_annotate_status`` until the row is terminal. The
+    request returns in milliseconds, so nothing upstream can ever time it out.
+
+    Rows are transient — they hold the result only until the browser fetches it,
+    and old rows are swept on the next submit (see ``template_annotate``).
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    # UUID PK doubles as an opaque, non-enumerable polling token.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="annotation_jobs",
+    )
+    status = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    result_html = models.TextField(blank=True, default="")
+    sections = models.JSONField(default=list, blank=True)
+    error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AnnotationJob {self.id} ({self.status})"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in (self.STATUS_DONE, self.STATUS_ERROR)

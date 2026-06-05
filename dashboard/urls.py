@@ -14,6 +14,7 @@ urlpatterns = [
     path("templates/", views.template_list, name="template_list"),
     path("templates/new/", views.template_create, name="template_create"),
     path("templates/annotate/", views.template_annotate, name="template_annotate"),
+    path("templates/annotate/status/<uuid:job_id>/", views.template_annotate_status, name="template_annotate_status"),
     path("templates/<int:pk>/", views.template_detail, name="template_detail"),
     path("templates/<int:pk>/delete/", views.template_delete, name="template_delete"),
 

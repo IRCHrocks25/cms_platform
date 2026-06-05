@@ -82,6 +82,7 @@
             <div class="row" style="gap: 8px;">
               <button type="button" id="annotate-btn" class="btn btn-ghost btn-sm"
                       data-url="{% url 'dashboard:template_annotate' %}"
+                      data-status-url="{% url 'dashboard:template_annotate_status' '00000000-0000-0000-0000-000000000000' %}"
                       title="Send raw HTML to AI and get back annotated HTML with data-section / data-edit markers">
                 Annotate with AI
               </button>
@@ -323,7 +324,7 @@
         }, 200);
         elapsedTimer = setInterval(function () {
           var s = Math.round((Date.now() - loadStart) / 1000);
-          if (loadingSub) loadingSub.textContent = s + "s · usually 10–30s";
+          if (loadingSub) loadingSub.textContent = s + "s · large pages can take 1–2 min";
         }, 1000);
       }
       function openCompareLoading(originalHtml) {
@@ -440,17 +441,90 @@
       }
 
       // -- Annotate trigger ---------------------------------------------- //
+      // Submit → poll. The server runs the slow OpenAI call in a background job
+      // and returns a job id immediately, so no proxy/Gunicorn timeout can kill
+      // it. We poll the status endpoint until the job is done or errors.
+      var JOB_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000";
+      var POLL_INTERVAL_MS = 2500;
+      var POLL_MAX_MS = 6 * 60 * 1000; // client-side hard cap, well above server budget
+
+      // Read any response as TEXT and parse defensively — never assume JSON. A
+      // proxy 502/504, a gateway page, or a deploy-in-progress page returns an
+      // HTML document; res.json() on that throws "Unexpected token '<'".
+      function readJsonSafe(res) {
+        return res.text().then(function (text) {
+          var body = null;
+          try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+          return { ok: res.ok, status: res.status, body: body };
+        });
+      }
+
       function runAnnotate(sourceHtml) {
         annotateBtn.disabled = true;
         if (compareRetry) compareRetry.disabled = true;
         var originalText = annotateBtn.textContent;
         annotateBtn.textContent = "Annotating…";
-        setStatus("info", "Sending to OpenAI — usually 10–30 seconds.");
+        setStatus("info", "Sending to OpenAI — large pages can take a minute or two.");
         savedInputForRetry = sourceHtml;
         // Show the compare view immediately, right column in a loading state.
         if (compareReady) openCompareLoading(sourceHtml);
 
-        return fetch(annotateBtn.dataset.url, {
+        function resetButton() {
+          annotateBtn.disabled = false;
+          if (compareRetry) compareRetry.disabled = false;
+          annotateBtn.textContent = originalText;
+        }
+        function fail(msg) {
+          setStatus("error", msg);
+          if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError(msg);
+          resetButton();
+        }
+        function succeed(body) {
+          setStatus("info", "AI returned — compare the two versions and choose whether to apply.");
+          if (compareReady) fillCompareResult(body.html, body.sections || []);
+          else openCompare(sourceHtml, body.html, body.sections || []);
+          resetButton();
+        }
+
+        var statusUrlTemplate = annotateBtn.dataset.statusUrl || "";
+        var pollStart = Date.now();
+
+        function poll(jobId) {
+          if (!statusUrlTemplate) {
+            return fail("Status endpoint unavailable — hard-refresh the page (Ctrl+Shift+R) and retry.");
+          }
+          var url = statusUrlTemplate.replace(JOB_ID_PLACEHOLDER, jobId);
+          fetch(url, { headers: { "Accept": "application/json" } })
+            .then(readJsonSafe)
+            .then(function (r) {
+              // Transient non-JSON or 5xx mid-poll (deploy blip, brief gateway
+              // error) — keep polling until the cap rather than giving up.
+              if (!r.body) {
+                if (Date.now() - pollStart > POLL_MAX_MS) {
+                  return fail("The server stopped responding while annotating. Please try again.");
+                }
+                return setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+              }
+              if (r.body.status === "done") return succeed(r.body);
+              if (r.body.status === "error") {
+                return fail((r.body && r.body.error) || "Annotation failed.");
+              }
+              // pending / running → keep polling
+              if (Date.now() - pollStart > POLL_MAX_MS) {
+                return fail("Annotation is taking too long. Try a smaller page, then retry.");
+              }
+              setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+            })
+            .catch(function (err) {
+              // Network blip mid-poll — retry until the cap.
+              if (Date.now() - pollStart > POLL_MAX_MS) {
+                return fail("Network error while annotating: " + err.message);
+              }
+              setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+            });
+        }
+
+        fetch(annotateBtn.dataset.url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -458,30 +532,19 @@
           },
           body: JSON.stringify({ html: sourceHtml }),
         })
-          .then(function (res) {
-            return res.json().then(function (body) {
-              return { ok: res.ok, body: body };
-            });
-          })
-          .then(function (result) {
-            if (!result.ok) {
-              var msg = (result.body && result.body.error) || "Annotation failed.";
-              setStatus("error", msg);
-              if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError(msg);
-              return;
+          .then(readJsonSafe)
+          .then(function (r) {
+            if (!r.body) {
+              return fail("The server didn't return a valid response (HTTP " +
+                r.status + "). Please try again.");
             }
-            setStatus("info", "AI returned — compare the two versions and choose whether to apply.");
-            if (compareReady) fillCompareResult(result.body.html, result.body.sections || []);
-            else openCompare(sourceHtml, result.body.html, result.body.sections || []);
+            if (!r.ok || !r.body.job_id) {
+              return fail((r.body && r.body.error) || "Could not start annotation.");
+            }
+            poll(r.body.job_id);
           })
           .catch(function (err) {
-            setStatus("error", "Network error: " + err.message);
-            if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError("Network error: " + err.message);
-          })
-          .finally(function () {
-            annotateBtn.disabled = false;
-            if (compareRetry) compareRetry.disabled = false;
-            annotateBtn.textContent = originalText;
+            fail("Network error: " + err.message);
           });
       }
 
