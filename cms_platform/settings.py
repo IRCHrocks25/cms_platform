@@ -268,6 +268,10 @@ TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
+# Per-request timeout (seconds) for the OpenAI annotation call. Keep this BELOW
+# the Gunicorn worker --timeout (180s) so a slow/hung API surfaces as a clean
+# AnnotatorError (JSON 502) instead of a killed worker (HTML 502 from the proxy).
+OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
 
 RAILWAY_TOKEN = os.environ.get("RAILWAY_TOKEN", "")
 RAILWAY_SERVICE_ID = os.environ.get("RAILWAY_SERVICE_ID", "")

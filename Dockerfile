@@ -36,4 +36,9 @@ RUN sed -i 's/\r$//' /app/entrypoint.sh \
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "cms_platform.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "60", "--access-logfile", "-", "--error-logfile", "-"]
+# --timeout 180: the AI annotation endpoint calls OpenAI synchronously and can
+# run well past 60s on large pages. At 60s Gunicorn killed the worker mid-request
+# and the proxy served an HTML 502, which the dashboard fetch tried to JSON.parse
+# ("Unexpected token '<'"). The OpenAI client timeout (settings.OPENAI_TIMEOUT,
+# default 120s) is set BELOW this so a hung API returns a clean JSON error first.
+CMD ["gunicorn", "cms_platform.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-"]

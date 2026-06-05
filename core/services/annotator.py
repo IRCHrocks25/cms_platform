@@ -235,7 +235,7 @@ def annotate_html(raw_html: str) -> str:
         len(blocks), len(ref_map), len(raw_html), len(marked_html),
     )
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=getattr(settings, "OPENAI_TIMEOUT", 120))
     user_message = (
         f"{_EXAMPLE}\n\n"
         "=== HTML TO ANNOTATE (marked) ===\n"
