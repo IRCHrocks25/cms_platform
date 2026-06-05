@@ -125,6 +125,19 @@ PREVIEW_BRIDGE_SCRIPT = """
         sec.classList.add('cms-section-flash');
       }
     }
+    if (data.type === 'toggle-visibility') {
+      // Live show/hide. A bare id (no dot) targets a whole section wrapper;
+      // a dotted id (section.field) targets one editable element. In preview
+      // 'cms-hidden' only dims (see style below) so the client can still see
+      // and un-hide it; on the PUBLIC render it is display:none (server-side).
+      var vid = data.payload.id, vhide = !!data.payload.hidden;
+      var vsel = vid.indexOf('.') === -1
+        ? '[data-section="' + vid + '"]'
+        : '[data-edit="' + vid + '"]';
+      document.querySelectorAll(vsel).forEach(function (el) {
+        el.classList.toggle('cms-hidden', vhide);
+      });
+    }
   });
   send('ready', {});
 })();
@@ -141,6 +154,10 @@ PREVIEW_BRIDGE_SCRIPT = """
     25%  { outline: 2px solid rgba(124, 58, 237, 0.85); outline-offset: -2px; }
     100% { outline: 2px solid rgba(124, 58, 237, 0); outline-offset: -2px; }
   }
+  /* Preview-only: hidden items are dimmed + marked, NOT removed, so the client
+     can still see and toggle them. The public site uses display:none instead. */
+  .cms-hidden { opacity: 0.4 !important; outline: 2px dashed #f59e0b !important;
+                outline-offset: 2px; }
 </style>
 """
 
@@ -320,6 +337,36 @@ def apply_head_settings(html: str, head_settings: dict[str, Any] | None) -> str:
     return str(soup)
 
 
+def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
+    """Mark client-hidden sections/fields with the `cms-hidden` class.
+
+    `hidden` is a list of ids: a bare id (`"testimonials"`) hides a whole
+    `data-section` wrapper; a dotted id (`"hero.cta"`) hides one `data-edit`
+    element. On the public render we also inject a `display:none` rule (the
+    element stays in the DOM per the product choice); in preview the bridge
+    stylesheet dims `.cms-hidden` instead so the client can still toggle it.
+    """
+    if not isinstance(hidden, (list, tuple)):
+        return
+    applied = False
+    for raw in hidden:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        ident = raw.strip()
+        attr = "data-edit" if "." in ident else "data-section"
+        for el in soup.find_all(attrs={attr: ident}):
+            classes = el.get("class", []) or []
+            if "cms-hidden" not in classes:
+                classes.append("cms-hidden")
+                el["class"] = classes
+            applied = True
+
+    if applied and not preview:
+        style = soup.new_tag("style")
+        style.string = ".cms-hidden{display:none !important}"
+        (soup.find("head") or soup.find("body") or soup).append(style)
+
+
 def render_site(
     template_html: str,
     content: dict[str, Any],
@@ -351,6 +398,9 @@ def render_site(
         ftype = el.get("data-type", "text").strip() or "text"
         _apply_field(el, section_data[field], ftype)
 
+    if isinstance(content, dict) and content.get("_hidden"):
+        _apply_hidden(soup, content["_hidden"], preview=preview)
+
     if not preview and site_settings:
         _inject_site_settings(soup, site_settings)
 
@@ -365,10 +415,16 @@ def render_site(
 
 def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
     """Fill missing fields with template defaults."""
-    merged: dict[str, dict[str, str]] = {}
+    merged: dict[str, Any] = {}
     defaults = schema.get("defaults", {}) or {}
     for section_id, fields in defaults.items():
         merged[section_id] = dict(fields)
     for section_id, fields in (content or {}).items():
+        # Meta keys (e.g. "_hidden") are NOT sections — they hold editor state
+        # like the list of hidden section/field ids. Copy them through verbatim;
+        # merging them as `{section: {field: value}}` would crash on a list.
+        if isinstance(section_id, str) and section_id.startswith("_"):
+            merged[section_id] = fields
+            continue
         merged.setdefault(section_id, {}).update(fields or {})
     return merged

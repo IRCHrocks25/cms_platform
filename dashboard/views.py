@@ -1472,6 +1472,17 @@ def _save_content(request, editable):
     if not isinstance(content, dict):
         return HttpResponseBadRequest("content must be an object")
 
+    # Visibility meta: a list of hidden section/field ids. Normalize defensively
+    # so a malformed client payload can't break render_site (which iterates it).
+    if "_hidden" in content:
+        raw_hidden = content.get("_hidden")
+        if isinstance(raw_hidden, list):
+            content["_hidden"] = [
+                str(x)[:120] for x in raw_hidden if isinstance(x, str) and x.strip()
+            ][:500]
+        else:
+            content.pop("_hidden", None)
+
     # Version history is the tenant home's rolling-10 snapshots. Inner pages
     # don't have undo yet (backlog), so only snapshot when editing the home.
     if isinstance(editable, Tenant):

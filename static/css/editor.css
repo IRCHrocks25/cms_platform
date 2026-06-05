@@ -643,3 +643,69 @@
   cursor: pointer;
   max-width: 220px;
 }
+
+/* ---- hide / show (visibility) toggles -------------------------------- */
+/* Eye-toggle button injected onto each section head and field by editor.js. */
+.cms-vis-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted, #6b7280);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.cms-vis-toggle:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--color-primary, #2563eb);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+.cms-vis-toggle[aria-pressed="true"] {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+/* Swap eye / eye-off based on pressed (= hidden) state. */
+.cms-vis-toggle .cms-eye-off { display: none; }
+.cms-vis-toggle[aria-pressed="true"] .cms-eye-on { display: none; }
+.cms-vis-toggle[aria-pressed="true"] .cms-eye-off { display: inline; }
+
+/* Section head: push the toggle to the right of the title + field pill. */
+.editor-form-section-head { display: flex; align-items: center; gap: 8px; }
+.editor-form-section-head .cms-vis-toggle { margin-left: auto; }
+
+/* Field: anchor the toggle to the top-right, keep label clear of it. */
+.field.cms-has-vis { position: relative; }
+.field.cms-has-vis > .cms-vis-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.field.cms-has-vis > .field-label { padding-right: 36px; }
+
+/* Dimmed "this is hidden" state in the form for sections + fields. */
+.editor-form-section.cms-form-hidden > .stack-5,
+.field.cms-form-hidden > :not(.cms-vis-toggle) {
+  opacity: 0.45;
+}
+.field.cms-form-hidden > .field-label { text-decoration: line-through; }
+
+/* "Show all hidden" reset bar at the top of the form. */
+.cms-vis-resetbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #92400e;
+  font-size: 0.85rem;
+}

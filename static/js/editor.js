@@ -117,12 +117,125 @@
     );
   }
 
+  // ---- visibility: hide / show sections & individual items -------------
+  // State lives in content._hidden (a list of ids) so it rides the normal
+  // autosave. A bare id ("hero") hides a section; a dotted id ("hero.cta")
+  // hides one field. Hiding is fully reversible — structure stays locked.
+  if (!Array.isArray(content._hidden)) content._hidden = [];
+
+  var EYE_ON =
+    '<svg class="cms-eye cms-eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF =
+    '<svg class="cms-eye cms-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M9.9 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3 3.9M6.6 6.6A18 18 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 4.1-.9"/>' +
+    '<path d="M3 3l18 18"/></svg>';
+  var visResetBar = null;
+
+  function isHidden(id) { return content._hidden.indexOf(id) !== -1; }
+  function setHiddenState(id, hide) {
+    var i = content._hidden.indexOf(id);
+    if (hide && i === -1) content._hidden.push(id);
+    else if (!hide && i !== -1) content._hidden.splice(i, 1);
+  }
+  function pushVisibility(id, hidden) {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "toggle-visibility", payload: { id: id, hidden: hidden } },
+      "*"
+    );
+  }
+  function reflectVisibility(id, hidden) {
+    document.querySelectorAll('[data-vis-id="' + id + '"]').forEach(function (b) {
+      b.setAttribute("aria-pressed", hidden ? "true" : "false");
+      b.title = hidden ? "Hidden on your site — click to show" : "Hide this on your site";
+    });
+    var f = document.querySelector('.field[data-field-id="' + id + '"]');
+    if (f) f.classList.toggle("cms-form-hidden", hidden);
+    var s = document.querySelector('.editor-form-section[data-section-id="' + id + '"]');
+    if (s) s.classList.toggle("cms-form-hidden", hidden);
+  }
+  function toggleVisibility(id) {
+    var hide = !isHidden(id);
+    setHiddenState(id, hide);
+    reflectVisibility(id, hide);
+    pushVisibility(id, hide);
+    updateResetBar();
+    scheduleSave();
+  }
+  function makeVisToggle(id) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "cms-vis-toggle";
+    b.setAttribute("data-vis-id", id);
+    b.setAttribute("aria-pressed", isHidden(id) ? "true" : "false");
+    b.title = isHidden(id) ? "Hidden on your site — click to show" : "Hide this on your site";
+    b.innerHTML = EYE_ON + EYE_OFF;
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleVisibility(id);
+    });
+    return b;
+  }
+  function updateResetBar() {
+    if (!visResetBar) return;
+    var n = content._hidden.length;
+    visResetBar.hidden = n === 0;
+    var label = visResetBar.querySelector("[data-vis-count]");
+    if (label) label.textContent = n + (n === 1 ? " item" : " items") + " hidden on your site";
+  }
+  function injectVisibilityToggles() {
+    // Section toggles — skip the Brand panel (global colors aren't hideable).
+    document.querySelectorAll(".editor-form-section[data-section-id]").forEach(function (sec) {
+      if (sec.closest && sec.closest('[data-panel="brand"]')) return;
+      var head = sec.querySelector(".editor-form-section-head");
+      if (!head) return;
+      var id = sec.getAttribute("data-section-id");
+      if (isHidden(id)) sec.classList.add("cms-form-hidden");
+      head.appendChild(makeVisToggle(id));
+    });
+    // Per-field toggles — skip Brand fields too.
+    document.querySelectorAll(".field[data-field-id]").forEach(function (node) {
+      if (node.closest && node.closest('[data-panel="brand"]')) return;
+      var id = node.getAttribute("data-field-id");
+      if (isHidden(id)) node.classList.add("cms-form-hidden");
+      node.classList.add("cms-has-vis");
+      node.appendChild(makeVisToggle(id));
+    });
+    // "Show all hidden" reset bar pinned to the top of the form.
+    var form = document.getElementById("editor-form");
+    if (form) {
+      visResetBar = document.createElement("div");
+      visResetBar.className = "cms-vis-resetbar";
+      visResetBar.hidden = true;
+      visResetBar.innerHTML =
+        '<span data-vis-count></span>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-vis-reset>Show all hidden</button>';
+      form.insertBefore(visResetBar, form.firstChild);
+      visResetBar.querySelector("[data-vis-reset]").addEventListener("click", function () {
+        var ids = content._hidden.slice();
+        if (!ids.length) return;
+        content._hidden = [];
+        ids.forEach(function (id) { reflectVisibility(id, false); pushVisibility(id, false); });
+        updateResetBar();
+        scheduleSave();
+      });
+      updateResetBar();
+    }
+  }
+
   window.addEventListener("message", function (e) {
     var data = e.data || {};
     if (data.source !== "cms-preview") return;
     if (data.type === "ready") {
       previewReady = true;
       pushAllToPreview();
+      // Re-assert hidden state in case content._hidden has unsaved changes the
+      // freshly server-rendered iframe doesn't reflect yet.
+      content._hidden.forEach(function (id) { pushVisibility(id, true); });
     } else if (data.type === "focus-field") {
       focusFieldInForm(data.payload.id);
     }
@@ -131,6 +244,7 @@
   function pushAllToPreview() {
     var patch = {};
     Object.keys(content).forEach(function (sec) {
+      if (sec.charAt(0) === "_") return; // skip meta keys (e.g. _hidden)
       Object.keys(content[sec]).forEach(function (f) {
         patch[sec + "." + f] = content[sec][f];
       });
@@ -447,6 +561,9 @@
         });
       }
     });
+
+    // Inject hide/show eye-toggles onto every section head and field.
+    injectVisibilityToggles();
 
     // Click / focus a field on the form -> highlight + scroll to it in the preview.
     var formEl = document.getElementById("editor-form");
