@@ -18,6 +18,19 @@ services:
       RAILWAY_SERVICE_ID: ${RAILWAY_SERVICE_ID:-}
       RAILWAY_ENVIRONMENT_ID: ${RAILWAY_ENVIRONMENT_ID:-}
       RAILWAY_PROJECT_ID: ${RAILWAY_PROJECT_ID:-}
+      # AI annotation. Without these forwarded, the container never sees the key
+      # Dokploy holds and annotate_html() raises "OPENAI_API_KEY is not set".
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ANNOTATE_MODEL: ${OPENAI_ANNOTATE_MODEL:-gpt-4o-mini}
+      OPENAI_TIMEOUT: ${OPENAI_TIMEOUT:-120}
+      # Transactional email (Resend).
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      # Media uploads (Cloudinary).
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
     volumes:
       - media:/app/media
     networks:
