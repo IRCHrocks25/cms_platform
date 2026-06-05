@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
+    Page,
 )
 
 
@@ -32,6 +33,14 @@ class TenantMembershipAdmin(admin.ModelAdmin):
     list_filter = ("role",)
     search_fields = ("tenant__name", "tenant__subdomain", "user__username", "user__email")
     autocomplete_fields = ("tenant", "user")
+
+
+@admin.register(Page)
+class PageAdmin(admin.ModelAdmin):
+    list_display = ("title", "tenant", "slug", "template", "is_published", "nav_order", "updated_at")
+    list_filter = ("is_published", "tenant")
+    search_fields = ("title", "slug", "tenant__name", "tenant__subdomain")
+    readonly_fields = ("created_at", "updated_at")
 
 
 admin.site.register(MediaAsset)

@@ -13,12 +13,20 @@
       {% if scope == "agency" %}
         <a href="{% url 'dashboard:tenant_list' %}" class="editor-bar-back" title="Back to sites">←</a>
       {% else %}
-        <a href="/" class="editor-bar-back" title="View live site" target="_blank" rel="noopener">↗</a>
+        <a href="{{ live_url }}" class="editor-bar-back" title="View live page" target="_blank" rel="noopener">↗</a>
       {% endif %}
       <div>
-        <div class="editor-bar-title">{{ tenant.name }}</div>
-        <div class="editor-bar-sub">{{ tenant.template.name }} · {{ tenant.subdomain }}</div>
+        <div class="editor-bar-title">{{ target_title }}</div>
+        <div class="editor-bar-sub">{{ target_subtitle }}</div>
       </div>
+      {% if page_switch|length > 1 %}
+        <select class="page-switch-select" onchange="if(this.value)window.location.href=this.value;"
+                title="Switch page" aria-label="Switch page">
+          {% for ps in page_switch %}
+            <option value="{{ ps.url }}" {% if ps.current %}selected{% endif %}>{{ ps.label }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
     </div>
 
     <div class="row">
@@ -26,13 +34,16 @@
         <span class="status-dot" id="save-dot"></span>
         <span id="save-text">All changes saved</span>
       </div>
+      <a href="{{ page_list_url }}" class="btn btn-secondary">Pages</a>
       <a href="{{ blog_url }}" class="btn btn-secondary">Blog</a>
-      <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
+      {% if versions_url %}
+        <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
+      {% endif %}
       <button type="button" class="btn btn-secondary" id="open-settings-btn">Settings</button>
       <form method="post" action="{{ publish_url }}" style="display: inline;">
         {% csrf_token %}
-        <button type="submit" class="btn {% if tenant.is_published %}btn-secondary{% else %}btn-purple{% endif %}">
-          {% if tenant.is_published %}Unpublish{% else %}Publish{% endif %}
+        <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-purple{% endif %}">
+          {% if target_is_published %}Unpublish{% else %}Publish{% endif %}
         </button>
       </form>
     </div>

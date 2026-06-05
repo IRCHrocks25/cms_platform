@@ -629,3 +629,17 @@
 .version-meta strong { font-size: 14px; font-weight: 500; color: var(--color-text); }
 .version-meta span { font-size: 12px; color: var(--color-text-muted); }
 .version-actions { display: inline-flex; gap: var(--space-2); flex-shrink: 0; }
+
+/* Page switcher in the editor bar (Home / inner pages) */
+.page-switch-select {
+  margin-left: var(--space-3, 12px);
+  padding: 6px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--ink, #0a0a14);
+  cursor: pointer;
+  max-width: 220px;
+}

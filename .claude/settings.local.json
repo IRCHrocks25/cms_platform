@@ -87,7 +87,12 @@
       "Bash(mkdir -p .tmp_traefik_test)",
       "Bash(TRAEFIK_DYNAMIC_DIR=\"$\\(pwd\\)/.tmp_traefik_test\" python manage.py sync_traefik_routes)",
       "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.conf import settings; print\\('ALLOWED_HOSTS=', settings.ALLOWED_HOSTS\\); print\\('CSRF type=', type\\(settings.CSRF_TRUSTED_ORIGINS\\)\\); print\\('CSRF=', list\\(settings.CSRF_TRUSTED_ORIGINS\\)\\)\")",
-      "Bash(python -c \"import json; d=json.load\\(open\\('staticfiles/staticfiles.json'\\)\\); print\\('blog ->', d['paths'].get\\('css/blog.css'\\)\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('staticfiles/staticfiles.json'\\)\\); print\\('blog ->', d['paths'].get\\('css/blog.css'\\)\\)\")",
+      "Bash(findstr /C:\"rendered ok\" /C:\"OperationalError\" /C:\"getaddrinfo\")",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.db import connection; connection.ensure_connection\\(\\); print\\('DB_OK'\\)\")",
+      "Bash(python -c \"import sys; d=sys.stdin.read\\(\\); print\\('DB_OK' if 'DB_OK' in d else \\('DB_DOWN: '+d.strip\\(\\).splitlines\\(\\)[-1][:120]\\)\\)\")",
+      "Bash(python manage.py migrate core)",
+      "Bash(python manage.py test core dashboard)"
     ]
   }
 }

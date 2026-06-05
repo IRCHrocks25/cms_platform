@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Pages · {{ tenant.name }}{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Pages</h1>
+        <p class="page-subtitle">
+          Inner pages for <strong>{{ tenant.name }}</strong>. Your home page lives
+          {% if scope == "agency" %}
+            in the <a href="{{ nav_urls.home }}">site editor</a>;
+          {% else %}
+            in the <a href="{{ nav_urls.home }}">main editor</a>;
+          {% endif %}
+          these are extra pages like About or Services, each at its own URL.
+        </p>
+      </div>
+    </div>
+
+    <div class="card content-block" style="margin-bottom: var(--space-5);">
+      <form method="post" action="{{ nav_urls.new }}" class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: flex-end;">
+        {% csrf_token %}
+        <div class="field" style="margin: 0; min-width: 200px;">
+          <label class="field-label" for="pf-title">Page title</label>
+          <input class="input" type="text" id="pf-title" name="title" placeholder="About us" required>
+        </div>
+        <div class="field" style="margin: 0; min-width: 160px;">
+          <label class="field-label" for="pf-slug">URL slug</label>
+          <input class="input" type="text" id="pf-slug" name="slug" placeholder="about">
+        </div>
+        <div class="field" style="margin: 0; min-width: 200px;">
+          <label class="field-label" for="pf-template">Template</label>
+          <select class="input" id="pf-template" name="template" required>
+            <option value="">Choose a template…</option>
+            {% for t in templates %}
+              <option value="{{ t.pk }}">{{ t.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-purple">+ Add page</button>
+      </form>
+      <p class="field-help" style="margin-top: var(--space-2);">
+        Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
+      </p>
+    </div>
+
+    {% if pages %}
+      <div class="card card-flush content-block">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Page</th>
+              <th>URL</th>
+              <th>Template</th>
+              <th>Status</th>
+              <th>Last edited</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in pages %}
+              <tr>
+                <td><a href="{{ row.urls.edit }}" class="cell-strong">{{ row.obj.title }}</a></td>
+                <td><code>/{{ row.obj.slug }}/</code></td>
+                <td>{{ row.obj.template.name }}</td>
+                <td>
+                  {% if row.obj.is_published %}
+                    <span class="badge badge-success">Published</span>
+                  {% else %}
+                    <span class="badge badge-soft">Draft</span>
+                  {% endif %}
+                </td>
+                <td class="cell-muted">{{ row.obj.updated_at|naturaltime }}</td>
+                <td class="right">
+                  <div class="row-actions">
+                    <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
+                    {% if row.obj.is_published %}
+                      <a href="{{ row.urls.live }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
+                    {% endif %}
+                    <form method="post" action="{{ row.urls.publish }}" style="display:inline;">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-ghost btn-sm">
+                        {% if row.obj.is_published %}Unpublish{% else %}Publish{% endif %}
+                      </button>
+                    </form>
+                    <form method="post" action="{{ row.urls.delete }}" style="display:inline;"
+                          onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-danger);">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty content-block">
+        <h3>No inner pages yet</h3>
+        <p>Add one above — pick a template and give it a URL slug like <code>about</code> or <code>services</code>.</p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -96,6 +96,60 @@ class Tenant(models.Model):
         return self.memberships.filter(user=user).exists()
 
 
+# Top-level paths on a tenant host that a Page slug must not shadow. A page
+# addressed at `/<slug>/` shares the URL namespace with these, so we refuse them.
+RESERVED_PAGE_SLUGS = {
+    "blog", "dashboard", "login", "logout", "admin", "static", "media",
+    "site", "password-reset", "reset", "debug-headers", "api",
+}
+
+
+class Page(models.Model):
+    """An additional annotated page for a tenant (About, Services, ...).
+
+    The tenant's *home* page stays on ``Tenant.template`` / ``Tenant.content``;
+    a Page is any extra page, served at ``/<slug>/`` on the same host. Each
+    Page is its own annotated ``Template`` + content blob and publishes
+    independently of the home page. Rendering reuses ``render_site`` /
+    ``merge_with_defaults`` unchanged — a Page exposes the same
+    ``template`` / ``content`` / ``is_published`` shape the editor already
+    drives the home page with.
+    """
+
+    tenant = models.ForeignKey(
+        "core.Tenant", on_delete=models.CASCADE, related_name="pages"
+    )
+    template = models.ForeignKey(
+        Template, on_delete=models.PROTECT, related_name="pages"
+    )
+
+    title = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=80)
+    content = models.JSONField(default=dict, blank=True)
+
+    is_published = models.BooleanField(default=False)
+    show_in_nav = models.BooleanField(default=True)
+    nav_order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["nav_order", "title"]
+        unique_together = [("tenant", "slug")]
+
+    def __str__(self):
+        return f"{self.title} ({self.tenant.subdomain}/{self.slug})"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.title)[:80]
+        super().save(*args, **kwargs)
+
+    def user_can_edit(self, user) -> bool:
+        return self.tenant.user_can_edit(user)
+
+
 class TenantMembership(models.Model):
     ROLE_OWNER = "owner"
     ROLE_EDITOR = "editor"

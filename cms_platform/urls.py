@@ -65,7 +65,16 @@ urlpatterns = [
     path("site/<slug:subdomain>/blog/", core_views.blog_index_public, name="blog_index_public"),
     path("site/<slug:subdomain>/blog/<slug:slug>/", core_views.blog_detail_public, name="blog_detail_public"),
 
+    # Inner page via agency-host fallback (`/site/<sub>/<slug>/`). Listed after
+    # the blog routes so `blog` resolves to the blog index, not a page slug.
+    path("site/<slug:subdomain>/<slug:slug>/", core_views.page_render_public, name="page_render_public"),
+
     path("site/<slug:subdomain>/", core_views.public_render, name="public_render"),
+
+    # Inner page on a tenant host (`/<slug>/`). This is a catch-all single
+    # segment, so it MUST stay last (before root) — every more specific route
+    # above wins first. Unknown slugs 404 in page_render.
+    path("<slug:slug>/", core_views.page_render, name="page_render"),
     path("", core_views.root_redirect, name="root"),
 ]
 

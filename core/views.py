@@ -2,7 +2,7 @@ from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 
-from .models import Tenant
+from .models import Page, Tenant
 from .renderer import render_site, merge_with_defaults, apply_head_settings
 from .services import blog_render
 
@@ -34,6 +34,41 @@ def _render_tenant(tenant: Tenant, request=None, *, blog_base: str = "/blog/") -
     content = merge_with_defaults(tenant.template.schema, tenant.content)
     html = render_site(
         tenant.template.html_source,
+        content,
+        preview=False,
+        site_settings=tenant.site_settings or {},
+    )
+    html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
+    return HttpResponse(html)
+
+
+# --------------------------------------------------------------------------- #
+# Public inner pages (additional annotated pages: /about/, /services/, ...)    #
+# --------------------------------------------------------------------------- #
+
+
+def page_render(request, slug):
+    """An inner page on a tenant host (`/<slug>/`)."""
+    if request.tenant is None:
+        raise Http404("No site here")
+    return _render_page(request, request.tenant, slug, blog_base="/blog/")
+
+
+def page_render_public(request, subdomain, slug):
+    """An inner page via the agency-host fallback (`/site/<sub>/<slug>/`)."""
+    tenant = get_object_or_404(Tenant, subdomain=subdomain)
+    return _render_page(request, tenant, slug, blog_base=f"/site/{subdomain}/blog/")
+
+
+def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpResponse:
+    page = get_object_or_404(Page, tenant=tenant, slug=slug)
+    # Same visibility gate as the homepage: a draft page is only visible to an
+    # editor/operator, never leaked to the public.
+    if not page.is_published and not tenant.user_can_edit(request.user):
+        raise Http404("Page not published")
+    content = merge_with_defaults(page.template.schema, page.content)
+    html = render_site(
+        page.template.html_source,
         content,
         preview=False,
         site_settings=tenant.site_settings or {},

@@ -24,6 +24,7 @@ from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
     BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
+    Page, RESERVED_PAGE_SLUGS,
 )
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
@@ -928,7 +929,10 @@ def tenant_save(request, pk):
 @require_POST
 def tenant_publish(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _toggle_publish(request, tenant, redirect_name="dashboard:tenant_editor")
+    return _toggle_publish(
+        request, tenant,
+        redirect_url=reverse("dashboard:tenant_editor", args=[tenant.pk]),
+    )
 
 
 @agency_operator_required
@@ -976,7 +980,10 @@ def tenant_save_self(request):
 @tenant_member_required
 @require_POST
 def tenant_publish_self(request):
-    return _toggle_publish(request, request.tenant, redirect_name="dashboard:tenant_home")
+    return _toggle_publish(
+        request, request.tenant,
+        redirect_url=reverse("dashboard:tenant_home"),
+    )
 
 
 @tenant_member_required
@@ -998,13 +1005,215 @@ def tenant_video_confirm_self(request):
 
 
 # --------------------------------------------------------------------------- #
+# Inner pages (additional annotated pages: /about/, /services/, ...)           #
+# --------------------------------------------------------------------------- #
+
+
+def _get_tenant_page(tenant, page_pk):
+    return get_object_or_404(Page, pk=page_pk, tenant=tenant)
+
+
+def _page_nav_urls(scope, tenant):
+    if scope == "tenant":
+        return {
+            "list": reverse("dashboard:page_list_self"),
+            "new": reverse("dashboard:page_create_self"),
+            "home": reverse("dashboard:tenant_home"),
+            "blog": reverse("dashboard:blog_list_self"),
+        }
+    return {
+        "list": reverse("dashboard:page_list", args=[tenant.pk]),
+        "new": reverse("dashboard:page_create", args=[tenant.pk]),
+        "home": reverse("dashboard:tenant_editor", args=[tenant.pk]),
+        "blog": reverse("dashboard:blog_list", args=[tenant.pk]),
+    }
+
+
+def _page_row_urls(scope, tenant, page):
+    if scope == "tenant":
+        return {
+            "edit": reverse("dashboard:page_editor_self", args=[page.pk]),
+            "publish": reverse("dashboard:page_publish_self", args=[page.pk]),
+            "delete": reverse("dashboard:page_delete_self", args=[page.pk]),
+            "live": f"/{page.slug}/",
+        }
+    return {
+        "edit": reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
+        "publish": reverse("dashboard:page_publish", args=[tenant.pk, page.pk]),
+        "delete": reverse("dashboard:page_delete", args=[tenant.pk, page.pk]),
+        "live": f"/site/{tenant.subdomain}/{page.slug}/",
+    }
+
+
+def _page_list(request, tenant, scope):
+    pages = [
+        {"obj": p, "urls": _page_row_urls(scope, tenant, p)}
+        for p in tenant.pages.all()
+    ]
+    return render(
+        request,
+        "dashboard/page_list.html",
+        {
+            "tenant": tenant,
+            "scope": scope,
+            "pages": pages,
+            "nav_urls": _page_nav_urls(scope, tenant),
+            "templates": Template.objects.order_by("name"),
+            "reserved_slugs": ", ".join(sorted(RESERVED_PAGE_SLUGS)),
+        },
+    )
+
+
+def _page_create(request, tenant, scope):
+    nav = _page_nav_urls(scope, tenant)
+    title = (request.POST.get("title") or "").strip()
+    slug = slugify(request.POST.get("slug") or title)[:80]
+    template = Template.objects.filter(pk=request.POST.get("template")).first()
+
+    errors = []
+    if not title:
+        errors.append("A page title is required.")
+    if not slug:
+        errors.append("A URL slug is required.")
+    elif slug in RESERVED_PAGE_SLUGS:
+        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+    elif tenant.pages.filter(slug=slug).exists():
+        errors.append(f"This site already has a page at /{slug}/.")
+    if template is None:
+        errors.append("Choose a template for the page.")
+
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect(nav["list"])
+
+    page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
+    messages.success(request, f"Page “{page.title}” created — start editing.")
+    if scope == "tenant":
+        return redirect("dashboard:page_editor_self", page_pk=page.pk)
+    return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
+
+
+def _page_delete(request, tenant, scope, page_pk):
+    page = _get_tenant_page(tenant, page_pk)
+    title = page.title
+    page.delete()
+    messages.success(request, f"Page “{title}” deleted.")
+    return redirect(_page_nav_urls(scope, tenant)["list"])
+
+
+# ----- Inner pages: agency surface ----------------------------------------- #
+
+
+@agency_operator_required
+def page_list(request, pk):
+    return _page_list(request, get_object_or_404(Tenant, pk=pk), "agency")
+
+
+@agency_operator_required
+@require_POST
+def page_create(request, pk):
+    return _page_create(request, get_object_or_404(Tenant, pk=pk), "agency")
+
+
+@agency_operator_required
+def page_editor(request, pk, page_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    page = _get_tenant_page(tenant, page_pk)
+    return _render_editor(request, tenant, scope="agency", page=page)
+
+
+@agency_operator_required
+def page_preview(request, pk, page_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _render_preview(_get_tenant_page(tenant, page_pk))
+
+
+@agency_operator_required
+@require_POST
+def page_save(request, pk, page_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _save_content(request, _get_tenant_page(tenant, page_pk))
+
+
+@agency_operator_required
+@require_POST
+def page_publish(request, pk, page_pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    page = _get_tenant_page(tenant, page_pk)
+    return _toggle_publish(
+        request, page, noun="Page",
+        redirect_url=reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
+    )
+
+
+@agency_operator_required
+@require_POST
+def page_delete(request, pk, page_pk):
+    return _page_delete(request, get_object_or_404(Tenant, pk=pk), "agency", page_pk)
+
+
+# ----- Inner pages: tenant surface (self) ----------------------------------- #
+
+
+@tenant_member_required
+def page_list_self(request):
+    return _page_list(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+@require_POST
+def page_create_self(request):
+    return _page_create(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+def page_editor_self(request, page_pk):
+    return _render_editor(
+        request, request.tenant, scope="tenant",
+        page=_get_tenant_page(request.tenant, page_pk),
+    )
+
+
+@tenant_member_required
+def page_preview_self(request, page_pk):
+    return _render_preview(_get_tenant_page(request.tenant, page_pk))
+
+
+@tenant_member_required
+@require_POST
+def page_save_self(request, page_pk):
+    return _save_content(request, _get_tenant_page(request.tenant, page_pk))
+
+
+@tenant_member_required
+@require_POST
+def page_publish_self(request, page_pk):
+    page = _get_tenant_page(request.tenant, page_pk)
+    return _toggle_publish(
+        request, page, noun="Page",
+        redirect_url=reverse("dashboard:page_editor_self", args=[page.pk]),
+    )
+
+
+@tenant_member_required
+@require_POST
+def page_delete_self(request, page_pk):
+    return _page_delete(request, request.tenant, "tenant", page_pk)
+
+
+# --------------------------------------------------------------------------- #
 # Shared helpers                                                               #
 # --------------------------------------------------------------------------- #
 
 
-def _render_editor(request, tenant, *, scope):
-    schema = tenant.template.schema or {"sections": []}
-    content = merge_with_defaults(schema, tenant.content)
+def _render_editor(request, tenant, *, scope, page=None):
+    # The editor drives either the tenant home (page=None) or one inner Page.
+    # Both expose the same template / content / is_published shape, so the only
+    # differences are the action URLs and the bar labels.
+    editable = page or tenant
+    schema = editable.template.schema or {"sections": []}
+    content = merge_with_defaults(schema, editable.content)
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
@@ -1036,34 +1245,90 @@ def _render_editor(request, tenant, *, scope):
         "standard" if len(content_sections) <= 15 else "dense"
     )
 
+    # Image/video uploads create per-tenant MediaAssets (page-independent), so
+    # the page editor reuses the tenant-scoped upload/video endpoints. Version
+    # history is home-only for now — pages pass empty version URLs and the
+    # editor hides the History button (see editor.html).
     if scope == "tenant":
-        preview_url = reverse("dashboard:tenant_preview_self")
-        save_url = reverse("dashboard:tenant_save_self")
         upload_url = reverse("dashboard:tenant_upload_self")
         video_sign_url = reverse("dashboard:tenant_video_sign_self")
         video_confirm_url = reverse("dashboard:tenant_video_confirm_self")
-        versions_url = reverse("dashboard:tenant_versions_self")
-        version_restore_url = reverse("dashboard:tenant_version_restore_self")
-        publish_url = reverse("dashboard:tenant_publish_self")
         settings_url = reverse("dashboard:tenant_site_settings_self")
         blog_url = reverse("dashboard:blog_list_self")
+        page_list_url = reverse("dashboard:page_list_self")
+        if page is None:
+            preview_url = reverse("dashboard:tenant_preview_self")
+            save_url = reverse("dashboard:tenant_save_self")
+            publish_url = reverse("dashboard:tenant_publish_self")
+            versions_url = reverse("dashboard:tenant_versions_self")
+            version_restore_url = reverse("dashboard:tenant_version_restore_self")
+            live_url = "/"
+        else:
+            preview_url = reverse("dashboard:page_preview_self", args=[page.pk])
+            save_url = reverse("dashboard:page_save_self", args=[page.pk])
+            publish_url = reverse("dashboard:page_publish_self", args=[page.pk])
+            versions_url = version_restore_url = ""
+            live_url = f"/{page.slug}/"
     else:
-        preview_url = reverse("dashboard:tenant_preview", args=[tenant.pk])
-        save_url = reverse("dashboard:tenant_save", args=[tenant.pk])
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
         video_sign_url = reverse("dashboard:tenant_video_sign", args=[tenant.pk])
         video_confirm_url = reverse("dashboard:tenant_video_confirm", args=[tenant.pk])
-        versions_url = reverse("dashboard:tenant_versions", args=[tenant.pk])
-        version_restore_url = reverse("dashboard:tenant_version_restore", args=[tenant.pk])
-        publish_url = reverse("dashboard:tenant_publish", args=[tenant.pk])
         settings_url = reverse("dashboard:tenant_site_settings", args=[tenant.pk])
         blog_url = reverse("dashboard:blog_list", args=[tenant.pk])
+        page_list_url = reverse("dashboard:page_list", args=[tenant.pk])
+        if page is None:
+            preview_url = reverse("dashboard:tenant_preview", args=[tenant.pk])
+            save_url = reverse("dashboard:tenant_save", args=[tenant.pk])
+            publish_url = reverse("dashboard:tenant_publish", args=[tenant.pk])
+            versions_url = reverse("dashboard:tenant_versions", args=[tenant.pk])
+            version_restore_url = reverse("dashboard:tenant_version_restore", args=[tenant.pk])
+            live_url = f"/site/{tenant.subdomain}/"
+        else:
+            preview_url = reverse("dashboard:page_preview", args=[tenant.pk, page.pk])
+            save_url = reverse("dashboard:page_save", args=[tenant.pk, page.pk])
+            publish_url = reverse("dashboard:page_publish", args=[tenant.pk, page.pk])
+            versions_url = version_restore_url = ""
+            live_url = f"/site/{tenant.subdomain}/{page.slug}/"
+
+    # Switcher: Home + each inner page, with scope-aware editor URLs.
+    if scope == "tenant":
+        home_edit_url = reverse("dashboard:tenant_home")
+        def _page_edit_url(p):
+            return reverse("dashboard:page_editor_self", args=[p.pk])
+    else:
+        home_edit_url = reverse("dashboard:tenant_editor", args=[tenant.pk])
+        def _page_edit_url(p):
+            return reverse("dashboard:page_editor", args=[tenant.pk, p.pk])
+    page_switch = [{"label": "Home", "url": home_edit_url, "current": page is None}]
+    for p in tenant.pages.all():
+        page_switch.append({
+            "label": p.title,
+            "url": _page_edit_url(p),
+            "current": page is not None and p.pk == page.pk,
+        })
+
+    # Friendly link choices for link fields: this site's own pages (relative to
+    # the site root, which is correct on the live subdomain/custom domain), the
+    # blog, plus any in-template #anchors the parser already found.
+    site_link_targets = [{"value": "/", "label": "Home"}]
+    for p in tenant.pages.all():
+        site_link_targets.append({"value": f"/{p.slug}/", "label": p.title})
+    site_link_targets.append({"value": "/blog/", "label": "Blog"})
+    link_targets = site_link_targets + schema.get("link_targets", [])
 
     return render(
         request,
         "dashboard/editor.html",
         {
             "tenant": tenant,
+            "editing_page": page,
+            "target_title": (page.title if page else tenant.name),
+            "target_subtitle": (
+                f"{page.template.name} · /{page.slug}/" if page
+                else f"{tenant.template.name} · {tenant.subdomain}"
+            ),
+            "target_is_published": editable.is_published,
+            "page_switch": page_switch,
             "schema": schema,
             "sections": sections,
             "content_sections": content_sections,
@@ -1071,7 +1336,7 @@ def _render_editor(request, tenant, *, scope):
             "header_sections": header_sections,
             "footer_sections": footer_sections,
             "brand_section": brand_section,
-            "link_targets": schema.get("link_targets", []),
+            "link_targets": link_targets,
             "grouped_sections": grouped,
             "content_json": json.dumps(content),
             "layout_mode": layout_mode,
@@ -1080,21 +1345,25 @@ def _render_editor(request, tenant, *, scope):
             "upload_url": upload_url,
             "video_sign_url": video_sign_url,
             "video_confirm_url": video_confirm_url,
+            "versions_url": versions_url,
+            "version_restore_url": version_restore_url,
             "publish_url": publish_url,
             "settings_url": settings_url,
             "blog_url": blog_url,
+            "page_list_url": page_list_url,
+            "live_url": live_url,
             "scope": scope,
         },
     )
 
 
-def _render_preview(tenant):
-    content = merge_with_defaults(tenant.template.schema, tenant.content)
-    html = render_site(tenant.template.html_source, content, preview=True)
+def _render_preview(editable):
+    content = merge_with_defaults(editable.template.schema, editable.content)
+    html = render_site(editable.template.html_source, content, preview=True)
     return HttpResponse(html)
 
 
-def _save_content(request, tenant):
+def _save_content(request, editable):
     try:
         payload = json.loads(request.body or "{}")
     except json.JSONDecodeError:
@@ -1104,20 +1373,23 @@ def _save_content(request, tenant):
     if not isinstance(content, dict):
         return HttpResponseBadRequest("content must be an object")
 
-    ContentVersion.objects.create(
-        tenant=tenant,
-        snapshot=tenant.content,
-        saved_by=request.user,
-    )
-    keep_ids = list(
-        tenant.versions.values_list("id", flat=True).order_by("-saved_at")[:10]
-    )
-    tenant.versions.exclude(id__in=keep_ids).delete()
+    # Version history is the tenant home's rolling-10 snapshots. Inner pages
+    # don't have undo yet (backlog), so only snapshot when editing the home.
+    if isinstance(editable, Tenant):
+        ContentVersion.objects.create(
+            tenant=editable,
+            snapshot=editable.content,
+            saved_by=request.user,
+        )
+        keep_ids = list(
+            editable.versions.values_list("id", flat=True).order_by("-saved_at")[:10]
+        )
+        editable.versions.exclude(id__in=keep_ids).delete()
 
-    tenant.content = content
-    tenant.save(update_fields=["content", "updated_at"])
+    editable.content = content
+    editable.save(update_fields=["content", "updated_at"])
 
-    return JsonResponse({"ok": True, "updated_at": tenant.updated_at.isoformat()})
+    return JsonResponse({"ok": True, "updated_at": editable.updated_at.isoformat()})
 
 
 # --------------------------------------------------------------------------- #
@@ -1212,14 +1484,12 @@ def tenant_version_preview(request, pk, version_id):
     return _version_preview(tenant, version_id)
 
 
-def _toggle_publish(request, tenant, *, redirect_name):
-    tenant.is_published = not tenant.is_published
-    tenant.save(update_fields=["is_published", "updated_at"])
-    state = "published" if tenant.is_published else "unpublished"
-    messages.success(request, f"Site {state}.")
-    if redirect_name == "dashboard:tenant_home":
-        return redirect(redirect_name)
-    return redirect(redirect_name, pk=tenant.pk)
+def _toggle_publish(request, editable, *, redirect_url, noun="Site"):
+    editable.is_published = not editable.is_published
+    editable.save(update_fields=["is_published", "updated_at"])
+    state = "published" if editable.is_published else "unpublished"
+    messages.success(request, f"{noun} {state}.")
+    return redirect(redirect_url)
 
 
 def _save_upload(request, tenant):

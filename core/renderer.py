@@ -43,6 +43,35 @@ PREVIEW_BRIDGE_SCRIPT = """
     }
     return tpl.innerHTML;
   }
+  // Phrasing hosts (<p>, <h2>, <cite>, ...) can't legally contain a block
+  // element. A contenteditable often wraps a typed line in <p>, so setting
+  // pHost.innerHTML = "<p>text</p>" makes the browser split the node into an
+  // empty editable host + a stray, un-clickable <p>. Flatten block children
+  // back to inline (mirrors _flatten_for_phrasing_host on the server).
+  var CMS_PHRASING = {p:1,h1:1,h2:1,h3:1,h4:1,h5:1,h6:1,span:1,a:1,cite:1,em:1,
+    strong:1,b:1,i:1,u:1,small:1,label:1,summary:1,figcaption:1,dt:1,caption:1,legend:1};
+  var CMS_BLOCK = {p:1,div:1,section:1,article:1,header:1,footer:1,aside:1,main:1,
+    ul:1,ol:1,li:1,blockquote:1,pre:1,table:1,figure:1,address:1};
+  function cmsRichtextHTML(host, html) {
+    var clean = cmsScrub(html);
+    if (!CMS_PHRASING[host.tagName.toLowerCase()]) return clean;
+    var tpl = document.createElement('template');
+    tpl.innerHTML = clean;
+    for (var pass = 0; pass < 4; pass++) {
+      var blocks = [];
+      for (var i = 0; i < tpl.content.children.length; i++) {
+        if (CMS_BLOCK[tpl.content.children[i].tagName.toLowerCase()]) blocks.push(tpl.content.children[i]);
+      }
+      if (!blocks.length) break;
+      for (var b = 0; b < blocks.length; b++) {
+        var block = blocks[b];
+        if (b > 0) block.parentNode.insertBefore(document.createElement('br'), block);
+        while (block.firstChild) block.parentNode.insertBefore(block.firstChild, block);
+        block.parentNode.removeChild(block);
+      }
+    }
+    return tpl.innerHTML;
+  }
   document.querySelectorAll('[data-edit]').forEach(function (el) {
     el.classList.add('cms-editable');
     el.addEventListener('click', function (e) {
@@ -73,7 +102,7 @@ PREVIEW_BRIDGE_SCRIPT = """
             var prop = (el.tagName.toLowerCase() === 'span') ? 'color' : 'background-color';
             el.style[prop] = value;
           }
-          else if (t === 'richtext') { el.innerHTML = cmsScrub(value); }
+          else if (t === 'richtext') { el.innerHTML = cmsRichtextHTML(el, value); }
           else { el.textContent = value; }
         });
       });
@@ -116,6 +145,40 @@ PREVIEW_BRIDGE_SCRIPT = """
 """
 
 
+# Elements that may NOT legally contain block-level children (phrasing-content
+# hosts). Rich-text bound to one of these must be flattened: a contenteditable
+# that auto-wraps a typed line in <p> yields
+#   <p data-edit="..."><p>text</p></p>
+# and the browser then splits that into an *empty* editable host plus a second,
+# un-editable <p> holding the text — a visible duplicate that can't be clicked.
+_PHRASING_HOSTS = {
+    "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "a", "cite", "em",
+    "strong", "b", "i", "u", "small", "label", "summary", "figcaption",
+    "dt", "caption", "legend",
+}
+_BLOCK_CHILD_TAGS = {
+    "p", "div", "section", "article", "header", "footer", "aside", "main",
+    "ul", "ol", "li", "blockquote", "pre", "table", "figure", "address",
+}
+
+
+def _flatten_for_phrasing_host(fragment) -> None:
+    """In place: lift inline content out of top-level block children so a
+    phrasing host (<p>, <h2>, ...) never ends up wrapping a block element.
+    Multiple blocks are separated with <br/> so line breaks survive."""
+    for _ in range(4):  # cap depth; real-world cases are a single <p> wrapper
+        blocks = [
+            c for c in fragment.find_all(recursive=False)
+            if getattr(c, "name", None) in _BLOCK_CHILD_TAGS
+        ]
+        if not blocks:
+            return
+        for i, block in enumerate(blocks):
+            if i > 0:
+                block.insert_before(BeautifulSoup("<br/>", "lxml").br)
+            block.unwrap()
+
+
 def _apply_field(el, value: str, ftype: str) -> None:
     if ftype == "image":
         el["src"] = value
@@ -144,6 +207,8 @@ def _apply_field(el, value: str, ftype: str) -> None:
         value = sanitize_html(value)
         fragment = BeautifulSoup(value, "lxml").body
         if fragment:
+            if el.name in _PHRASING_HOSTS:
+                _flatten_for_phrasing_host(fragment)
             for child in list(fragment.children):
                 el.append(child)
         else:
