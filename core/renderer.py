@@ -145,14 +145,14 @@ PREVIEW_BRIDGE_SCRIPT = """
 <style>
   .cms-editable { outline: 1px dashed transparent; outline-offset: 4px;
                   transition: outline-color 0.15s ease, background 0.15s ease; cursor: pointer; }
-  .cms-editable:hover { outline-color: #6366f1; background: rgba(99, 102, 241, 0.06); }
-  .cms-highlight { outline: 2px solid #7c3aed !important;
-                   box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.15); }
+  .cms-editable:hover { outline-color: #2563eb; background: rgba(37, 99, 235, 0.06); }
+  .cms-highlight { outline: 2px solid #1e3a8a !important;
+                   box-shadow: 0 0 0 6px rgba(30, 58, 138, 0.15); }
   .cms-section-flash { animation: cms-section-flash 1.2s ease; }
   @keyframes cms-section-flash {
-    0%   { outline: 2px solid rgba(124, 58, 237, 0); outline-offset: -2px; }
-    25%  { outline: 2px solid rgba(124, 58, 237, 0.85); outline-offset: -2px; }
-    100% { outline: 2px solid rgba(124, 58, 237, 0); outline-offset: -2px; }
+    0%   { outline: 2px solid rgba(30, 58, 138, 0); outline-offset: -2px; }
+    25%  { outline: 2px solid rgba(30, 58, 138, 0.85); outline-offset: -2px; }
+    100% { outline: 2px solid rgba(30, 58, 138, 0); outline-offset: -2px; }
   }
   /* Preview-only: hidden items are dimmed + marked, NOT removed, so the client
      can still see and toggle them. The public site uses display:none instead. */

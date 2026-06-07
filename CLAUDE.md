@@ -318,7 +318,9 @@ do not hardcode paths.
 ## Design tokens (UI rules)
 
 - **Font:** Roboto (Google Fonts CDN, weights 300/400/500/700)
-- **Palette:** white `#fff`, black `#0a0a14`, blue `#2563eb`, purple `#7c3aed`
+- **Palette:** white `#fff`, black `#0a0a14`, blue `#2563eb`, navy `#1e3a8a`
+  (the navy values live in the `--color-purple*` tokens — names kept for
+  back-compat with `.btn-purple` / `.badge-purple` classes)
 - **Radii:** 8 / 12 / 16 / 24 px
 - **Spacing scale:** 4–64 px, defined as `--space-1` through `--space-8`
 - **Generous whitespace** — `.page` uses 48px+ vertical padding intentionally

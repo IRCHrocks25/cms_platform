@@ -83,6 +83,7 @@
                 </td>
                 <td class="right">
                   <div class="row-actions">
+                    <a href="{{ tenant.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">View site ↗</a>
                     <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
                     <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="btn btn-ghost btn-sm">Details</a>
                   </div>

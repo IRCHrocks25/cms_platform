@@ -325,16 +325,56 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     # still present on blog pages (scripts → end of body, styles/links → head).
     # The chrome behaves identically to the homepage regardless of where the
     # agency placed its scripts.
-    for section in soup.find_all(attrs={"data-section": True}):
-        if section is nav or section is footer:
-            continue
-        for asset in section.find_all(["script", "style", "link"]):
+    def _rescue_assets(el):
+        for asset in el.find_all(["script", "style", "link"]):
             asset.extract()
             if asset.name == "script":
                 body.append(asset)
             elif head is not None:
                 head.append(asset)
-        section.decompose()
+
+    content_sections = [
+        s for s in soup.find_all(attrs={"data-section": True})
+        if s is not nav and s is not footer
+    ]
+
+    # UNANNOTATED homepage blocks (logo tickers, divider rules, …) that sit
+    # between the content sections are content too — left in place they pile
+    # up under the navbar on blog pages (the nav is often transparent/fixed,
+    # designed to sit over the now-removed hero). Sweep the top-level span
+    # from the first content section down to the footer and drop everything
+    # that isn't nav/footer chrome. Elements BEFORE the first section (page
+    # loaders, mobile-menu drawers, overlays the nav JS needs) are kept.
+    def _top_level_host(el):
+        host = el
+        while host is not None and host.parent is not None and host.parent is not body:
+            host = host.parent
+        return host if host is not None and host.parent is body else None
+
+    hosts = [h for h in (_top_level_host(s) for s in content_sections) if h is not None]
+    if hosts:
+        top = list(body.find_all(recursive=False))
+        idx = {id(el): i for i, el in enumerate(top)}
+        nav_host = _top_level_host(nav) if nav is not None else None
+        footer_host = _top_level_host(footer) if footer is not None else None
+        start = min(idx[id(h)] for h in hosts if id(h) in idx)
+        end = idx.get(id(footer_host), max(idx[id(h)] for h in hosts if id(h) in idx) + 1)
+        for el in top[start:end]:
+            if el is nav_host or el is footer_host:
+                continue
+            if nav is not None and any(d is nav for d in el.descendants):
+                continue
+            if footer is not None and any(d is footer for d in el.descendants):
+                continue
+            _rescue_assets(el)
+            el.decompose()
+
+    # Any content section the sweep didn't reach (nested outside the span,
+    # or no top-level host at all) still gets removed individually.
+    for section in content_sections:
+        if not section.decomposed:
+            _rescue_assets(section)
+            section.decompose()
 
     frag = BeautifulSoup(inner_html, "lxml")
     # lxml hoists a leading <style> (and any <link>/<meta>) into the fragment's

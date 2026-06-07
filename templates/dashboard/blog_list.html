@@ -17,6 +17,10 @@
         <span class="breadcrumb-sep">/</span>
         <span>Blog</span>
       </nav>
+    {% else %}
+      <nav class="breadcrumb">
+        <a href="{{ blog_urls.editor }}">← Back to site editor</a>
+      </nav>
     {% endif %}
 
     <div class="page-head">
@@ -24,7 +28,10 @@
         <h1 class="page-title">Blog</h1>
         <p class="page-subtitle">Write and publish posts for {{ tenant.name }}.</p>
       </div>
-      <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+      <div class="row" style="gap: var(--space-2);">
+        <a class="btn btn-secondary" href="{{ blog_urls.editor }}">Site editor</a>
+        <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+      </div>
     </div>
 
     <form method="get" class="filter-bar">

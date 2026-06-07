@@ -5,6 +5,12 @@
 
 {% block content %}
   <div class="page">
+    {% if scope != "agency" %}
+      <nav class="breadcrumb">
+        <a href="{{ nav_urls.home }}">← Back to site editor</a>
+      </nav>
+    {% endif %}
+
     <div class="page-head">
       <div>
         <h1 class="page-title">Pages</h1>
@@ -16,10 +22,15 @@
             in the <a href="{{ nav_urls.home }}">main editor</a>;
           {% endif %}
           these are extra pages like About or Services, each at its own URL.
+          {% if not can_manage_pages %}
+            Pages are set up by your agency — you can edit and publish them here.
+          {% endif %}
         </p>
       </div>
+      <a class="btn btn-secondary" href="{{ nav_urls.home }}">Site editor</a>
     </div>
 
+    {% if can_manage_pages %}
     <div class="card content-block" style="margin-bottom: var(--space-5);">
       <form method="post" action="{{ nav_urls.new }}" class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: flex-end;">
         {% csrf_token %}
@@ -46,6 +57,7 @@
         Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
       </p>
     </div>
+    {% endif %}
 
     {% if pages %}
       <div class="card card-flush content-block">
@@ -86,11 +98,13 @@
                         {% if row.obj.is_published %}Unpublish{% else %}Publish{% endif %}
                       </button>
                     </form>
-                    <form method="post" action="{{ row.urls.delete }}" style="display:inline;"
-                          onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-danger);">Delete</button>
-                    </form>
+                    {% if can_manage_pages %}
+                      <form method="post" action="{{ row.urls.delete }}" style="display:inline;"
+                            onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-danger);">Delete</button>
+                      </form>
+                    {% endif %}
                   </div>
                 </td>
               </tr>
@@ -101,7 +115,11 @@
     {% else %}
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
-        <p>Add one above — pick a template and give it a URL slug like <code>about</code> or <code>services</code>.</p>
+        {% if can_manage_pages %}
+          <p>Add one above — pick a template and give it a URL slug like <code>about</code> or <code>services</code>.</p>
+        {% else %}
+          <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency — they'll set it up for you.</p>
+        {% endif %}
       </div>
     {% endif %}
   </div>

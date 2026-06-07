@@ -337,7 +337,7 @@
   flex-direction: column;
   background:
     radial-gradient(800px 400px at 0% 0%, rgba(37, 99, 235, 0.05), transparent 70%),
-    radial-gradient(600px 400px at 100% 100%, rgba(124, 58, 237, 0.06), transparent 70%),
+    radial-gradient(600px 400px at 100% 100%, rgba(30, 58, 138, 0.06), transparent 70%),
     var(--color-bg);
 }
 .preview-toolbar {
@@ -361,7 +361,7 @@
   border-radius: 50%;
   background: var(--color-text-muted);
 }
-.status-dot.saving { background: var(--color-purple); box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.16); animation: pulse 1.2s infinite; }
+.status-dot.saving { background: var(--color-purple); box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.16); animation: pulse 1.2s infinite; }
 .status-dot.saved { background: var(--color-success); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.16); }
 
 @keyframes pulse {

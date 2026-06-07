@@ -35,7 +35,7 @@ from core.services import blog_render
 from core.services import cloudinary_media
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html, strip_to_text
-from core.urls_helpers import build_tenant_url_bundle
+from core.urls_helpers import build_tenant_url_bundle, tenant_public_url
 
 
 User = get_user_model()
@@ -385,6 +385,10 @@ def tenant_list(request):
         tenants = tenants.filter(is_published=True)
     elif status == "draft":
         tenants = tenants.filter(is_published=False)
+
+    tenants = list(tenants)
+    for tenant in tenants:
+        tenant.public_url = tenant_public_url(request, tenant)
 
     return render(
         request,
@@ -1144,7 +1148,18 @@ def _page_row_urls(scope, tenant, page):
     }
 
 
+def _user_can_manage_pages(request):
+    """Adding/removing pages is structural — agency staff only.
+
+    Clients (non-staff tenant members) can edit and publish existing pages
+    but cannot change the page structure. This is the same locked-structure
+    promise as sections: clients literally cannot break their site.
+    """
+    return request.user.is_staff or request.user.is_superuser
+
+
 def _page_list(request, tenant, scope):
+    can_manage = _user_can_manage_pages(request)
     pages = [
         {"obj": p, "urls": _page_row_urls(scope, tenant, p)}
         for p in tenant.pages.all()
@@ -1157,7 +1172,9 @@ def _page_list(request, tenant, scope):
             "scope": scope,
             "pages": pages,
             "nav_urls": _page_nav_urls(scope, tenant),
-            "templates": Template.objects.order_by("name"),
+            "can_manage_pages": can_manage,
+            # Don't leak the agency template catalog to clients.
+            "templates": Template.objects.order_by("name") if can_manage else [],
             "reserved_slugs": ", ".join(sorted(RESERVED_PAGE_SLUGS)),
         },
     )
@@ -1263,6 +1280,10 @@ def page_list_self(request):
 @tenant_member_required
 @require_POST
 def page_create_self(request):
+    # Structural change — clients can't add pages, only agency staff can.
+    if not _user_can_manage_pages(request):
+        messages.error(request, "Adding pages is managed by your agency — get in touch and they'll set it up.")
+        return redirect("dashboard:page_list_self")
     return _page_create(request, request.tenant, "tenant")
 
 
@@ -1298,6 +1319,10 @@ def page_publish_self(request, page_pk):
 @tenant_member_required
 @require_POST
 def page_delete_self(request, page_pk):
+    # Structural change — clients can't remove pages, only agency staff can.
+    if not _user_can_manage_pages(request):
+        messages.error(request, "Removing pages is managed by your agency.")
+        return redirect("dashboard:page_list_self")
     return _page_delete(request, request.tenant, "tenant", page_pk)
 
 
@@ -1381,13 +1406,13 @@ def _render_editor(request, tenant, *, scope, page=None):
             publish_url = reverse("dashboard:tenant_publish", args=[tenant.pk])
             versions_url = reverse("dashboard:tenant_versions", args=[tenant.pk])
             version_restore_url = reverse("dashboard:tenant_version_restore", args=[tenant.pk])
-            live_url = f"/site/{tenant.subdomain}/"
+            live_url = tenant_public_url(request, tenant)
         else:
             preview_url = reverse("dashboard:page_preview", args=[tenant.pk, page.pk])
             save_url = reverse("dashboard:page_save", args=[tenant.pk, page.pk])
             publish_url = reverse("dashboard:page_publish", args=[tenant.pk, page.pk])
             versions_url = version_restore_url = ""
-            live_url = f"/site/{tenant.subdomain}/{page.slug}/"
+            live_url = f"{tenant_public_url(request, tenant)}{page.slug}/"
 
     # Switcher: Home + each inner page, with scope-aware editor URLs.
     if scope == "tenant":
@@ -2030,6 +2055,7 @@ def _blog_nav_urls(scope, tenant):
             "sanitize": reverse("dashboard:blog_sanitize_self"),
             "strip_preview": reverse("dashboard:blog_strip_preview_self"),
             "back": reverse("dashboard:tenant_home"),
+            "editor": reverse("dashboard:tenant_home"),
             "public_base": "/blog/",
         }
     return {
@@ -2042,6 +2068,7 @@ def _blog_nav_urls(scope, tenant):
         "sanitize": reverse("dashboard:blog_sanitize", args=[tenant.pk]),
         "strip_preview": reverse("dashboard:blog_strip_preview", args=[tenant.pk]),
         "back": reverse("dashboard:tenant_detail", args=[tenant.pk]),
+        "editor": reverse("dashboard:tenant_editor", args=[tenant.pk]),
         "public_base": f"/site/{tenant.subdomain}/blog/",
     }
 

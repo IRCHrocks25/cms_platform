@@ -34,6 +34,9 @@
         <span class="status-dot" id="save-dot"></span>
         <span id="save-text">All changes saved</span>
       </div>
+      {% if scope == "agency" %}
+        <a href="{{ live_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
+      {% endif %}
       <a href="{{ page_list_url }}" class="btn btn-secondary">Pages</a>
       <a href="{{ blog_url }}" class="btn btn-secondary">Blog</a>
       {% if versions_url %}

@@ -95,7 +95,15 @@
       "Bash(python manage.py test core dashboard)",
       "Bash(python manage.py test core.tests.test_renderer_hidden)",
       "Bash(python manage.py test core)",
-      "Bash(node --check static/js/editor.js)"
+      "Bash(node --check static/js/editor.js)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe manage.py collectstatic --noinput)",
+      "PowerShell(& \".\\\\.venv\\\\Scripts\\\\python.exe\" manage.py collectstatic --noinput)",
+      "PowerShell(Get-ChildItem -Directory | Select-Object -ExpandProperty Name; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell(python manage.py collectstatic --noinput)",
+      "PowerShell(python manage.py check)",
+      "PowerShell(python manage.py test core.tests 2>$null; exit 0)",
+      "PowerShell(python _inspect_chrome.py)",
+      "PowerShell(Remove-Item *)"
     ]
   }
 }
