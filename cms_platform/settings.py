@@ -310,6 +310,9 @@ RAILWAY_PROJECT_ID = os.environ.get("RAILWAY_PROJECT_ID", "")
 GHL_AUTO_LOGIN = os.environ.get("GHL_AUTO_LOGIN", "0") == "1"
 GHL_CLIENT_ID = os.environ.get("GHL_CLIENT_ID", "")
 GHL_CLIENT_SECRET = os.environ.get("GHL_CLIENT_SECRET", "")
+# Shared/SSO secret used to decrypt the iframe context GHL sends via
+# postMessage. Required only for the signed-context path (Phase 2).
+GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
 
 # --------------------------------------------------------------------------- #
 # Email — sent via the Resend HTTP API (see core/email_backend.py).            #
