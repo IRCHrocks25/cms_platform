@@ -427,3 +427,52 @@ class AnnotationJob(models.Model):
     @property
     def is_terminal(self) -> bool:
         return self.status in (self.STATUS_DONE, self.STATUS_ERROR)
+
+class GhlInstall(models.Model):
+    """A GHL marketplace app installation, scoped to a sub-account location.
+
+    Stores the OAuth access + refresh tokens GHL hands us on install. The
+    tokens are sensitive — for a production-hardened build we'd wrap them in
+    application-level encryption (cryptography.fernet) keyed by an env-var
+    secret; for now they live as plain text and rotation handles compromise.
+    """
+
+    USER_TYPE_LOCATION = "Location"
+    USER_TYPE_COMPANY = "Company"
+    USER_TYPE_CHOICES = [
+        (USER_TYPE_LOCATION, "Location"),
+        (USER_TYPE_COMPANY, "Company"),
+    ]
+
+    # GHL identifiers.
+    location_id = models.CharField(max_length=64, unique=True)
+    company_id = models.CharField(max_length=64, blank=True, default="")
+    user_type = models.CharField(
+        max_length=16, choices=USER_TYPE_CHOICES, default=USER_TYPE_LOCATION
+    )
+
+    # OAuth tokens.
+    access_token = models.TextField()
+    refresh_token = models.TextField(blank=True, default="")
+    expires_at = models.DateTimeField(null=True, blank=True)
+    scopes = models.JSONField(default=list, blank=True)
+
+    # Optional link to a Tenant so we know which CMS site this install drives.
+    # Nullable so the install row exists even before someone maps a tenant.
+    tenant = models.ForeignKey(
+        "core.Tenant",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ghl_installs",
+    )
+
+    installed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-installed_at"]
+
+    def __str__(self):
+        return f"GhlInstall(location={self.location_id})"
+

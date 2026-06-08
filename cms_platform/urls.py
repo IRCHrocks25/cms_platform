@@ -59,6 +59,7 @@ urlpatterns = [
     # GHL marketplace app endpoints. URLs are deliberately neutral
     # (no /ghl/ exposed) — see core/ghl_views.py.
     path("embed/", ghl_views.embed_view, name="ghl_embed"),
+    path("connect/install/", ghl_views.oauth_install, name="ghl_oauth_install"),
     path("connect/callback/", ghl_views.oauth_callback, name="ghl_oauth_callback"),
     path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),
     path("privacy/", ghl_views.privacy, name="privacy"),

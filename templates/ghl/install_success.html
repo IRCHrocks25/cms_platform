@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}App installed · sites.katek.app{% endblock %}
+{% block content %}
+<div class="page" style="max-width: 640px;">
+  <h1>✅ Installed</h1>
+  <p>This sub-account is now connected. GHL location ID:</p>
+  <pre style="background: var(--bg-card, #fff); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--line, #e6e2d6);"><code>{{ location_id }}</code></pre>
+
+  {% if tenant %}
+    <p>Linked to site <strong>{{ tenant.name }}</strong> (subdomain <code>{{ tenant.subdomain }}</code>).
+       Sub-account users can open the menu link to land in the editor.</p>
+  {% else %}
+    <p><strong>No CMS site is mapped to this location yet.</strong> An agency operator needs
+       to open <a href="/dashboard/">the agency dashboard</a>, edit the target site, and
+       paste <code>{{ location_id }}</code> into the "GHL location ID" field.</p>
+  {% endif %}
+
+  <p style="margin-top: 32px;"><a href="/dashboard/">Return to dashboard</a></p>
+</div>
+{% endblock %}

@@ -10,15 +10,19 @@ GHL marketplace app form can validate them; install/uninstall handling and
 real OAuth come next."""
 import json
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, login
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .models import Tenant
+from . import ghl_oauth
+from .models import GhlInstall, Tenant
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -86,18 +90,123 @@ def embed_view(request):
     return redirect(f"https://{tenant.subdomain}.{base}/dashboard/")
 
 
+def _build_redirect_uri(request) -> str:
+    """Absolute https URL of /connect/callback/, used as the OAuth redirect_uri.
+    Must match what's registered in the GHL marketplace app exactly."""
+    return request.build_absolute_uri(reverse("ghl_oauth_callback"))
+
+
+@require_http_methods(["GET"])
+def oauth_install(request):
+    """Kick off the OAuth install flow.
+
+    GHL marketplace can link directly to its own ``chooselocation`` URL,
+    but that path uses a state token GHL controls — short TTL, sometimes
+    stuck in marketplace cookies after an uninstall, producing
+    "Invalid state: Signature has expired" on reinstall. Going through
+    /connect/install/ lets us sign our own state with a 30-minute TTL we
+    control end-to-end.
+    """
+    if not settings.GHL_CLIENT_ID:
+        return HttpResponse("GHL_CLIENT_ID not configured.", status=503)
+    state = ghl_oauth.sign_state({"source": "install"})
+    url = ghl_oauth.build_install_url(
+        state=state,
+        redirect_uri=_build_redirect_uri(request),
+    )
+    return redirect(url)
+
+
 @require_http_methods(["GET"])
 def oauth_callback(request):
-    """OAuth callback for the GHL marketplace install flow.
+    """OAuth callback. GHL redirects here after the user authorizes.
 
-    Currently a stub: returns 200 so the marketplace app form validates.
-    Real implementation: exchange ?code= for an access_token via GHL's
-    /oauth/token endpoint using GHL_CLIENT_ID + GHL_CLIENT_SECRET, persist
-    the token bound to a Tenant, redirect to a "you're connected" page.
+    Receives ?code= and ?state=. Verifies our state, exchanges the code for
+    an access token, normalizes Company tokens to Location tokens, and
+    persists a GhlInstall row keyed by location_id.
     """
-    code = request.GET.get("code", "")
-    logger.info("GHL oauth callback received code=%r (stub)", code[:8] + "..." if code else "")
-    return HttpResponse("GHL OAuth callback received. Integration coming soon.", status=200)
+    error = request.GET.get("error")
+    if error:
+        return HttpResponse(f"GHL authorization failed: {error}", status=400)
+
+    code = request.GET.get("code", "").strip()
+    state = request.GET.get("state", "").strip()
+    if not code or not state:
+        return HttpResponseBadRequest("missing code or state")
+
+    try:
+        ghl_oauth.verify_state(state)
+    except ghl_oauth.StateInvalid as exc:
+        logger.warning("GHL callback: state rejected (%s)", exc)
+        return HttpResponse(
+            "Authorization link expired. Please re-start the install from GHL.",
+            status=400,
+        )
+
+    try:
+        token_resp = ghl_oauth.exchange_code(
+            code=code, redirect_uri=_build_redirect_uri(request),
+        )
+    except ghl_oauth.TokenExchangeFailed as exc:
+        logger.exception("GHL callback: token exchange failed")
+        return HttpResponse(f"Token exchange failed: {exc}", status=502)
+
+    user_type = token_resp.get("userType", GhlInstall.USER_TYPE_LOCATION)
+    company_id = token_resp.get("companyId", "")
+    location_id = token_resp.get("locationId", "")
+    access_token = token_resp.get("access_token", "")
+    refresh_token = token_resp.get("refresh_token", "")
+    expires_in = token_resp.get("expires_in")
+    scope_str = token_resp.get("scope", "")
+
+    # Agency owner installs come back as Company tokens with no locationId.
+    # Mint a Location-token for at least one installed sub-account so the
+    # GhlInstall row has a concrete location_id to key on.
+    if user_type == GhlInstall.USER_TYPE_COMPANY:
+        if not company_id:
+            return HttpResponse("Company token missing companyId.", status=502)
+        # TODO: enumerate installed locations and mint one Location token per.
+        # For now record the Company-level install so the user sees a success.
+        logger.info("GHL install: Company-level (companyId=%s)", company_id)
+        location_id = location_id or f"company:{company_id}"
+
+    if not location_id:
+        return HttpResponse("Token response missing locationId.", status=502)
+
+    expires_at = None
+    if expires_in:
+        try:
+            expires_at = timezone.now() + timedelta(seconds=int(expires_in))
+        except (TypeError, ValueError):
+            pass
+
+    install, created = GhlInstall.objects.update_or_create(
+        location_id=location_id,
+        defaults={
+            "company_id": company_id,
+            "user_type": user_type,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+            "scopes": scope_str.split() if scope_str else [],
+        },
+    )
+    logger.info(
+        "GHL install %s: location=%s userType=%s",
+        "created" if created else "refreshed", location_id, user_type,
+    )
+
+    # If a tenant has already been mapped to this location_id, link it.
+    tenant = Tenant.objects.filter(ghl_location_id=location_id).first()
+    if tenant and install.tenant_id != tenant.id:
+        install.tenant = tenant
+        install.save(update_fields=["tenant", "updated_at"])
+
+    return render(
+        request,
+        "ghl/install_success.html",
+        {"location_id": location_id, "tenant": tenant},
+    )
 
 
 @csrf_exempt
