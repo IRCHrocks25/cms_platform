@@ -7,6 +7,22 @@ from .models import CustomDomain, Tenant
 logger = logging.getLogger(__name__)
 
 
+class DiagnosticHeaderMiddleware:
+    """Emits the runtime values of DEBUG / IFRAME_EMBED / cookie flags so
+    a curl from outside can verify the deployed config without log access."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response["X-Diag-Debug"] = str(getattr(settings, "DEBUG", "?"))
+        response["X-Diag-Iframe-Embed"] = str(getattr(settings, "IFRAME_EMBED", "?"))
+        response["X-Diag-Csrf-Samesite"] = str(getattr(settings, "CSRF_COOKIE_SAMESITE", "?"))
+        response["X-Diag-Csrf-Secure"] = str(getattr(settings, "CSRF_COOKIE_SECURE", "?"))
+        return response
+
+
 def _x_forwarded_host_first(request, fallback_host: str) -> str:
     """
     First host in ``X-Forwarded-Host`` (proxy chains may send a list).

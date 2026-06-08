@@ -164,6 +164,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 
     "core.middleware.TenantResolverMiddleware",
+    "core.middleware.DiagnosticHeaderMiddleware",
 ]
 
 
