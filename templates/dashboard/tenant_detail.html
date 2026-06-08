@@ -216,6 +216,13 @@
                      value="{{ tenant.subdomain }}">
               <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
             </div>
+            <div class="field" style="margin-bottom: 0;">
+              <label class="field-label" for="settings_ghl_location_id">GHL location ID</label>
+              <input class="input" type="text" name="ghl_location_id" id="settings_ghl_location_id"
+                     value="{{ tenant.ghl_location_id|default:'' }}"
+                     placeholder="e.g. MhMPP7jZBQevTgkq7DDk">
+              <span class="field-hint">When set, this client can auto-log in from their GHL sub-account via the embedded menu link.</span>
+            </div>
             <div class="row-end">
               <button type="submit" class="btn btn-primary btn-sm">Save settings</button>
             </div>

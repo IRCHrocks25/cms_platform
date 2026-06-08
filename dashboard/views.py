@@ -797,7 +797,15 @@ def tenant_settings_update(request, pk):
         tenant.subdomain = new_subdomain
 
     tenant.name = name
-    tenant.save(update_fields=["name", "subdomain", "updated_at"])
+
+    ghl_location_id = (request.POST.get("ghl_location_id") or "").strip() or None
+    if ghl_location_id != tenant.ghl_location_id:
+        if ghl_location_id and Tenant.objects.filter(ghl_location_id=ghl_location_id).exclude(pk=tenant.pk).exists():
+            messages.error(request, f"GHL location ID “{ghl_location_id}” is already linked to another site.")
+            return redirect("dashboard:tenant_detail", pk=tenant.pk)
+        tenant.ghl_location_id = ghl_location_id
+
+    tenant.save(update_fields=["name", "subdomain", "ghl_location_id", "updated_at"])
     messages.success(request, "Site settings updated.")
     return redirect("dashboard:tenant_detail", pk=tenant.pk)
 

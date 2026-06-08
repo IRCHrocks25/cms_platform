@@ -86,6 +86,52 @@ class GhlEmbedViewTests(TestCase):
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
 
 
+class TenantSettingsGhlFieldTests(TestCase):
+    """Agency dashboard settings form can set ghl_location_id."""
+
+    def setUp(self):
+        self.tpl = Template.objects.create(
+            name="t",
+            html_source="<section data-section='a'><h1 data-edit='a.x' data-type='text'>hi</h1></section>",
+        )
+        self.staff = User.objects.create_user(
+            username="staff", email="staff@x.com", password="x", is_staff=True
+        )
+        self.tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=self.tpl, owner=self.staff,
+        )
+        self.client = Client()
+        self.client.force_login(self.staff)
+
+    def _post(self, **fields):
+        data = {"name": self.tenant.name, "subdomain": self.tenant.subdomain, **fields}
+        return self.client.post(f"/dashboard/sites/{self.tenant.pk}/settings/", data)
+
+    def test_saving_ghl_location_id_sets_field(self):
+        self._post(ghl_location_id="LOC_NEW")
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.ghl_location_id, "LOC_NEW")
+
+    def test_blank_value_clears_field(self):
+        self.tenant.ghl_location_id = "OLD"
+        self.tenant.save()
+        self._post(ghl_location_id="")
+        self.tenant.refresh_from_db()
+        self.assertIsNone(self.tenant.ghl_location_id)
+
+    def test_duplicate_location_id_rejected(self):
+        other = Tenant.objects.create(
+            name="Other", subdomain="other", template=self.tpl, owner=self.staff,
+            ghl_location_id="TAKEN",
+        )
+        self._post(ghl_location_id="TAKEN")
+        self.tenant.refresh_from_db()
+        self.assertNotEqual(self.tenant.ghl_location_id, "TAKEN")
+        # Other tenant unaffected
+        other.refresh_from_db()
+        self.assertEqual(other.ghl_location_id, "TAKEN")
+
+
 class GhlSettingsEnvTests(TestCase):
     """The env vars must be wired so Dokploy values reach Python."""
 
