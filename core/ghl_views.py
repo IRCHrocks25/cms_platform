@@ -41,21 +41,32 @@ def embed_view(request):
     location_id = (request.GET.get("location_id") or "").strip()
     email = (request.GET.get("email") or "").strip().lower()
 
-    if not location_id or not email:
+    if not location_id:
         return redirect("/login/?error=missing_ghl_context")
 
     tenant = get_object_or_404(Tenant, ghl_location_id=location_id)
 
-    try:
-        user = User.objects.get(email__iexact=email, is_active=True)
-    except User.DoesNotExist:
-        return redirect("/login/?error=user_not_found")
-    except User.MultipleObjectsReturned:
-        logger.warning("GHL embed: multiple active users with email %r", email)
-        return redirect("/login/?error=ambiguous_user")
+    # Pick a user: prefer the GHL-provided email if it matches an active CMS
+    # user who can edit this tenant, otherwise fall back to the tenant owner.
+    # This makes the URL-param flow forgiving for sub-accounts where the GHL
+    # email doesn't yet map to a CMS user.
+    user = None
+    if email:
+        try:
+            candidate = User.objects.get(email__iexact=email, is_active=True)
+        except User.DoesNotExist:
+            candidate = None
+        except User.MultipleObjectsReturned:
+            logger.warning("GHL embed: multiple active users with email %r", email)
+            candidate = None
+        if candidate is not None and tenant.user_can_edit(candidate):
+            user = candidate
 
-    if not tenant.user_can_edit(user):
-        return HttpResponse("Forbidden", status=403)
+    if user is None:
+        user = tenant.owner
+        if not user.is_active:
+            return HttpResponse("Tenant owner inactive", status=403)
+        logger.info("GHL embed: email %r did not match — falling back to tenant.owner", email)
 
     user.backend = "django.contrib.auth.backends.ModelBackend"
     login(request, user)

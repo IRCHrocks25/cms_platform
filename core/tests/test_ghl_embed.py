@@ -65,10 +65,21 @@ class GhlEmbedViewTests(TestCase):
         self.assertIn(f"/dashboard/sites/{self.tenant.pk}/edit/", r["Location"])
 
     @_enable_auto_login()
-    def test_returns_403_when_email_not_a_member(self):
+    def test_falls_back_to_tenant_owner_when_email_does_not_match(self):
+        # Common case: the GHL user's email doesn't map to a CMS user
+        # (or maps to one without access). Embed should still log the
+        # session in as the tenant owner so the iframe lands in the editor.
         User.objects.create_user(username="outsider", email="outsider@x.com", password="x")
         r = self.client.get("/embed/?location_id=LOC123&email=outsider@x.com")
-        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
+        self.assertIn(f"/dashboard/sites/{self.tenant.pk}/edit/", r["Location"])
+
+    @_enable_auto_login()
+    def test_falls_back_to_owner_when_email_omitted(self):
+        r = self.client.get("/embed/?location_id=LOC123")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
 
     @_enable_auto_login()
     def test_staff_user_can_embed_into_any_tenant(self):
