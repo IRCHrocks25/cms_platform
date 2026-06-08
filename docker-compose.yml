@@ -22,6 +22,9 @@ services:
       GHL_CLIENT_SECRET: ${GHL_CLIENT_SECRET:-}
       GHL_SHARED_SECRET: ${GHL_SHARED_SECRET:-}
       GHL_FRAME_ANCESTORS: ${GHL_FRAME_ANCESTORS:-}
+      # When the embed flow redirects to a tenant subdomain, the session
+      # cookie needs to span the parent domain. Set to ".sites.katek.app".
+      COOKIE_PARENT_DOMAIN: ${COOKIE_PARENT_DOMAIN:-}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
       RAILWAY_TOKEN: ${RAILWAY_TOKEN:-}

@@ -259,6 +259,15 @@ else:
     CSRF_COOKIE_SAMESITE = "Lax"
     CSRF_COOKIE_SECURE = False
 
+# When the embed flow redirects from the agency host into a tenant subdomain
+# (e.g. sites.katek.app/embed/ → dalto-ai-advisor.sites.katek.app/dashboard/),
+# the session cookie must span subdomains. Set COOKIE_PARENT_DOMAIN=.sites.katek.app
+# in production. Leave unset locally — runserver only listens on one host.
+_cookie_parent_domain = os.environ.get("COOKIE_PARENT_DOMAIN", "").strip()
+if _cookie_parent_domain:
+    SESSION_COOKIE_DOMAIN = _cookie_parent_domain
+    CSRF_COOKIE_DOMAIN = _cookie_parent_domain
+
 
 LOGGING = {
     "version": 1,

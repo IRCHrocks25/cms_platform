@@ -74,7 +74,16 @@ def embed_view(request):
         "GHL embed: logged in %s for tenant %s (location %s)",
         user.email, tenant.subdomain, location_id,
     )
-    return redirect(f"/dashboard/sites/{tenant.pk}/edit/")
+    # Staff → agency-style editor; tenant members → their own subdomain
+    # editor. The subdomain redirect requires the session cookie to span
+    # *.sites.katek.app (set via SESSION_COOKIE_DOMAIN).
+    if user.is_staff or user.is_superuser:
+        return redirect(f"/dashboard/sites/{tenant.pk}/edit/")
+    base = getattr(settings, "TENANT_BASE_DOMAIN", "") or ""
+    if not base or base in {"localhost", "127.0.0.1"}:
+        # Local dev: there's no per-subdomain TLS, so stay on the agency host.
+        return redirect("/dashboard/")
+    return redirect(f"https://{tenant.subdomain}.{base}/dashboard/")
 
 
 @require_http_methods(["GET"])

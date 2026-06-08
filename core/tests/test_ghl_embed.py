@@ -56,13 +56,22 @@ class GhlEmbedViewTests(TestCase):
         self.assertEqual(r.status_code, 404)
 
     @_enable_auto_login()
-    def test_logs_in_and_redirects_on_valid_match(self):
-        r = self.client.get("/embed/?location_id=LOC123&email=owner@acme.com")
+    def test_tenant_member_redirects_to_tenant_host_dashboard(self):
+        # Non-staff tenant member: goes to <sub>.<TENANT_BASE_DOMAIN>/dashboard/
+        # so the host-based dashboard router lands them in the tenant editor.
+        with override_settings(TENANT_BASE_DOMAIN="sites.katek.app"):
+            r = self.client.get("/embed/?location_id=LOC123&email=owner@acme.com")
         self.assertEqual(r.status_code, 302)
-        # Logged in
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
-        # Redirected to that tenant's editor
-        self.assertIn(f"/dashboard/sites/{self.tenant.pk}/edit/", r["Location"])
+        self.assertEqual(r["Location"], "https://acme.sites.katek.app/dashboard/")
+
+    @_enable_auto_login()
+    def test_local_dev_stays_on_agency_host(self):
+        # No per-subdomain TLS on localhost, so don't try to redirect there.
+        with override_settings(TENANT_BASE_DOMAIN="localhost"):
+            r = self.client.get("/embed/?location_id=LOC123&email=owner@acme.com")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "/dashboard/")
 
     @_enable_auto_login()
     def test_falls_back_to_tenant_owner_when_email_does_not_match(self):
@@ -70,10 +79,11 @@ class GhlEmbedViewTests(TestCase):
         # (or maps to one without access). Embed should still log the
         # session in as the tenant owner so the iframe lands in the editor.
         User.objects.create_user(username="outsider", email="outsider@x.com", password="x")
-        r = self.client.get("/embed/?location_id=LOC123&email=outsider@x.com")
+        with override_settings(TENANT_BASE_DOMAIN="sites.katek.app"):
+            r = self.client.get("/embed/?location_id=LOC123&email=outsider@x.com")
         self.assertEqual(r.status_code, 302)
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
-        self.assertIn(f"/dashboard/sites/{self.tenant.pk}/edit/", r["Location"])
+        self.assertEqual(r["Location"], "https://acme.sites.katek.app/dashboard/")
 
     @_enable_auto_login()
     def test_falls_back_to_owner_when_email_omitted(self):
@@ -82,13 +92,14 @@ class GhlEmbedViewTests(TestCase):
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.owner.pk)
 
     @_enable_auto_login()
-    def test_staff_user_can_embed_into_any_tenant(self):
+    def test_staff_user_lands_on_agency_editor(self):
         User.objects.create_user(
             username="staff", email="staff@agency.com", password="x", is_staff=True
         )
-        r = self.client.get("/embed/?location_id=LOC123&email=staff@agency.com")
+        with override_settings(TENANT_BASE_DOMAIN="sites.katek.app"):
+            r = self.client.get("/embed/?location_id=LOC123&email=staff@agency.com")
         self.assertEqual(r.status_code, 302)
-        self.assertIn(f"/dashboard/sites/{self.tenant.pk}/edit/", r["Location"])
+        self.assertEqual(r["Location"], f"/dashboard/sites/{self.tenant.pk}/edit/")
 
     @_enable_auto_login()
     def test_email_match_is_case_insensitive(self):
