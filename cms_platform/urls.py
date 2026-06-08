@@ -6,6 +6,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from core import views as core_views
+from core import ghl_views
 from core.auth_views import (
     TenantAwareLoginView,
     TenantPasswordResetConfirmView,
@@ -54,6 +55,14 @@ urlpatterns = [
     ),
 
     path("debug-headers/", debug_headers),
+
+    # GHL marketplace app endpoints. URLs are deliberately neutral
+    # (no /ghl/ exposed) — see core/ghl_views.py.
+    path("embed/", ghl_views.embed_view, name="ghl_embed"),
+    path("connect/callback/", ghl_views.oauth_callback, name="ghl_oauth_callback"),
+    path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),
+    path("privacy/", ghl_views.privacy, name="privacy"),
+    path("terms/", ghl_views.terms, name="terms"),
 
     path("dashboard/", include("dashboard.urls")),
 

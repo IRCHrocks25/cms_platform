@@ -80,6 +80,17 @@ class Tenant(models.Model):
     blog_settings = models.JSONField(default=dict, blank=True)
     is_published = models.BooleanField(default=False)
 
+    ghl_location_id = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text=(
+            "Maps a GHL sub-account (location.id) to this tenant. When set, the "
+            "/embed/ auto-login route accepts visits from that location."
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

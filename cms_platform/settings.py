@@ -301,6 +301,17 @@ RAILWAY_ENVIRONMENT_ID = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
 RAILWAY_PROJECT_ID = os.environ.get("RAILWAY_PROJECT_ID", "")
 
 # --------------------------------------------------------------------------- #
+# GHL (GoHighLevel) marketplace app integration.                              #
+# Embedded as a Custom Page inside a sub-account: GHL loads /embed/ in an     #
+# iframe and passes ?location_id= and ?email= (from Custom Menu Link template #
+# substitution). When GHL_AUTO_LOGIN=1, that view auto-logs the matched user. #
+# CLIENT_ID/SECRET are used later for the proper marketplace OAuth flow.      #
+# --------------------------------------------------------------------------- #
+GHL_AUTO_LOGIN = os.environ.get("GHL_AUTO_LOGIN", "0") == "1"
+GHL_CLIENT_ID = os.environ.get("GHL_CLIENT_ID", "")
+GHL_CLIENT_SECRET = os.environ.get("GHL_CLIENT_SECRET", "")
+
+# --------------------------------------------------------------------------- #
 # Email — sent via the Resend HTTP API (see core/email_backend.py).            #
 # --------------------------------------------------------------------------- #
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
