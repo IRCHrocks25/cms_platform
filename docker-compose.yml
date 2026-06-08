@@ -12,6 +12,10 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       DATABASE_URL: ${DATABASE_URL}
       TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-sites.katek.app}
+      # Iframe embedding (e.g. inside a GHL Custom Menu Link). Must be
+      # forwarded — Dokploy holds the value but docker-compose only passes
+      # vars listed here. See settings.py::IFRAME_EMBED.
+      IFRAME_EMBED: ${IFRAME_EMBED:-0}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
       RAILWAY_TOKEN: ${RAILWAY_TOKEN:-}
