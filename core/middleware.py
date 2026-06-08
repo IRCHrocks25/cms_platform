@@ -1,10 +1,19 @@
 import logging
+from http import cookies as http_cookies
 
 from django.conf import settings
 
 from .models import CustomDomain, Tenant
 
 logger = logging.getLogger(__name__)
+
+
+# Teach Python's stdlib SimpleCookie about the CHIPS "Partitioned" attribute
+# so Django's response.cookies can serialize it. Without this, setting
+# morsel["partitioned"] silently strips it from the Set-Cookie header.
+http_cookies.Morsel._reserved.setdefault("partitioned", "Partitioned")
+if hasattr(http_cookies.Morsel, "_flags"):
+    http_cookies.Morsel._flags.add("partitioned")
 
 
 class DiagnosticHeaderMiddleware:
@@ -21,6 +30,37 @@ class DiagnosticHeaderMiddleware:
         response["X-Diag-Csrf-Samesite"] = str(getattr(settings, "CSRF_COOKIE_SAMESITE", "?"))
         response["X-Diag-Csrf-Secure"] = str(getattr(settings, "CSRF_COOKIE_SECURE", "?"))
         response["X-Diag-Ghl-Auto-Login"] = str(getattr(settings, "GHL_AUTO_LOGIN", "?"))
+        return response
+
+
+class PartitionedCookieMiddleware:
+    """Adds the ``Partitioned`` attribute (CHIPS) to the session and CSRF
+    cookies when iframe embedding is enabled. Without this, modern Chrome
+    blocks even SameSite=None; Secure cookies inside cross-site iframes as
+    part of its tracking-protection rollout, which kills login flows in a
+    GHL Custom Page.
+
+    With Partitioned, the cookie is stored keyed on the *top-level* site
+    (e.g. app.daltoleadsystem.com), allowed in that iframe context, and
+    isolated from other contexts — privacy-preserving and unblocking.
+
+    Only applied when IFRAME_EMBED is on so dev cookies stay un-partitioned.
+    """
+
+    _COOKIE_NAMES = ("sessionid", "csrftoken")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.enabled = bool(getattr(settings, "IFRAME_EMBED", False))
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if not self.enabled:
+            return response
+        for name in self._COOKIE_NAMES:
+            morsel = response.cookies.get(name)
+            if morsel is not None:
+                morsel["partitioned"] = True
         return response
 
 

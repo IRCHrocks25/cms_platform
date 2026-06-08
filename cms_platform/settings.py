@@ -166,6 +166,7 @@ MIDDLEWARE = [
     "core.middleware.TenantResolverMiddleware",
     "core.middleware.DiagnosticHeaderMiddleware",
     "core.middleware.FrameAncestorsCspMiddleware",
+    "core.middleware.PartitionedCookieMiddleware",
 ]
 
 
