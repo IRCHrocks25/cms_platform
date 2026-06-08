@@ -153,7 +153,17 @@ INSTALLED_APPS = [
 ]
 
 
+# PartitionedCookieMiddleware must sit ABOVE SessionMiddleware and
+# CsrfViewMiddleware. Django runs middleware response phases in reverse
+# of declaration order, so the outermost (top) entry runs LAST on the
+# response path — which is when SessionMiddleware and CsrfViewMiddleware
+# have already written their cookies, and PartitionedCookieMiddleware can
+# stamp `Partitioned` on them. If it were declared below those two, its
+# response phase would run BEFORE they set their cookies and the attribute
+# would silently never appear on the Set-Cookie headers.
+# See core/tests/test_partitioned_cookies_chain.py for the regression test.
 MIDDLEWARE = [
+    "core.middleware.PartitionedCookieMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -166,7 +176,6 @@ MIDDLEWARE = [
     "core.middleware.TenantResolverMiddleware",
     "core.middleware.DiagnosticHeaderMiddleware",
     "core.middleware.FrameAncestorsCspMiddleware",
-    "core.middleware.PartitionedCookieMiddleware",
 ]
 
 
