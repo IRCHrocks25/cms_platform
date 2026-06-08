@@ -38,9 +38,13 @@ GHL_API_VERSION = "2021-07-28"
 STATE_TTL_SECONDS = 30 * 60
 
 # Default OAuth scopes. Override per-call if a flow needs more.
+# Keep this minimal — every scope you request must be valid on GHL's side AND
+# enabled on your marketplace app. `users.readonly` is NOT a valid GHL scope
+# name (the install fails with "Invalid scope(s)"). For a Custom Page that
+# uses signed-blob SSO, no scope is strictly required; we keep
+# `locations.readonly` so the integration can look up location metadata.
 DEFAULT_SCOPES = [
     "locations.readonly",
-    "users.readonly",
 ]
 
 

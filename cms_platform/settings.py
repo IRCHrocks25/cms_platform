@@ -154,6 +154,13 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    # MUST stay outermost (first entry) so its response phase runs LAST,
+    # after Session/Csrf have actually written their cookies. Putting it
+    # below them makes it run first on response (when response.cookies
+    # is still empty for sessionid/csrftoken) and the Partitioned attribute
+    # never gets attached. See core/middleware.py docstring.
+    "core.middleware.PartitionedCookieMiddleware",
+
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -166,7 +173,6 @@ MIDDLEWARE = [
     "core.middleware.TenantResolverMiddleware",
     "core.middleware.DiagnosticHeaderMiddleware",
     "core.middleware.FrameAncestorsCspMiddleware",
-    "core.middleware.PartitionedCookieMiddleware",
 ]
 
 

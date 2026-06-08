@@ -45,6 +45,15 @@ class PartitionedCookieMiddleware:
     isolated from other contexts — privacy-preserving and unblocking.
 
     Only applied when IFRAME_EMBED is on so dev cookies stay un-partitioned.
+
+    ORDERING IS LOAD-BEARING. This middleware MUST be the outermost entry
+    in MIDDLEWARE (first in the list) so its response phase runs LAST,
+    after Session/Csrf have written their cookies in their own
+    ``process_response``. If you put it below those two, its response phase
+    sees an empty ``response.cookies`` for sessionid/csrftoken and the
+    Partitioned attribute silently never gets attached — there is no error,
+    just a Set-Cookie header that lacks Partitioned. We belt-and-brace this
+    with a startup warning below.
     """
 
     _COOKIE_NAMES = ("sessionid", "csrftoken")
@@ -52,6 +61,30 @@ class PartitionedCookieMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
         self.enabled = bool(getattr(settings, "IFRAME_EMBED", False))
+        self._warn_if_misordered()
+
+    def _warn_if_misordered(self) -> None:
+        if not self.enabled:
+            return
+        mw = list(getattr(settings, "MIDDLEWARE", []))
+        self_name = f"{__name__}.{type(self).__name__}"
+        try:
+            self_idx = mw.index(self_name)
+        except ValueError:
+            return
+        risky_below = (
+            "django.contrib.sessions.middleware.SessionMiddleware",
+            "django.middleware.csrf.CsrfViewMiddleware",
+        )
+        for offender in risky_below:
+            if offender in mw and mw.index(offender) < self_idx:
+                logger.warning(
+                    "PartitionedCookieMiddleware is positioned BELOW %s in "
+                    "MIDDLEWARE — its response phase will run before %s "
+                    "writes the cookie, so Partitioned will never appear "
+                    "on Set-Cookie. Move PartitionedCookieMiddleware to "
+                    "the top of MIDDLEWARE.", offender, offender,
+                )
 
     def __call__(self, request):
         response = self.get_response(request)
