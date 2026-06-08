@@ -20,6 +20,36 @@ class DiagnosticHeaderMiddleware:
         response["X-Diag-Iframe-Embed"] = str(getattr(settings, "IFRAME_EMBED", "?"))
         response["X-Diag-Csrf-Samesite"] = str(getattr(settings, "CSRF_COOKIE_SAMESITE", "?"))
         response["X-Diag-Csrf-Secure"] = str(getattr(settings, "CSRF_COOKIE_SECURE", "?"))
+        response["X-Diag-Ghl-Auto-Login"] = str(getattr(settings, "GHL_AUTO_LOGIN", "?"))
+        return response
+
+
+class FrameAncestorsCspMiddleware:
+    """Emits ``Content-Security-Policy: frame-ancestors ...`` so this app can
+    be embedded inside GHL (and any agency whitelabel domain) as a Custom
+    Page. Browsers prefer this directive over X-Frame-Options when both are
+    set, so XFrameOptionsMiddleware can stay in place.
+
+    The list is configured via the ``GHL_FRAME_ANCESTORS`` env var
+    (comma-separated origins). Pass ``*`` to allow any parent — appropriate
+    once signed-context SSO is in place; risky while we still trust URL
+    params on /embed/."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        raw = (getattr(settings, "GHL_FRAME_ANCESTORS", "") or "").strip()
+        if raw == "*":
+            sources = "*"
+        else:
+            entries = [e.strip() for e in raw.split(",") if e.strip()]
+            sources = " ".join(["'self'", *entries]) if entries else "'self'"
+        self._header_value = f"frame-ancestors {sources};"
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        # Don't clobber an existing CSP (e.g. set by Cloudflare or a view).
+        if "Content-Security-Policy" not in response:
+            response["Content-Security-Policy"] = self._header_value
         return response
 
 

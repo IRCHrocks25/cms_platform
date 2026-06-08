@@ -165,6 +165,7 @@ MIDDLEWARE = [
 
     "core.middleware.TenantResolverMiddleware",
     "core.middleware.DiagnosticHeaderMiddleware",
+    "core.middleware.FrameAncestorsCspMiddleware",
 ]
 
 
@@ -313,6 +314,14 @@ GHL_CLIENT_SECRET = os.environ.get("GHL_CLIENT_SECRET", "")
 # Shared/SSO secret used to decrypt the iframe context GHL sends via
 # postMessage. Required only for the signed-context path (Phase 2).
 GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
+# Comma-separated list of origins allowed to embed us in a frame
+# (e.g. "https://app.industryrockstars.ch,https://app.daltoleadsystem.com").
+# Pass "*" to allow any parent — only safe once /embed/ verifies signed
+# context (Phase 2), not while it still trusts URL params (Phase 1).
+GHL_FRAME_ANCESTORS = os.environ.get(
+    "GHL_FRAME_ANCESTORS",
+    "https://app.gohighlevel.com,https://*.gohighlevel.com,https://*.msgsndr.com",
+)
 
 # --------------------------------------------------------------------------- #
 # Email — sent via the Resend HTTP API (see core/email_backend.py).            #
