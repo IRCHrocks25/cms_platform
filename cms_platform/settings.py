@@ -240,19 +240,22 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 # Cross-origin iframe embedding (e.g. sites.katek.app loaded inside a
 # white-labeled GHL dashboard). Browsers refuse SameSite=Lax cookies in a
 # cross-origin iframe, so the session never sticks. SameSite=None requires
-# Secure=True, which means plain-HTTP dev would lose its cookies — so this
-# only kicks in when DEBUG is off. Cloudflare strips X-Frame-Options and
-# adds Content-Security-Policy: frame-ancestors at the edge.
-if DEBUG:
-    SESSION_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SAMESITE = "Lax"
-    CSRF_COOKIE_SECURE = False
-else:
+# Secure=True (HTTPS), so it's gated on an explicit env var. Set
+# IFRAME_EMBED=1 in production; leave unset (or 0) in local dev where
+# plain HTTP would otherwise discard the cookies. Cloudflare strips
+# X-Frame-Options and adds Content-Security-Policy: frame-ancestors at
+# the edge.
+IFRAME_EMBED = os.environ.get("IFRAME_EMBED", "0") == "1"
+if IFRAME_EMBED:
     SESSION_COOKIE_SAMESITE = "None"
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SAMESITE = "None"
     CSRF_COOKIE_SECURE = True
+else:
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SECURE = False
 
 
 LOGGING = {
