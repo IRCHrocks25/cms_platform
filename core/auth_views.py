@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.forms import PasswordResetForm
@@ -11,12 +12,15 @@ from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from core.urls_helpers import tenant_editor_url, tenant_login_url
+
 
 class TenantAwareLoginView(LoginView):
     """Login view that routes the user based on host + tenant membership.
 
     - On a tenant host: log in if member/staff, otherwise refuse.
-    - On the agency host: log in if staff/superuser, otherwise refuse.
+    - On the agency host: staff/superuser → agency dashboard; a non-staff client
+      is routed to their own site's editor instead of being refused.
     """
 
     template_name = "auth/login.html"
@@ -37,8 +41,42 @@ class TenantAwareLoginView(LoginView):
             auth_login(request, user)
             return HttpResponseRedirect(self._safe_next() or reverse("dashboard:root"))
 
+        # Non-staff client logging in on the main/agency host: send them to
+        # their own site rather than refusing.
+        home_tenant = self._pick_home_tenant(user)
+        if home_tenant is not None:
+            if getattr(settings, "SESSION_COOKIE_DOMAIN", None):
+                # Production: the session cookie spans the parent domain
+                # (COOKIE_PARENT_DOMAIN), so logging in here carries straight
+                # over to the subdomain editor — one login, no second prompt.
+                auth_login(request, user)
+                return HttpResponseRedirect(tenant_editor_url(request, home_tenant))
+            # Single-host / local dev: the cookie can't span hosts, so bounce
+            # them to their own site's login to establish the session there.
+            return HttpResponseRedirect(tenant_login_url(request, home_tenant))
+
         messages.error(request, "This account has no sites here.")
         return HttpResponseRedirect(reverse("login"))
+
+    def _pick_home_tenant(self, user):
+        """Which site to drop a client into after an agency-host login.
+
+        Prefers a site they own; otherwise their earliest membership. Returns
+        None when the user belongs to no site.
+        """
+        from core.models import TenantMembership
+
+        memberships = list(
+            TenantMembership.objects.select_related("tenant")
+            .filter(user=user)
+            .order_by("created_at")
+        )
+        if not memberships:
+            return None
+        for m in memberships:
+            if m.tenant.owner_id == user.id:
+                return m.tenant
+        return memberships[0].tenant
 
     def _safe_next(self):
         request = self.request

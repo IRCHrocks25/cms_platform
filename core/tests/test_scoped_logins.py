@@ -112,6 +112,51 @@ class UserPageCreateLoginTests(TestCase):
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
+class AgencyHostClientLoginRoutingTests(TestCase):
+    """A non-staff client logging in on the main/agency host is routed to
+    their own site instead of being refused."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("agency", password="secret", is_staff=True)
+        cls.client_user = User.objects.create_user("alice", password="secret")
+        cls.orphan = User.objects.create_user("eve", password="secret")
+        template = _make_template()
+        cls.tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=template, owner=cls.client_user,
+        )
+        TenantMembership.objects.create(tenant=cls.tenant, user=cls.client_user)
+
+    def _post_login(self, username):
+        c = Client(HTTP_HOST="localhost")
+        return c.post(
+            reverse("login"), data={"username": username, "password": "secret"}
+        )
+
+    def test_client_redirected_to_own_site_login_when_no_shared_cookie(self):
+        # No SESSION_COOKIE_DOMAIN in tests → bounce to the tenant host login.
+        r = self._post_login("alice")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "http://acme.localhost/login/")
+
+    @override_settings(SESSION_COOKIE_DOMAIN=".localhost")
+    def test_client_logged_in_and_sent_to_editor_when_cookie_spans(self):
+        r = self._post_login("alice")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "http://acme.localhost/dashboard/")
+
+    def test_staff_still_lands_on_agency_dashboard(self):
+        r = self._post_login("agency")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], reverse("dashboard:root"))
+
+    def test_client_with_no_site_is_refused(self):
+        r = self._post_login("eve")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], reverse("login"))
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
 class ClientTeamTests(TestCase):
     """Client (tenant host) self-serve Team management."""
 
