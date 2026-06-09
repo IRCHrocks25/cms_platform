@@ -39,6 +39,9 @@
       {% endif %}
       <a href="{{ page_list_url }}" class="btn btn-secondary">Pages</a>
       <a href="{{ blog_url }}" class="btn btn-secondary">Blog</a>
+      {% if scope == "tenant" and team_url %}
+        <a href="{{ team_url }}" class="btn btn-secondary">Team</a>
+      {% endif %}
       {% if versions_url %}
         <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
       {% endif %}

@@ -624,6 +624,46 @@ def _generate_password():
     return get_random_string(length=16, allowed_chars=PASSWORD_ALPHABET)
 
 
+def _create_scoped_login(tenant, *, username, email, role):
+    """Create a new non-staff User + a Membership on `tenant`.
+
+    This is the "add another login to an existing site" primitive shared by the
+    agency site-detail flow and the client-facing Team page. It deliberately
+    never touches Tenant rows (the site already exists) and never grants staff —
+    the new account can only ever reach this one tenant.
+
+    Returns ``(user, password, errors)``. On any validation failure ``user`` and
+    ``password`` are ``None`` and ``errors`` is a non-empty list of strings.
+    """
+    username = (username or "").strip()
+    email = (email or "").strip()
+    if role not in dict(TenantMembership.ROLE_CHOICES):
+        role = TenantMembership.ROLE_EDITOR
+
+    errors = []
+    if not username:
+        errors.append("A username is required.")
+    elif User.objects.filter(username__iexact=username).exists():
+        errors.append(f"A user named “{username}” already exists. Pick a different username.")
+    if errors:
+        return None, None, errors
+
+    password = _generate_password()
+    with transaction.atomic():
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+        )
+        # Belt-and-suspenders: a scoped login is never agency staff.
+        user.is_active = True
+        user.is_staff = False
+        user.is_superuser = False
+        user.save(update_fields=["is_active", "is_staff", "is_superuser"])
+        TenantMembership.objects.create(tenant=tenant, user=user, role=role)
+    return user, password, []
+
+
 # --------------------------------------------------------------------------- #
 # Agency: credentials (one-time view)                                          #
 # --------------------------------------------------------------------------- #
@@ -852,6 +892,33 @@ def tenant_member_add(request, pk):
 
 @agency_operator_required
 @require_POST
+def tenant_member_create(request, pk):
+    """Mint a brand-new login for an *existing* site (no new site created).
+
+    Unlike tenant_member_add (which attaches an already-existing user), this
+    creates the User + Membership in one shot and reveals one-time credentials.
+    """
+    tenant = get_object_or_404(Tenant, pk=pk)
+    user, password, errors = _create_scoped_login(
+        tenant,
+        username=request.POST.get("username"),
+        email=request.POST.get("email"),
+        role=request.POST.get("role") or TenantMembership.ROLE_EDITOR,
+    )
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect(f"{reverse('dashboard:tenant_detail', args=[tenant.pk])}#members")
+
+    token = _stash_credentials_in_session(request, user, password)
+    messages.success(request, f"Login created for {user.username}.")
+    return redirect(
+        f"{reverse('dashboard:site_credentials', args=[tenant.pk])}?token={token}"
+    )
+
+
+@agency_operator_required
+@require_POST
 def tenant_member_remove(request, pk, membership_id):
     tenant = get_object_or_404(Tenant, pk=pk)
     membership = get_object_or_404(
@@ -944,8 +1011,45 @@ def user_detail(request, pk):
         {
             "user_obj": user_obj,
             "memberships": memberships,
+            "role_choices": TenantMembership.ROLE_CHOICES,
             "nav_section": "users",
         },
+    )
+
+
+@agency_operator_required
+@require_POST
+def user_create_login(request, pk):
+    """From a client's user page, mint an *additional* login on one of this
+    client's own sites — i.e. create a new user on their behalf.
+
+    Scoped to sites the client already belongs to, so this can't be used to
+    attach accounts to arbitrary tenants from a user page.
+    """
+    user_obj = get_object_or_404(User, pk=pk)
+    tenant = (
+        Tenant.objects.filter(pk=request.POST.get("tenant_id") or "", memberships__user=user_obj)
+        .first()
+    )
+    if tenant is None:
+        messages.error(request, "Pick one of this client's sites.")
+        return redirect("dashboard:user_detail", pk=user_obj.pk)
+
+    new_user, password, errors = _create_scoped_login(
+        tenant,
+        username=request.POST.get("username"),
+        email=request.POST.get("email"),
+        role=request.POST.get("role") or TenantMembership.ROLE_EDITOR,
+    )
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect("dashboard:user_detail", pk=user_obj.pk)
+
+    token = _stash_credentials_in_session(request, new_user, password)
+    messages.success(request, f"Login created for {new_user.username} on {tenant.name}.")
+    return redirect(
+        f"{reverse('dashboard:site_credentials', args=[tenant.pk])}?token={token}"
     )
 
 
@@ -1113,6 +1217,115 @@ def tenant_video_sign_self(request):
 @require_POST
 def tenant_video_confirm_self(request):
     return _video_confirm(request, request.tenant)
+
+
+# --------------------------------------------------------------------------- #
+# Tenant surface: Team (self-serve logins for this site)                       #
+# --------------------------------------------------------------------------- #
+
+
+@tenant_member_required
+@require_GET
+def team_self(request):
+    """Client-facing member management for the current tenant.
+
+    Any member (owner or editor) can create additional logins scoped to this
+    site. All created accounts are non-staff and reach only this tenant.
+    """
+    tenant = request.tenant
+    members = tenant.memberships.select_related("user").order_by("user__username")
+    return render(
+        request,
+        "dashboard/team.html",
+        {
+            "tenant": tenant,
+            "members": members,
+            "role_choices": TenantMembership.ROLE_CHOICES,
+            "owner_id": tenant.owner_id,
+            "current_user_id": request.user.id,
+            "team_create_url": reverse("dashboard:team_member_create_self"),
+        },
+    )
+
+
+@tenant_member_required
+@require_POST
+def team_member_create_self(request):
+    user, password, errors = _create_scoped_login(
+        request.tenant,
+        username=request.POST.get("username"),
+        email=request.POST.get("email"),
+        role=request.POST.get("role") or TenantMembership.ROLE_EDITOR,
+    )
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect("dashboard:team_self")
+
+    token = _stash_credentials_in_session(request, user, password)
+    messages.success(request, f"Login created for {user.username}.")
+    return redirect(f"{reverse('dashboard:team_credentials_self')}?token={token}")
+
+
+@tenant_member_required
+@require_GET
+def team_credentials_self(request):
+    """One-time credential reveal for a client-created login."""
+    token = request.GET.get("token") or ""
+    payload = _pop_credentials_from_session(request, token) if token else None
+    return render(
+        request,
+        "dashboard/credentials.html",
+        {
+            "context_label": "login",
+            "credentials_user": None,
+            "payload": payload,
+            "tenant": request.tenant,
+            "login_url": f"{request.scheme}://{request.get_host()}{reverse('login')}",
+            "back_url": reverse("dashboard:team_self"),
+            "back_label": "Done — back to Team",
+            "user_detail_url": None,
+        },
+    )
+
+
+@tenant_member_required
+@require_POST
+def team_member_remove_self(request, membership_id):
+    tenant = request.tenant
+    membership = get_object_or_404(
+        TenantMembership, pk=membership_id, tenant=tenant
+    )
+    if membership.user_id == request.user.id:
+        messages.error(request, "You can't remove your own access.")
+        return redirect("dashboard:team_self")
+    if membership.user_id == tenant.owner_id:
+        messages.error(request, "The site owner can't be removed here — ask your agency.")
+        return redirect("dashboard:team_self")
+    username = membership.user.username
+    membership.delete()
+    messages.success(request, f"Removed {username} from this site.")
+    return redirect("dashboard:team_self")
+
+
+@tenant_member_required
+@require_POST
+def team_member_role_self(request, membership_id):
+    tenant = request.tenant
+    membership = get_object_or_404(
+        TenantMembership, pk=membership_id, tenant=tenant
+    )
+    role = request.POST.get("role") or membership.role
+    if role not in dict(TenantMembership.ROLE_CHOICES):
+        messages.error(request, "Unknown role.")
+        return redirect("dashboard:team_self")
+    if membership.user_id == tenant.owner_id and role != TenantMembership.ROLE_OWNER:
+        messages.error(request, "The site owner's role can't be changed here — ask your agency.")
+        return redirect("dashboard:team_self")
+    membership.role = role
+    membership.save(update_fields=["role"])
+    messages.success(request, f"Updated role for {membership.user.username}.")
+    return redirect("dashboard:team_self")
 
 
 # --------------------------------------------------------------------------- #
@@ -1388,6 +1601,7 @@ def _render_editor(request, tenant, *, scope, page=None):
         settings_url = reverse("dashboard:tenant_site_settings_self")
         blog_url = reverse("dashboard:blog_list_self")
         page_list_url = reverse("dashboard:page_list_self")
+        team_url = reverse("dashboard:team_self")
         if page is None:
             preview_url = reverse("dashboard:tenant_preview_self")
             save_url = reverse("dashboard:tenant_save_self")
@@ -1408,6 +1622,7 @@ def _render_editor(request, tenant, *, scope, page=None):
         settings_url = reverse("dashboard:tenant_site_settings", args=[tenant.pk])
         blog_url = reverse("dashboard:blog_list", args=[tenant.pk])
         page_list_url = reverse("dashboard:page_list", args=[tenant.pk])
+        team_url = None
         if page is None:
             preview_url = reverse("dashboard:tenant_preview", args=[tenant.pk])
             save_url = reverse("dashboard:tenant_save", args=[tenant.pk])
@@ -1483,6 +1698,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "settings_url": settings_url,
             "blog_url": blog_url,
             "page_list_url": page_list_url,
+            "team_url": team_url,
             "live_url": live_url,
             "scope": scope,
         },
