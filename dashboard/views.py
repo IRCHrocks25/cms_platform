@@ -1482,6 +1482,152 @@ def page_create(request, pk):
     return _page_create(request, get_object_or_404(Tenant, pk=pk), "agency")
 
 
+def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
+    """Run the AI annotator on `raw_html` and update Template `template_id` in
+    place when it completes. Used by page_import_siblings to upgrade an
+    imported sibling Page from "renders as static HTML" to "editable in CMS"
+    asynchronously — the import response returns immediately, and the
+    annotated HTML lands a minute or two later.
+
+    Errors are logged but otherwise swallowed: a Template that failed to
+    annotate stays usable as static HTML, which is good enough for legal
+    pages.
+    """
+    from django.db import connection
+    try:
+        result = annotate_html(raw_html)
+    except AnnotatorError as exc:
+        logger.warning(
+            "Sibling annotation failed for template=%s: %s", template_id, exc,
+        )
+        connection.close()
+        return
+    except Exception as exc:
+        logger.exception(
+            "Sibling annotation crashed for template=%s: %s", template_id, exc,
+        )
+        connection.close()
+        return
+    try:
+        template = Template.objects.get(pk=template_id)
+        template.html_source = result.html
+        # Template.save() rebuilds the schema from the new html_source, so the
+        # editor immediately surfaces editable fields the next time it loads.
+        template.save()
+        logger.info(
+            "Sibling annotation applied to template=%s (%d sections)",
+            template_id, len(result.sections or []),
+        )
+    finally:
+        connection.close()
+
+
+@agency_operator_required
+@require_POST
+def page_import_siblings(request, pk):
+    """Import every same-origin .html sibling found on a source URL as a Page.
+
+    Operator pastes the home URL of the client's original deploy
+    (e.g. https://susan-rabbyv2.pages.dev/). We fetch the home, scan for
+    same-origin .html links (privacy, terms, about, etc.), and for each
+    discovered URL: fetch the page, rewrite relative links the same way
+    fetch_url_html does, create a Template with the rewritten HTML, and
+    bind it to this Tenant via a Page row.
+
+    Pages are created and returned IMMEDIATELY with the raw fetched HTML
+    so the operator can navigate to them right away — they render as
+    static HTML at the right CMS URLs. Then for each sibling we spawn a
+    worker thread that runs the AI annotator and patches the Template's
+    html_source in place when annotation finishes (~30–120 s per page),
+    promoting the Page from static-only to editable-in-CMS without
+    blocking the import request.
+
+    Body (JSON): {"home_url": "https://...source.example.com/"}
+    Returns: {"created": [{"slug": "...", "title": "...", "page_id": ...,
+                          "annotation_status": "pending"}, ...],
+              "skipped": [{"slug": "...", "reason": "..."}, ...]}
+    """
+    from core.services.url_fetch import (
+        UrlFetchError,
+        discover_sibling_html_urls,
+        fetch_url_html,
+    )
+
+    tenant = get_object_or_404(Tenant, pk=pk)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+    home_url = (payload.get("home_url") or "").strip()
+    if not home_url:
+        return JsonResponse({"error": "home_url is required."}, status=400)
+
+    try:
+        # We need the RAW home HTML (no rewrites) to discover unrewritten
+        # relative links. Once siblings are discovered, each sibling is
+        # fetched with rewrites enabled so its own internal links land on
+        # the correct origins.
+        home_html = fetch_url_html(home_url, rewrite_urls=False)
+    except UrlFetchError as exc:
+        return JsonResponse(
+            {"error": f"Could not fetch the home URL: {exc}"}, status=400,
+        )
+
+    siblings = discover_sibling_html_urls(home_html, home_url)
+    if not siblings:
+        return JsonResponse({
+            "created": [],
+            "skipped": [],
+            "message": "No same-origin .html siblings found on that page.",
+        })
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+
+    for sibling in siblings:
+        slug = sibling["slug"][:80]
+        title = sibling["title"][:120]
+
+        if slug in RESERVED_PAGE_SLUGS:
+            skipped.append({"slug": slug, "reason": "reserved slug"})
+            continue
+        if tenant.pages.filter(slug=slug).exists():
+            skipped.append({"slug": slug, "reason": "page already exists"})
+            continue
+
+        try:
+            sibling_html = fetch_url_html(sibling["url"], rewrite_urls=True)
+        except UrlFetchError as exc:
+            skipped.append({"slug": slug, "reason": f"fetch failed: {exc}"})
+            continue
+
+        with transaction.atomic():
+            template = Template.objects.create(
+                name=f"{tenant.name} — {title}",
+                description=f"Imported from {sibling['url']}",
+                html_source=sibling_html,
+            )
+            page = Page.objects.create(
+                tenant=tenant, template=template, title=title, slug=slug,
+            )
+
+        threading.Thread(
+            target=_annotate_template_in_background,
+            args=(template.pk, sibling_html),
+            name=f"annotate-sibling-{template.pk}",
+            daemon=True,
+        ).start()
+
+        created.append({
+            "slug": slug, "title": title, "page_id": page.pk,
+            "annotation_status": "pending",
+        })
+
+    return JsonResponse({"created": created, "skipped": skipped})
+
+
 @agency_operator_required
 def page_editor(request, pk, page_pk):
     tenant = get_object_or_404(Tenant, pk=pk)
