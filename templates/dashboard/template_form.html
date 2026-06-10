@@ -89,6 +89,19 @@
               <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
             </div>
           </div>
+
+          {# ---- Fetch HTML from a live URL (Cloudflare Pages, Webflow, etc.) ---- #}
+          <div class="row" style="gap: 8px; margin-bottom: 8px; align-items: stretch;">
+            <input type="url" id="fetch-url-input" class="input" style="flex: 1;"
+                   placeholder="Or paste a URL — e.g. https://susan-rabbyv1.pages.dev/" />
+            <button type="button" id="fetch-url-btn" class="btn btn-ghost btn-sm"
+                    data-url="{% url 'dashboard:template_fetch_url' %}"
+                    title="Fetch the page's HTML and drop it into the textarea below">
+              Fetch from URL
+            </button>
+          </div>
+          <div id="fetch-url-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
+
           <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
           <textarea class="textarea" name="html_source" id="id_html_source" rows="22" required>{{ template.html_source|default:form_data.html_source|default_if_none:'' }}</textarea>
           <span class="field-hint">
@@ -564,6 +577,64 @@
       }
       if (compareRetry) compareRetry.addEventListener("click", retryAnnotate);
       if (loadingRetry) loadingRetry.addEventListener("click", retryAnnotate);
+    })();
+
+    // ---- Fetch HTML from a URL --------------------------------------------
+    (function () {
+      var fetchBtn = document.getElementById("fetch-url-btn");
+      var fetchInput = document.getElementById("fetch-url-input");
+      var fetchStatus = document.getElementById("fetch-url-status");
+      var textarea = document.getElementById("id_html_source");
+      if (!fetchBtn || !fetchInput || !textarea) return;
+
+      var csrf = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
+
+      function showStatus(msg, kind) {
+        fetchStatus.hidden = false;
+        fetchStatus.textContent = msg;
+        fetchStatus.style.background = kind === "error" ? "#fef2f2" : "#ecfeff";
+        fetchStatus.style.color      = kind === "error" ? "#991b1b" : "#0e7490";
+        fetchStatus.style.border     = "1px solid " + (kind === "error" ? "#fecaca" : "#a5f3fc");
+      }
+      function clearStatus() { fetchStatus.hidden = true; fetchStatus.textContent = ""; }
+
+      function doFetch() {
+        var url = (fetchInput.value || "").trim();
+        if (!url) { showStatus("Paste a URL first.", "error"); return; }
+
+        var existing = (textarea.value || "").trim();
+        if (existing && !confirm("Replace the current HTML with the fetched page?")) return;
+
+        var endpoint = fetchBtn.dataset.url;
+        fetchBtn.disabled = true;
+        showStatus("Fetching " + url + " …", "info");
+
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+          credentials: "same-origin",
+          body: JSON.stringify({ url: url }),
+        })
+        .then(function (r) { return r.json().then(function (data) { return [r.ok, data]; }); })
+        .then(function (pair) {
+          var ok = pair[0], data = pair[1];
+          if (ok && data.html) {
+            textarea.value = data.html;
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            showStatus("Loaded " + (data.bytes || data.html.length).toLocaleString() + " bytes. You can now click 'Annotate with AI'.", "info");
+          } else {
+            showStatus(data.error || "Could not fetch that URL.", "error");
+          }
+        })
+        .catch(function () { showStatus("Network error while fetching.", "error"); })
+        .then(function () { fetchBtn.disabled = false; });
+      }
+
+      fetchBtn.addEventListener("click", doFetch);
+      fetchInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); doFetch(); }
+      });
+      fetchInput.addEventListener("input", clearStatus);
     })();
   </script>
 {% endblock %}

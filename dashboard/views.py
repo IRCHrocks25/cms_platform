@@ -282,6 +282,35 @@ def _run_annotation_job(job_id, raw_html):
 
 @agency_operator_required
 @require_POST
+def template_fetch_url(request):
+    """Fetch an HTML page from a URL so the operator can pre-fill the template
+    form's HTML textarea without copy-pasting. The fetched HTML then goes
+    through the existing AI annotator like any pasted source.
+
+    Expects JSON body: {"url": "https://example.com/"}
+    Returns: {"html": "..."} on success, {"error": "..."} on failure.
+    """
+    from core.services.url_fetch import UrlFetchError, fetch_url_html
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return JsonResponse({"error": "URL is required."}, status=400)
+
+    try:
+        html = fetch_url_html(url)
+    except UrlFetchError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    return JsonResponse({"html": html, "bytes": len(html)})
+
+
+@agency_operator_required
+@require_POST
 def template_annotate(request):
     """Kick off a background AI annotation job and return its id immediately.
 
