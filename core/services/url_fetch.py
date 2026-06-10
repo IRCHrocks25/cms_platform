@@ -19,9 +19,10 @@ non-staff, add an SSRF allowlist before exposing the endpoint.
 from __future__ import annotations
 
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,59 @@ class UrlFetchError(Exception):
     """Raised when the URL can't be fetched into usable HTML."""
 
 
+# Schemes / prefixes that are NOT relative URLs and must be left alone.
+_ABSOLUTE_URL_PREFIXES = (
+    "http://", "https://", "//", "data:", "mailto:", "tel:",
+    "javascript:", "#",
+)
+
+# Tag + attribute pairs that carry URLs we want to rewrite.
+_URL_ATTRS = (
+    ("a", "href"),
+    ("link", "href"),
+    ("img", "src"),
+    ("script", "src"),
+    ("source", "src"),
+    ("video", "src"),
+    ("audio", "src"),
+    ("iframe", "src"),
+)
+
+
+def rewrite_relative_urls(html: str, base_url: str) -> str:
+    """Convert relative URLs in the parsed HTML to absolute URLs against base_url.
+
+    Touches `<a href>`, `<link href>`, `<img src>`, `<script src>`,
+    `<source src>`, `<video src>`, `<audio src>`, `<iframe src>`. Leaves
+    fragment-only (#section), already-absolute, protocol-relative (//),
+    data:, mailto:, tel:, and javascript: URLs untouched.
+
+    Used by `fetch_url_html` so a fetched landing page's footer links and
+    image references continue to resolve once the page is rendered from a
+    different host (the CMS).
+    """
+    if not html or not base_url:
+        return html
+    soup = BeautifulSoup(html, "lxml")
+    for tag, attr in _URL_ATTRS:
+        for el in soup.find_all(tag):
+            val = el.get(attr)
+            if not val:
+                continue
+            stripped = val.strip()
+            if not stripped or stripped.startswith(_ABSOLUTE_URL_PREFIXES):
+                continue
+            el[attr] = urljoin(base_url, stripped)
+    return str(soup)
+
+
 def fetch_url_html(
     url: str,
     *,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_redirects: int = DEFAULT_MAX_REDIRECTS,
+    rewrite_urls: bool = True,
 ) -> str:
     """Fetch an HTML page and return the body as a string.
 
@@ -105,6 +153,13 @@ def fetch_url_html(
         )
 
     try:
-        return response.text
+        body = response.text
     except UnicodeDecodeError as exc:
         raise UrlFetchError(f"Response is not valid text: {exc}") from exc
+
+    if rewrite_urls:
+        # str(response.url) reflects the final URL after redirects, which is the
+        # correct base for resolving relative references in the body.
+        body = rewrite_relative_urls(body, str(response.url))
+
+    return body

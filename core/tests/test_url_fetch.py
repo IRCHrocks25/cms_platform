@@ -7,7 +7,11 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from core.services import url_fetch
-from core.services.url_fetch import UrlFetchError, fetch_url_html
+from core.services.url_fetch import (
+    UrlFetchError,
+    fetch_url_html,
+    rewrite_relative_urls,
+)
 
 
 def _mock_response(status_code=200, content=b"<html><body>ok</body></html>",
@@ -86,6 +90,89 @@ class FetchUrlHtmlTests(TestCase):
             with self.assertRaises(UrlFetchError) as ctx:
                 fetch_url_html("https://example.com/")
         self.assertIn("redirects", str(ctx.exception).lower())
+
+    def test_rewrites_relative_urls_after_fetch(self):
+        page = (
+            b"<html><body>"
+            b"<a href='./privacy-policy.html'>Privacy</a>"
+            b"<img src='/images/hero.jpg'/>"
+            b"</body></html>"
+        )
+        with mock.patch.object(
+            httpx.Client, "get",
+            return_value=_mock_response(content=page),
+        ):
+            html = fetch_url_html("https://susan-rabbyv2.pages.dev/")
+        self.assertIn("https://example.com/privacy-policy.html", html)  # mock url
+        # Actually _mock_response wires request URL to example.com, so use that:
+        self.assertIn("https://example.com/images/hero.jpg", html)
+
+    def test_rewrite_can_be_disabled(self):
+        page = b"<html><body><a href='./privacy.html'>P</a></body></html>"
+        with mock.patch.object(
+            httpx.Client, "get",
+            return_value=_mock_response(content=page),
+        ):
+            html = fetch_url_html("https://example.com/", rewrite_urls=False)
+        self.assertIn("./privacy.html", html)
+        self.assertNotIn("https://example.com/privacy.html", html)
+
+
+class RewriteRelativeUrlsTests(TestCase):
+    BASE = "https://susan-rabbyv2.pages.dev/"
+
+    def test_converts_dot_slash_path(self):
+        out = rewrite_relative_urls(
+            "<a href='./privacy-policy.html'>P</a>", self.BASE,
+        )
+        self.assertIn("https://susan-rabbyv2.pages.dev/privacy-policy.html", out)
+
+    def test_converts_root_relative_path(self):
+        out = rewrite_relative_urls(
+            "<img src='/img/hero.jpg'>", self.BASE,
+        )
+        self.assertIn("https://susan-rabbyv2.pages.dev/img/hero.jpg", out)
+
+    def test_leaves_absolute_urls_alone(self):
+        out = rewrite_relative_urls(
+            "<a href='https://other.example.com/x'>x</a>", self.BASE,
+        )
+        self.assertIn("https://other.example.com/x", out)
+        self.assertNotIn(self.BASE + "https", out)
+
+    def test_leaves_protocol_relative_alone(self):
+        out = rewrite_relative_urls(
+            "<script src='//cdn.example.com/lib.js'></script>", self.BASE,
+        )
+        self.assertIn("//cdn.example.com/lib.js", out)
+
+    def test_leaves_mailto_tel_javascript_alone(self):
+        for href in ("mailto:susan@example.com", "tel:+15551234", "javascript:void(0)", "#section"):
+            out = rewrite_relative_urls(f"<a href='{href}'>x</a>", self.BASE)
+            self.assertIn(href, out)
+
+    def test_leaves_data_uris_alone(self):
+        out = rewrite_relative_urls(
+            "<img src='data:image/png;base64,iVBORw'>", self.BASE,
+        )
+        self.assertIn("data:image/png;base64,iVBORw", out)
+
+    def test_rewrites_multiple_tag_types(self):
+        html = (
+            "<link rel='stylesheet' href='./styles.css'>"
+            "<script src='./bundle.js'></script>"
+            "<iframe src='./embed.html'></iframe>"
+            "<source src='./video.mp4'>"
+        )
+        out = rewrite_relative_urls(html, self.BASE)
+        for path in ("styles.css", "bundle.js", "embed.html", "video.mp4"):
+            self.assertIn(self.BASE + path, out)
+
+    def test_handles_empty_inputs(self):
+        self.assertEqual(rewrite_relative_urls("", self.BASE), "")
+        self.assertEqual(
+            rewrite_relative_urls("<p>hi</p>", ""), "<p>hi</p>",
+        )
 
 
 class TemplateFetchUrlEndpointTests(TestCase):
