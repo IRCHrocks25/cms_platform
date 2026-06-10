@@ -80,6 +80,78 @@ def _is_same_page(absolute_url: str, base_url: str) -> bool:
     return a_path == b_path
 
 
+def discover_sibling_html_urls(html: str, base_url: str) -> list[dict]:
+    """Return same-origin sibling .html links found in `html`.
+
+    Used by the multi-page importer: operator pastes a home URL, we fetch
+    it, then surface every other .html page on the same origin so the
+    operator can import them as CMS Pages alongside the home.
+
+    Filter:
+    - Same hostname as base_url
+    - Path ends with .html or .htm
+    - Not the same page as base_url itself (skip the home loopback)
+    - Not in _INDEX_PATHS (skip /, /index.html, /index.htm — those ARE the home)
+
+    Returns a list of dicts, deduped by URL, in document order:
+
+        [
+            {
+                "url": "https://susan-rabbyv2.pages.dev/privacy-policy.html",
+                "slug": "privacy-policy",
+                "title": "Privacy",
+            },
+            ...
+        ]
+
+    The `slug` is the URL filename with the .html/.htm extension stripped,
+    safe to use directly as a CMS Page slug. The `title` is the link text
+    from the `<a>` tag, useful as a default Page title.
+    """
+    if not html or not base_url:
+        return []
+    soup = BeautifulSoup(html, "lxml")
+    seen: set[str] = set()
+    results: list[dict] = []
+    for el in soup.find_all("a"):
+        href = el.get("href")
+        if not href:
+            continue
+        stripped = href.strip()
+        if not stripped or stripped.startswith(_ABSOLUTE_URL_PREFIXES[3:]):
+            # skip data:, mailto:, tel:, javascript:, #fragment-only.
+            # Leave http:// / https:// / // for the same-origin check below.
+            pass
+        absolute = urljoin(base_url, stripped)
+        a = urlparse(absolute)
+        b = urlparse(base_url)
+        if a.netloc != b.netloc:
+            continue
+        path = a.path or "/"
+        if path in _INDEX_PATHS:
+            continue
+        if not path.lower().endswith((".html", ".htm")):
+            continue
+        if _is_same_page(absolute, base_url):
+            continue
+        # Drop fragment + query for the dedup key — same .html page with
+        # different anchors is still the same page.
+        canonical = f"{a.scheme}://{a.netloc}{path}"
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        filename = path.rsplit("/", 1)[-1]
+        for ext in (".html", ".htm"):
+            if filename.lower().endswith(ext):
+                slug = filename[: -len(ext)]
+                break
+        else:
+            slug = filename
+        title = (el.get_text() or "").strip() or slug.replace("-", " ").title()
+        results.append({"url": canonical, "slug": slug, "title": title})
+    return results
+
+
 def rewrite_relative_urls(html: str, base_url: str) -> str:
     """Convert relative URLs in the parsed HTML to absolute URLs against base_url.
 
