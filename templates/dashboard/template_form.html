@@ -621,13 +621,7 @@
           if (ok && data.html) {
             textarea.value = data.html;
             textarea.dispatchEvent(new Event("input", { bubbles: true }));
-            showStatus("Loaded " + (data.bytes || data.html.length).toLocaleString() + " bytes. Sending to the annotator…", "info");
-            // Chain straight into AI annotation — the operator wanted "URL in,
-            // ready-to-save Template out", not a two-click flow.
-            var annotateBtn = document.getElementById("annotate-btn");
-            if (annotateBtn && !annotateBtn.disabled) {
-              annotateBtn.click();
-            }
+            showStatus("Loaded " + (data.bytes || data.html.length).toLocaleString() + " bytes. Click 'Annotate with AI' to continue.", "info");
           } else {
             showStatus(data.error || "Could not fetch that URL.", "error");
           }
