@@ -131,17 +131,24 @@ def oauth_callback(request):
 
     code = request.GET.get("code", "").strip()
     state = request.GET.get("state", "").strip()
-    if not code or not state:
-        return HttpResponseBadRequest("missing code or state")
+    if not code:
+        return HttpResponseBadRequest("missing code")
 
-    try:
-        ghl_oauth.verify_state(state)
-    except ghl_oauth.StateInvalid as exc:
-        logger.warning("GHL callback: state rejected (%s)", exc)
-        return HttpResponse(
-            "Authorization link expired. Please re-start the install from GHL.",
-            status=400,
-        )
+    # State is only present when the install kicked off from our own
+    # /connect/install/ link. Marketplace-initiated installs come straight
+    # from GHL with no state — accept those without verification, since the
+    # user clicking "Install" inside GHL is the authorization signal.
+    if state:
+        try:
+            ghl_oauth.verify_state(state)
+        except ghl_oauth.StateInvalid as exc:
+            logger.warning("GHL callback: state rejected (%s)", exc)
+            return HttpResponse(
+                "Authorization link expired. Please re-start the install from GHL.",
+                status=400,
+            )
+    else:
+        logger.info("GHL callback: marketplace-initiated install (no state)")
 
     try:
         token_resp = ghl_oauth.exchange_code(

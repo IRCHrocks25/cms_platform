@@ -74,9 +74,28 @@ class CallbackTests(TestCase):
         self.client = Client()
         self.state = ghl_oauth.sign_state({"source": "install"})
 
-    def test_callback_missing_state_returns_400(self):
-        r = self.client.get("/connect/callback/?code=abc")
+    def test_callback_missing_code_returns_400(self):
+        r = self.client.get(f"/connect/callback/?state={self.state}")
         self.assertEqual(r.status_code, 400)
+        self.assertIn(b"missing code", r.content.lower())
+
+    def test_callback_marketplace_install_accepts_missing_state(self):
+        """Marketplace-initiated installs come straight from GHL with no state.
+        The user's click on 'Install' inside GHL is the authorization signal,
+        so we accept those callbacks without state verification.
+        """
+        with mock.patch.object(ghl_oauth, "exchange_code", return_value={
+            "access_token": "AT",
+            "refresh_token": "RT",
+            "expires_in": 3600,
+            "scope": "locations.readonly",
+            "userType": "Location",
+            "locationId": "LOC_MARKETPLACE",
+            "companyId": "C1",
+        }):
+            r = self.client.get("/connect/callback/?code=abc")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(GhlInstall.objects.filter(location_id="LOC_MARKETPLACE").exists())
 
     def test_callback_expired_state_friendly_message(self):
         with mock.patch("time.time", return_value=time.time() - ghl_oauth.STATE_TTL_SECONDS - 60):
