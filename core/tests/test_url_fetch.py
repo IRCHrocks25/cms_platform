@@ -174,6 +174,46 @@ class RewriteRelativeUrlsTests(TestCase):
             rewrite_relative_urls("<p>hi</p>", ""), "<p>hi</p>",
         )
 
+    def test_home_link_dot_slash_stays_root_relative(self):
+        """`<a href='./'>` on a fetched index.html is the brand logo / home
+        link. Keep it root-relative so visitors stay on the CMS-hosted site."""
+        out = rewrite_relative_urls(
+            "<a class='brand' href='./'>Home</a>", self.BASE,
+        )
+        self.assertIn('href="/"', out)
+        self.assertNotIn("susan-rabbyv2.pages.dev", out)
+
+    def test_home_link_index_html_stays_root_relative(self):
+        out = rewrite_relative_urls(
+            "<a href='./index.html'>Home</a>", self.BASE,
+        )
+        self.assertIn('href="/"', out)
+        self.assertNotIn("susan-rabbyv2.pages.dev", out)
+
+    def test_home_link_slash_stays_root_relative(self):
+        out = rewrite_relative_urls(
+            "<a href='/'>Home</a>", self.BASE,
+        )
+        self.assertIn('href="/"', out)
+        self.assertNotIn("susan-rabbyv2.pages.dev", out)
+
+    def test_sibling_page_link_goes_to_source_origin(self):
+        """Privacy and terms still get rewritten to absolute — they aren't
+        the same page as the imported home."""
+        out = rewrite_relative_urls(
+            "<a href='./privacy-policy.html'>Privacy</a>", self.BASE,
+        )
+        self.assertIn("https://susan-rabbyv2.pages.dev/privacy-policy.html", out)
+
+    def test_image_on_home_still_goes_to_source_origin(self):
+        """Same-page heuristic only applies to <a> tags. An <img> on the
+        home page still needs the absolute source URL because the CMS
+        isn't hosting the asset."""
+        out = rewrite_relative_urls(
+            "<img src='./hero.jpg'>", self.BASE,
+        )
+        self.assertIn("https://susan-rabbyv2.pages.dev/hero.jpg", out)
+
 
 class TemplateFetchUrlEndpointTests(TestCase):
     def setUp(self):
