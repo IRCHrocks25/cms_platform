@@ -9,6 +9,7 @@ from django.urls import reverse
 from core.services import url_fetch
 from core.services.url_fetch import (
     UrlFetchError,
+    discover_sibling_html_urls,
     fetch_url_html,
     rewrite_relative_urls,
 )
@@ -213,6 +214,74 @@ class RewriteRelativeUrlsTests(TestCase):
             "<img src='./hero.jpg'>", self.BASE,
         )
         self.assertIn("https://susan-rabbyv2.pages.dev/hero.jpg", out)
+
+
+class DiscoverSiblingHtmlUrlsTests(TestCase):
+    BASE = "https://susan-rabbyv2.pages.dev/"
+
+    def test_finds_same_origin_html_siblings(self):
+        html = (
+            "<a href='./privacy-policy.html'>Privacy</a>"
+            "<a href='./terms-and-conditions.html'>Terms &amp; Conditions</a>"
+        )
+        out = discover_sibling_html_urls(html, self.BASE)
+        urls = [s["url"] for s in out]
+        slugs = [s["slug"] for s in out]
+        self.assertEqual(len(out), 2)
+        self.assertIn(self.BASE + "privacy-policy.html", urls)
+        self.assertIn(self.BASE + "terms-and-conditions.html", urls)
+        self.assertIn("privacy-policy", slugs)
+        self.assertIn("terms-and-conditions", slugs)
+
+    def test_skips_the_home_itself(self):
+        """./, /, /index.html should not appear as siblings."""
+        html = (
+            "<a href='./'>Home</a>"
+            "<a href='/'>Home2</a>"
+            "<a href='./index.html'>Home3</a>"
+        )
+        self.assertEqual(discover_sibling_html_urls(html, self.BASE), [])
+
+    def test_skips_external_links(self):
+        html = "<a href='https://twitter.com/x'>Twitter</a>"
+        self.assertEqual(discover_sibling_html_urls(html, self.BASE), [])
+
+    def test_skips_anchor_and_mail_and_tel(self):
+        html = (
+            "<a href='#features'>Features</a>"
+            "<a href='mailto:susan@example.com'>Email</a>"
+            "<a href='tel:+15551234'>Call</a>"
+        )
+        self.assertEqual(discover_sibling_html_urls(html, self.BASE), [])
+
+    def test_skips_clean_url_paths_without_html(self):
+        """Per the chosen filter ('same-origin .html files only'), clean
+        URLs like /about/ are excluded."""
+        html = "<a href='./about/'>About</a>"
+        self.assertEqual(discover_sibling_html_urls(html, self.BASE), [])
+
+    def test_uses_link_text_as_title(self):
+        html = "<a href='./privacy-policy.html'>Read our privacy commitments</a>"
+        out = discover_sibling_html_urls(html, self.BASE)
+        self.assertEqual(out[0]["title"], "Read our privacy commitments")
+
+    def test_falls_back_to_slug_when_link_text_empty(self):
+        html = "<a href='./privacy-policy.html'> </a>"
+        out = discover_sibling_html_urls(html, self.BASE)
+        self.assertEqual(out[0]["title"], "Privacy Policy")
+
+    def test_dedupes_repeated_links(self):
+        html = (
+            "<a href='./privacy-policy.html'>P1</a>"
+            "<a href='./privacy-policy.html#section'>P2</a>"
+            "<a href='./privacy-policy.html?ref=footer'>P3</a>"
+        )
+        out = discover_sibling_html_urls(html, self.BASE)
+        self.assertEqual(len(out), 1)
+
+    def test_handles_empty_inputs(self):
+        self.assertEqual(discover_sibling_html_urls("", self.BASE), [])
+        self.assertEqual(discover_sibling_html_urls("<p>hi</p>", ""), [])
 
 
 class TemplateFetchUrlEndpointTests(TestCase):
