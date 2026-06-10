@@ -50,7 +50,6 @@ urlpatterns = [
     path("sites/<int:pk>/blog/<int:post_pk>/preview/", views.blog_preview, name="blog_preview"),
     path("sites/<int:pk>/pages/", views.page_list, name="page_list"),
     path("sites/<int:pk>/pages/new/", views.page_create, name="page_create"),
-    path("sites/<int:pk>/pages/import-siblings/", views.page_import_siblings, name="page_import_siblings"),
     path("sites/<int:pk>/pages/<int:page_pk>/edit/", views.page_editor, name="page_editor"),
     path("sites/<int:pk>/pages/<int:page_pk>/preview/", views.page_preview, name="page_preview"),
     path("sites/<int:pk>/pages/<int:page_pk>/save/", views.page_save, name="page_save"),
