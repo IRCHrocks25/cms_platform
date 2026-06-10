@@ -59,6 +59,26 @@ _URL_ATTRS = (
     ("iframe", "src"),
 )
 
+# Paths that a static host treats as "the home page" — equivalent to "/".
+_INDEX_PATHS = ("/", "/index.html", "/index.htm")
+
+
+def _is_same_page(absolute_url: str, base_url: str) -> bool:
+    """True when absolute_url and base_url point at the same page.
+
+    Treats `/`, `/index.html`, and `/index.htm` as equivalent, since most
+    static hosts serve any of them as the root document.
+    """
+    a = urlparse(absolute_url)
+    b = urlparse(base_url)
+    if a.netloc != b.netloc:
+        return False
+    a_path = a.path or "/"
+    b_path = b.path or "/"
+    if a_path in _INDEX_PATHS and b_path in _INDEX_PATHS:
+        return True
+    return a_path == b_path
+
 
 def rewrite_relative_urls(html: str, base_url: str) -> str:
     """Convert relative URLs in the parsed HTML to absolute URLs against base_url.
@@ -68,9 +88,12 @@ def rewrite_relative_urls(html: str, base_url: str) -> str:
     fragment-only (#section), already-absolute, protocol-relative (//),
     data:, mailto:, tel:, and javascript: URLs untouched.
 
-    Used by `fetch_url_html` so a fetched landing page's footer links and
-    image references continue to resolve once the page is rendered from a
-    different host (the CMS).
+    Special case for navigation: `<a>` links that point at the SAME page as
+    base_url (e.g. a brand-logo "back to home" link, `href="./"`, `href="/"`,
+    `href="./index.html"`) are set to `href="/"` instead of the absolute
+    source-origin URL — so when the CMS hosts the imported page at a new
+    host, the home link stays on the CMS-hosted site instead of bouncing
+    visitors back to the original origin.
     """
     if not html or not base_url:
         return html
@@ -83,7 +106,11 @@ def rewrite_relative_urls(html: str, base_url: str) -> str:
             stripped = val.strip()
             if not stripped or stripped.startswith(_ABSOLUTE_URL_PREFIXES):
                 continue
-            el[attr] = urljoin(base_url, stripped)
+            absolute = urljoin(base_url, stripped)
+            if tag == "a" and _is_same_page(absolute, base_url):
+                el[attr] = "/"
+                continue
+            el[attr] = absolute
     return str(soup)
 
 
