@@ -449,7 +449,10 @@ def tenant_create(request):
     form_data = {
         "name": "",
         "subdomain": "",
-        "template": "",
+        # Default to the inline new-template flow. Operators almost always
+        # build a fresh site per client (paste URL → Fetch → Annotate); the
+        # saved-template dropdown is collapsed behind a disclosure link.
+        "template": "__new__",
         "custom_domain": "",
         "client_username": "",
         "client_email": "",
