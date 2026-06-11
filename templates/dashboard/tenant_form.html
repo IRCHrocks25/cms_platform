@@ -48,10 +48,12 @@
           <span id="subdomain-status" class="field-status" aria-live="polite"></span>
         </div>
 
-        <div class="field">
+        {# ---- Saved-template picker (collapsed by default in inline-first flow) ---- #}
+        <div id="saved-template-block" class="field"
+             {% if form_data.template == "__new__" %}hidden{% endif %}>
           <label class="field-label" for="id_template">Template</label>
-          <select class="select" name="template" id="id_template" required>
-            <option value="" disabled {% if not form_data.template %}selected{% endif %}>Choose a template…</option>
+          <select class="select" name="template" id="id_template">
+            <option value="" disabled {% if not form_data.template or form_data.template == "__new__" %}selected{% endif %}>Choose a template…</option>
             {% for template in templates %}
               <option value="{{ template.pk }}"
                       {% if form_data.template|stringformat:'s' == template.pk|stringformat:'s' %}selected{% endif %}>
@@ -63,10 +65,11 @@
             </option>
           </select>
           <span class="field-hint">
-            {% if not templates %}
-              No templates yet — pick <em>+ Create new template inline</em> to author one without leaving this page.
-            {% else %}
+            {% if templates %}
               Or <a href="{% url 'dashboard:template_create' %}">manage templates →</a>
+              · <a href="#" id="back-to-new-template-link">← Create a new template instead</a>
+            {% else %}
+              No templates yet — <a href="#" id="back-to-new-template-link">create one inline</a>.
             {% endif %}
           </span>
         </div>
@@ -75,12 +78,17 @@
         <div id="new-template-block"
              {% if form_data.template != "__new__" %}hidden{% endif %}
              style="border: 1px dashed var(--color-border); border-radius: var(--radius-md); padding: 16px; background: var(--color-surface-2);">
-          <div style="margin-bottom: 12px;">
-            <h4 style="margin: 0 0 4px;">New template</h4>
-            <p style="color: var(--color-text-muted); font-size: 13px; margin: 0;">
-              Paste annotated HTML, or paste raw HTML and click <em>Annotate with AI</em>.
-              The template will be created and assigned to this site in one step.
-            </p>
+          <div class="row-between" style="margin-bottom: 12px; align-items: flex-start; gap: 16px;">
+            <div>
+              <h4 style="margin: 0 0 4px;">New template</h4>
+              <p style="color: var(--color-text-muted); font-size: 13px; margin: 0;">
+                Paste a URL and click <em>Fetch from URL</em>, then <em>Annotate with AI</em>.
+                The template will be created and assigned to this site in one step.
+              </p>
+            </div>
+            <a href="#" id="use-saved-template-link" class="field-link" style="font-size: 13px; white-space: nowrap;">
+              Use a saved template instead →
+            </a>
           </div>
 
           <div class="field">
@@ -108,6 +116,17 @@
                 <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
               </div>
             </div>
+            {# ---- Fetch HTML from a live URL — same endpoint as the standalone template form ---- #}
+            <div class="row" style="gap: 8px; margin-bottom: 8px; align-items: stretch;">
+              <input type="url" id="fetch-url-input" class="input" style="flex: 1;"
+                     placeholder="Or paste a URL — e.g. https://susan-rabbyv1.pages.dev/" />
+              <button type="button" id="fetch-url-btn" class="btn btn-ghost btn-sm"
+                      data-url="{% url 'dashboard:template_fetch_url' %}"
+                      title="Fetch the page's HTML and drop it into the textarea below">
+                Fetch from URL
+              </button>
+            </div>
+            <div id="fetch-url-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
             <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
             <textarea class="textarea" name="new_template_html" id="id_new_template_html" rows="16">{{ form_data.new_template_html }}</textarea>
             <span class="field-hint">
@@ -288,28 +307,135 @@
   </script>
 
   <script>
-    // ---- Inline template-create: toggle visibility on dropdown ------------ //
+    // ---- Inline template-create: toggle between inline & saved-template modes ---- //
+    // The inline-new-template block is the default surface. A disclosure
+    // link swaps to the saved-template dropdown (and back) without losing
+    // user input on either side. The dropdown's value is the source of
+    // truth for which mode is active.
     (function () {
       var select = document.getElementById("id_template");
-      var block = document.getElementById("new-template-block");
+      var newBlock = document.getElementById("new-template-block");
+      var savedBlock = document.getElementById("saved-template-block");
       var nameInput = document.getElementById("id_new_template_name");
       var htmlInput = document.getElementById("id_new_template_html");
-      if (!select || !block) return;
+      var useSavedLink = document.getElementById("use-saved-template-link");
+      var backToNewLink = document.getElementById("back-to-new-template-link");
+      if (!select || !newBlock || !savedBlock) return;
 
       function sync() {
         var isNew = select.value === "__new__";
         if (isNew) {
-          block.removeAttribute("hidden");
+          newBlock.removeAttribute("hidden");
+          savedBlock.setAttribute("hidden", "");
           if (nameInput) nameInput.setAttribute("required", "required");
           if (htmlInput) htmlInput.setAttribute("required", "required");
+          select.removeAttribute("required");
         } else {
-          block.setAttribute("hidden", "");
+          newBlock.setAttribute("hidden", "");
+          savedBlock.removeAttribute("hidden");
           if (nameInput) nameInput.removeAttribute("required");
           if (htmlInput) htmlInput.removeAttribute("required");
+          select.setAttribute("required", "required");
         }
       }
+
       select.addEventListener("change", sync);
+
+      if (useSavedLink) {
+        useSavedLink.addEventListener("click", function (e) {
+          e.preventDefault();
+          // Clear the dropdown so the user has to actively pick a template;
+          // the placeholder option then displays "Choose a template…".
+          select.value = "";
+          sync();
+          if (select) select.focus();
+        });
+      }
+      if (backToNewLink) {
+        backToNewLink.addEventListener("click", function (e) {
+          e.preventDefault();
+          select.value = "__new__";
+          sync();
+          if (nameInput) nameInput.focus();
+        });
+      }
+
       sync();
+    })();
+  </script>
+
+  <script>
+    // ---- Inline template-create: Fetch HTML from URL --------------------- //
+    // Mirrors the same control on templates/dashboard/template_form.html.
+    // Hits the existing dashboard:template_fetch_url endpoint — no backend
+    // change. Loads the fetched HTML into the inline textarea so the
+    // operator can then click "Annotate with AI" without leaving this page.
+    (function () {
+      var fetchBtn = document.getElementById("fetch-url-btn");
+      var fetchInput = document.getElementById("fetch-url-input");
+      var fetchStatus = document.getElementById("fetch-url-status");
+      var textarea = document.getElementById("id_new_template_html");
+      if (!fetchBtn || !fetchInput || !textarea) return;
+
+      function csrfToken() {
+        var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        if (m) return decodeURIComponent(m[1]);
+        var input = document.querySelector("input[name=csrfmiddlewaretoken]");
+        return input ? input.value : "";
+      }
+
+      function showStatus(msg, kind) {
+        fetchStatus.hidden = false;
+        fetchStatus.textContent = msg;
+        fetchStatus.style.background = kind === "error" ? "#fef2f2" : "#ecfeff";
+        fetchStatus.style.color      = kind === "error" ? "#991b1b" : "#0e7490";
+        fetchStatus.style.border     = "1px solid " + (kind === "error" ? "#fecaca" : "#a5f3fc");
+      }
+      function clearStatus() { fetchStatus.hidden = true; fetchStatus.textContent = ""; }
+
+      function doFetch() {
+        var url = (fetchInput.value || "").trim();
+        if (!url) { showStatus("Paste a URL first.", "error"); return; }
+
+        // The textarea is pre-seeded with STARTER_TEMPLATE_HTML on GET, so
+        // suppress the "replace?" prompt only when the textarea was actually
+        // touched by the user. A simple heuristic: if it differs from the
+        // starter (or has been modified after load), confirm before replacing.
+        var existing = (textarea.value || "").trim();
+        if (existing && textarea.dataset.userTouched === "1" &&
+            !confirm("Replace the current HTML with the fetched page?")) return;
+
+        var endpoint = fetchBtn.dataset.url;
+        fetchBtn.disabled = true;
+        showStatus("Fetching " + url + " …", "info");
+
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() },
+          credentials: "same-origin",
+          body: JSON.stringify({ url: url }),
+        })
+        .then(function (r) { return r.json().then(function (data) { return [r.ok, data]; }); })
+        .then(function (pair) {
+          var ok = pair[0], data = pair[1];
+          if (ok && data.html) {
+            textarea.value = data.html;
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            showStatus("Loaded " + (data.bytes || data.html.length).toLocaleString() + " bytes. Click 'Annotate with AI' to continue.", "info");
+          } else {
+            showStatus(data.error || "Could not fetch that URL.", "error");
+          }
+        })
+        .catch(function () { showStatus("Network error while fetching.", "error"); })
+        .then(function () { fetchBtn.disabled = false; });
+      }
+
+      fetchBtn.addEventListener("click", doFetch);
+      fetchInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); doFetch(); }
+      });
+      fetchInput.addEventListener("input", clearStatus);
+      textarea.addEventListener("input", function () { textarea.dataset.userTouched = "1"; });
     })();
   </script>
 
