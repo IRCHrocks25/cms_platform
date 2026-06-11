@@ -93,12 +93,32 @@ Rules:
    When choosing the label, prefer a human-recognizable description derived
    from the alt text or the nearest heading ("Chef portrait", "Restaurant
    exterior", "Founder headshot") — avoid generic "Image 1", "Photo".
-5. Repeating items (e.g. three feature cards): give each distinct field ids
+5. Body text — be EXHAUSTIVE. When in doubt, INCLUDE.
+   Mark every visible piece of copy a non-technical client might want to edit:
+     - every heading at any level (h1, h2, h3, h4, h5, h6)
+     - every paragraph, even short ones (a 3-word tagline is still text)
+     - every <li> whose text the client could change (FAQ items, feature
+       bullets, footer link labels, nav link text)
+     - <blockquote>, <figcaption>, <dt>, <dd>, <caption>, <legend>, <summary>
+     - testimonial quote body AND the author name (two separate fields)
+     - card title AND card description (two separate fields, not just title)
+     - eyebrow / kicker text above headings
+     - stat numbers ("1,000+") and their labels ("happy customers")
+     - section sub-headings, section labels, badge text
+     - any visible <span> / <strong> / <em> that holds standalone copy
+   Pick the TIGHTEST element wrapping the editable copy. A <p> wrapping a
+   sentence -> richtext on the <p>. An <h2> -> text on the <h2>.
+   Don't lump multiple paragraphs into one richtext on a <div> wrapper —
+   mark each <p> separately so the client edits them as distinct fields.
+   "Short" or "small" or "repeated-looking" copy is NOT a reason to skip.
+6. Repeating items (e.g. three feature cards): give each distinct field ids
    (feature_1_title, feature_2_title, ...). Do not collapse them.
-6. Every section MUST contain at least one field, or it will be dropped.
-7. Skip decorative/structural-only elements (spacers, wrappers with no visible text,
-   icon-only SVGs). Brand-color CSS variables are handled automatically — ignore them.
-8. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
+7. Every section MUST contain at least one field, or it will be dropped.
+8. Skip decorative/structural-only elements (spacers, layout wrappers whose
+   own direct text is empty, icon-only SVGs). A wrapper whose CHILDREN hold
+   visible text is NOT decorative — annotate the children. Brand-color CSS
+   variables are handled automatically — ignore them.
+9. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
 
 
 _EXAMPLE = (
@@ -126,6 +146,7 @@ _STYLE_OR_SCRIPT_RE = re.compile(
 )
 _ROOT_TOKEN_RE = re.compile(r":root\s*\{[^}]*--[a-zA-Z0-9_-]+\s*:", re.DOTALL)
 _STYLE_OPEN_RE = re.compile(r"^<style\b", re.IGNORECASE)
+_INTER_TAG_WS_RE = re.compile(r">\s+<")
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
 
@@ -251,16 +272,25 @@ def annotate_html(raw_html: str) -> str:
         ref_map[ref] = tag
     marked_html = str(soup)
 
+    # Collapse inter-tag whitespace ONLY for the model's view of the HTML.
+    # Indented templates produce runs of newlines/spaces between elements
+    # that dilute the model's signal on which refs hold real content. The
+    # original soup is untouched, so the saved/output HTML still has the
+    # original whitespace. `>\s+<` matches only between tags — text content
+    # (including text inside <pre>) is not affected.
+    marked_for_model = _INTER_TAG_WS_RE.sub("><", marked_html)
+
     logger.info(
-        "Annotator: %d block(s) stripped; %d elements marked; input %d -> %d chars.",
-        len(blocks), len(ref_map), len(raw_html), len(marked_html),
+        "Annotator: %d block(s) stripped; %d elements marked; input %d -> %d chars "
+        "(model sees %d chars).",
+        len(blocks), len(ref_map), len(raw_html), len(marked_html), len(marked_for_model),
     )
 
     client = OpenAI(api_key=api_key, timeout=getattr(settings, "OPENAI_TIMEOUT", 120))
     user_message = (
         f"{_EXAMPLE}\n\n"
         "=== HTML TO ANNOTATE (marked) ===\n"
-        f"{marked_html}\n\n"
+        f"{marked_for_model}\n\n"
         "Return ONLY the JSON object for the HTML above."
     )
 
