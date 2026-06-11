@@ -147,6 +147,21 @@ _STYLE_OR_SCRIPT_RE = re.compile(
 _ROOT_TOKEN_RE = re.compile(r":root\s*\{[^}]*--[a-zA-Z0-9_-]+\s*:", re.DOTALL)
 _STYLE_OPEN_RE = re.compile(r"^<style\b", re.IGNORECASE)
 _INTER_TAG_WS_RE = re.compile(r">\s+<")
+
+# Tags that hold body text the client would want to edit.
+_BACKFILL_RICHTEXT_TAGS = {"p", "blockquote", "figcaption", "summary", "dd"}
+_BACKFILL_TEXT_TAGS = {
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "li", "dt", "caption", "legend",
+}
+_BACKFILL_ALL_TAGS = _BACKFILL_RICHTEXT_TAGS | _BACKFILL_TEXT_TAGS
+
+# Chrome ancestors: text inside these belongs to the link / button / form
+# rules the model handles, not the body-text safety net.
+_BACKFILL_SKIP_ANCESTORS = {
+    "nav", "a", "button", "form", "select", "label",
+    "script", "style", "noscript",
+}
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
 
@@ -237,6 +252,66 @@ def _apply_annotations(ref_map: dict, data: dict) -> int:
             tag["data-label"] = str(field["label"])[:120]
         applied += 1
     return applied
+
+
+def _backfill_missed_text_fields(soup) -> int:
+    """Walk each data-section and promote text-bearing tags the model
+    skipped (the model is conservative on real pages; this is the safety
+    net that keeps every paragraph / heading / list item editable).
+    Returns the number of fields added so callers can log coverage."""
+    added = 0
+    for sec in soup.find_all(attrs={"data-section": True}):
+        sec_id = (sec.get("data-section") or "").strip()
+        if not sec_id or sec_id == "brand":
+            continue
+
+        # Track existing field IDs so synthetic IDs don't collide with
+        # whatever the model already chose (e.g. model used "p_1", we
+        # must skip to "p_2" rather than overwrite).
+        existing_field_ids: set[str] = set()
+        for el in sec.find_all(attrs={"data-edit": True}):
+            edit = el.get("data-edit", "")
+            if "." in edit:
+                existing_field_ids.add(edit.split(".", 1)[1])
+
+        tag_counters: dict[str, int] = {}
+
+        for el in sec.find_all(_BACKFILL_ALL_TAGS):
+            if el.get("data-edit"):
+                continue
+
+            # Skip if any ancestor between us and the section is "chrome".
+            skip = False
+            ancestor = el.parent
+            while ancestor is not None and ancestor is not sec:
+                if getattr(ancestor, "name", None) in _BACKFILL_SKIP_ANCESTORS:
+                    skip = True
+                    break
+                ancestor = ancestor.parent
+            if skip:
+                continue
+
+            text = el.get_text(strip=True)
+            if not text:
+                continue
+
+            tag_counters[el.name] = tag_counters.get(el.name, 0) + 1
+            n = tag_counters[el.name]
+            field_id = f"{el.name}_{n}"
+            while field_id in existing_field_ids:
+                n += 1
+                field_id = f"{el.name}_{n}"
+            existing_field_ids.add(field_id)
+
+            ftype = "richtext" if el.name in _BACKFILL_RICHTEXT_TAGS else "text"
+            el["data-edit"] = f"{sec_id}.{field_id}"
+            el["data-type"] = ftype
+            label = text[:40].strip()
+            if len(text) > 40:
+                label += "…"
+            el["data-label"] = label
+            added += 1
+    return added
 
 
 def annotate_html(raw_html: str) -> str:
@@ -340,6 +415,12 @@ def annotate_html(raw_html: str) -> str:
     for tag in soup.find_all(attrs={"data-cms-ref": True}):
         del tag["data-cms-ref"]
 
+    # Deterministic safety net: catch text-bearing tags inside any section
+    # the model skipped. The prompt alone is not enough — the LLM is
+    # conservative on real pages, especially for short paragraphs, the 2nd
+    # item in a repeating card group, or text nested deep in wrappers.
+    backfilled = _backfill_missed_text_fields(soup)
+
     annotated = _restore_blocks(str(soup), blocks)
 
     schema = build_schema(annotated)
@@ -358,8 +439,10 @@ def annotate_html(raw_html: str) -> str:
             "check the server log."
         )
 
-    logger.info("Annotator: produced %d section(s) from %d applied field(s).",
-                len(sections), applied)
+    logger.info(
+        "Annotator: produced %d section(s) from %d model field(s) + %d backfilled.",
+        len(sections), applied, backfilled,
+    )
     return annotated
 
 
