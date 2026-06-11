@@ -53,7 +53,17 @@ class Template(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)[:140]
+            # Auto-unique the slug: inline-created templates frequently share
+            # names ("Acme", "Sarah's Salon") across clients, so a single
+            # slugify() collides. Append -2, -3, ... until free.
+            base = slugify(self.name)[:140] or "template"
+            slug = base
+            i = 2
+            while Template.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                suffix = f"-{i}"
+                slug = base[: 140 - len(suffix)] + suffix
+                i += 1
+            self.slug = slug
         self.schema = build_schema(self.html_source)
         super().save(*args, **kwargs)
 

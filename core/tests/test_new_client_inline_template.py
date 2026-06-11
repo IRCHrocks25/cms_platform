@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template
+from core.models import Template, Tenant
 
 
 User = get_user_model()
@@ -83,3 +83,88 @@ class NewClientFormInlineTemplateTests(TestCase):
         html = self._get().content.decode()
         self.assertIn('id="id_template"', html)
         self.assertIn(f'value="{self.saved_template.pk}"', html)
+
+    def test_template_name_input_is_marked_optional(self):
+        """Inline template-create is plug-and-forget — the operator doesn't
+        have to name a template they won't reuse. The visible affordance
+        next to 'Template name' must communicate that."""
+        html = self._get().content.decode()
+        # Locate the Template-name label and look in the surrounding ~400
+        # chars (covers the label + input + helper) for an optionality cue.
+        idx = html.find('for="id_new_template_name"')
+        self.assertNotEqual(idx, -1, "Template name label not found")
+        window = html[idx : idx + 400].lower()
+        self.assertTrue(
+            "optional" in window or "leave blank" in window or "we'll name it" in window,
+            "Template name must be visibly marked optional in the inline flow. "
+            f"Looked in: {window!r}",
+        )
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class InlineTemplateCreatePlugAndForgetTests(TestCase):
+    """The inline path on tenant_create should:
+       1. Accept an empty 'new_template_name' and auto-derive it from the
+          site name (plug-and-forget — no manual template naming required).
+       2. Survive a name collision: two clients can have inline templates
+          named the same; the slug must auto-unique itself."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("agency", password="x", is_staff=True)
+
+    def _client(self):
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(self.staff)
+        return c
+
+    def _post(self, *, name, subdomain, client_username, template_name=""):
+        return self._client().post(
+            reverse("dashboard:tenant_create"),
+            {
+                "name": name,
+                "subdomain": subdomain,
+                "template": "__new__",
+                "custom_domain": "",
+                "client_username": client_username,
+                "client_email": "",
+                "new_template_name": template_name,
+                "new_template_description": "",
+                "new_template_html": (
+                    "<section data-section='hero' data-label='Hero'>"
+                    "<h1 data-edit='hero.title' data-type='text'>Hi</h1>"
+                    "</section>"
+                ),
+            },
+        )
+
+    def test_empty_template_name_falls_back_to_site_name(self):
+        response = self._post(
+            name="Bella's Restaurant",
+            subdomain="bellas",
+            client_username="bella_owner",
+        )
+        # Expect a redirect (success), not a 400 with errors.
+        self.assertIn(response.status_code, (301, 302), msg=response.content[:200])
+        tenant = Tenant.objects.get(subdomain="bellas")
+        self.assertIsNotNone(tenant.template_id)
+        self.assertEqual(tenant.template.name, "Bella's Restaurant")
+
+    def test_two_inline_templates_with_same_name_dont_collide_on_slug(self):
+        """Without a uniqueness loop in Template.save(), the second insert
+        would IntegrityError on the slug field."""
+        r1 = self._post(
+            name="Acme",
+            subdomain="acme",
+            client_username="acme_owner",
+        )
+        self.assertIn(r1.status_code, (301, 302))
+        r2 = self._post(
+            name="Acme",
+            subdomain="acme2",
+            client_username="acme2_owner",
+        )
+        self.assertIn(r2.status_code, (301, 302), msg=r2.content[:300])
+        slugs = list(Template.objects.filter(name="Acme").values_list("slug", flat=True))
+        self.assertEqual(len(slugs), 2)
+        self.assertEqual(len(set(slugs)), 2, f"slugs collided: {slugs}")

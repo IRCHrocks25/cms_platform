@@ -517,8 +517,11 @@ def tenant_create(request):
     if not template_id:
         errors.append("Pick a template.")
     elif inline_new_template:
+        # Inline path is plug-and-forget — template name is optional and
+        # falls back to the site name. The slug is auto-uniqued in
+        # Template.save() so reusing the site name across clients is safe.
         if not new_template_name:
-            errors.append("New template name is required.")
+            new_template_name = name or "Site template"
         if not new_template_html.strip():
             errors.append("New template HTML is required.")
     else:

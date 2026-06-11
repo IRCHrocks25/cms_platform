@@ -92,10 +92,11 @@
           </div>
 
           <div class="field">
-            <label class="field-label" for="id_new_template_name">Template name</label>
+            <label class="field-label" for="id_new_template_name">Template name <span class="field-optional">(optional)</span></label>
             <input class="input" type="text" name="new_template_name" id="id_new_template_name"
-                   placeholder="Restaurant landing, Salon homepage, etc."
+                   placeholder="Leave blank — we'll name it after the site."
                    value="{{ form_data.new_template_name }}">
+            <span class="field-hint">Only used if you plan to re-use this layout later. Otherwise, leave blank.</span>
           </div>
 
           <div class="field">
@@ -328,7 +329,9 @@
         if (isNew) {
           newBlock.removeAttribute("hidden");
           savedBlock.setAttribute("hidden", "");
-          if (nameInput) nameInput.setAttribute("required", "required");
+          // Template name is OPTIONAL in the inline flow — the server
+          // falls back to the site name. Only the HTML is mandatory.
+          if (nameInput) nameInput.removeAttribute("required");
           if (htmlInput) htmlInput.setAttribute("required", "required");
           select.removeAttribute("required");
         } else {
