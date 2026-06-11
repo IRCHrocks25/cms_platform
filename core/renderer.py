@@ -89,7 +89,20 @@ PREVIEW_BRIDGE_SCRIPT = """
         var value = entry[1];
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
-          if (t === 'image') { el.setAttribute('src', value); }
+          if (t === 'image') {
+            el.setAttribute('src', value);
+            // Mirror _apply_image: clear responsive/lazy attrs so the new src wins.
+            if (el.hasAttribute('srcset')) el.removeAttribute('srcset');
+            if (el.hasAttribute('data-src')) el.setAttribute('data-src', value);
+            if (el.hasAttribute('data-srcset')) el.removeAttribute('data-srcset');
+            var pic = el.parentElement;
+            if (pic && pic.tagName && pic.tagName.toLowerCase() === 'picture') {
+              pic.querySelectorAll('source').forEach(function (s) {
+                if (s.hasAttribute('srcset')) s.removeAttribute('srcset');
+                if (s.hasAttribute('data-srcset')) s.removeAttribute('data-srcset');
+              });
+            }
+          }
           else if (t === 'video') {
             if (el.tagName.toLowerCase() === 'video') {
               var vsrc = el.querySelector('source');
@@ -196,9 +209,34 @@ def _flatten_for_phrasing_host(fragment) -> None:
             block.unwrap()
 
 
+def _apply_image(el, value: str) -> None:
+    """Replace a content image. Naive `src=` fails on real-world markup —
+    responsive `srcset` candidates win, lazy-load libraries copy `data-src`
+    over `src` after mount, and `<picture><source srcset>` siblings outrank
+    the fallback `<img>`. Reconcile all of those to the new value so the
+    swap is visible regardless of the surrounding markup."""
+    el["src"] = value
+    if "srcset" in el.attrs:
+        del el["srcset"]
+    if "data-src" in el.attrs:
+        el["data-src"] = value
+    if "data-srcset" in el.attrs:
+        del el["data-srcset"]
+    # lxml treats <source> as a non-void wrapper, so the <img>'s *direct*
+    # parent is often the innermost <source>, not <picture>. Walk ancestors
+    # to be robust regardless of parser quirks.
+    picture = el.find_parent("picture")
+    if picture is not None:
+        for source in picture.find_all("source"):
+            if "srcset" in source.attrs:
+                del source["srcset"]
+            if "data-srcset" in source.attrs:
+                del source["data-srcset"]
+
+
 def _apply_field(el, value: str, ftype: str) -> None:
     if ftype == "image":
-        el["src"] = value
+        _apply_image(el, value)
         return
     if ftype == "video":
         # Prefer updating an inner <source> if present, else set src on the element.
