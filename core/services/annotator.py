@@ -303,7 +303,16 @@ def _backfill_missed_text_fields(soup) -> int:
                 field_id = f"{el.name}_{n}"
             existing_field_ids.add(field_id)
 
-            ftype = "richtext" if el.name in _BACKFILL_RICHTEXT_TAGS else "text"
+            # Pick richtext when the tag contains inline children (a <span
+            # class='accent'>, an <em>, an inline <a>) — text-type rendering
+            # does `el.string = value` and would flatten the children on
+            # render, breaking the visual design. Plain text-only tags
+            # default to text so the editor shows a single-line input.
+            has_child_tags = el.find(True) is not None
+            if has_child_tags or el.name in _BACKFILL_RICHTEXT_TAGS:
+                ftype = "richtext"
+            else:
+                ftype = "text"
             el["data-edit"] = f"{sec_id}.{field_id}"
             el["data-type"] = ftype
             label = text[:40].strip()

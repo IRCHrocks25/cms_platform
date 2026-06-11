@@ -150,3 +150,40 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         _backfill_missed_text_fields(s)
         label = s.find("h2").get("data-label", "")
         self.assertIn("Welcome", label)
+
+    def test_heading_with_inline_children_gets_richtext_type(self):
+        """If we mark an <h2> with inner <span> / <strong> / <em> as plain
+        text, the renderer's text path does `el.string = value` and FLATTENS
+        the inline children — the highlight span vanishes and the visual
+        design breaks. Pick richtext when the element has any child tags so
+        the inline structure survives on render."""
+        s = _soup(
+            "<section data-section='hero'>"
+            "<h2>Hello <span class='highlight'>world</span></h2>"
+            "<h3>Plain heading</h3>"
+            "</section>"
+        )
+        _backfill_missed_text_fields(s)
+        self.assertEqual(
+            s.find("h2").get("data-type"), "richtext",
+            "Headings with inline child tags must be richtext or design breaks on render",
+        )
+        self.assertEqual(
+            s.find("h3").get("data-type"), "text",
+            "Headings with only plain text stay text-typed",
+        )
+
+    def test_list_item_with_inline_children_gets_richtext_type(self):
+        s = _soup(
+            "<section data-section='nav'>"
+            "<ul>"
+            "<li><strong>Bold</strong> bullet</li>"
+            "<li>Plain bullet</li>"
+            "</ul>"
+            "</section>"
+        )
+        # Skip-ancestor check: <li> inside <ul> only, no <nav>/<a>/<button>.
+        _backfill_missed_text_fields(s)
+        lis = s.find_all("li")
+        self.assertEqual(lis[0].get("data-type"), "richtext")
+        self.assertEqual(lis[1].get("data-type"), "text")
