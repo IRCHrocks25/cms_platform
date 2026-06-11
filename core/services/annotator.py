@@ -68,37 +68,16 @@ Rules:
 3. Field types:
    - text     -> short single-line copy (headings, button labels, names)
    - richtext -> multi-line body copy / paragraphs
-   - image    -> CONTENT photographs on <img> elements (binds to src). See rule 4.
+   - image    -> <img> elements (binds to src)
    - link     -> <a> elements whose href is the editable thing (nav links, PDF links).
                  Use `text` for CTA button labels where the visible text is edited.
    - color    -> elements whose inline background-color/color is meaningful to edit
-4. Images — be generous on CONTENT, strict on CHROME.
-   INCLUDE every <img> whose role on the page is a real photograph or
-   illustration the client would want to swap:
-     - hero / banner photo
-     - product shot, dish photo, room photo
-     - team headshot, founder portrait, customer testimonial portrait
-     - gallery / portfolio / case-study image
-     - blog post feature image, "about us" photo
-   When an <img> sits inside a <picture>, annotate the inner <img> (not the
-   <source>) — the renderer keeps responsive candidates aligned to the new src.
-   SKIP these (do NOT annotate):
-     - brand logo in the nav bar or footer (chrome, set once, not per-client)
-     - inline SVG icons, social-media icons, payment-method icons, app-store
-       badges (decorative chrome)
-     - bullet / checkmark / arrow icons inside lists or buttons
-     - any <img> with alt="" or role="presentation" (declared decorative)
-     - very small icons under ~32px implied by surrounding markup (e.g. inside
-       a button next to a label) — these are UI affordances, not content
-   When choosing the label, prefer a human-recognizable description derived
-   from the alt text or the nearest heading ("Chef portrait", "Restaurant
-   exterior", "Founder headshot") — avoid generic "Image 1", "Photo".
-5. Repeating items (e.g. three feature cards): give each distinct field ids
+4. Repeating items (e.g. three feature cards): give each distinct field ids
    (feature_1_title, feature_2_title, ...). Do not collapse them.
-6. Every section MUST contain at least one field, or it will be dropped.
-7. Skip decorative/structural-only elements (spacers, wrappers with no visible text,
+5. Every section MUST contain at least one field, or it will be dropped.
+6. Skip decorative/structural-only elements (spacers, wrappers with no visible text,
    icon-only SVGs). Brand-color CSS variables are handled automatically — ignore them.
-8. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
+7. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
 
 
 _EXAMPLE = (
