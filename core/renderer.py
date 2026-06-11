@@ -235,18 +235,32 @@ def _apply_image(el, value: str) -> None:
 
 
 def _apply_field(el, value: str, ftype: str) -> None:
+    # No-op short-circuit. Skip the write when the value already equals what's
+    # in the element — typically every render where the tenant hasn't actually
+    # edited that field (merge_with_defaults pre-fills every field with its
+    # default, extracted from this same element). Without this short-circuit,
+    # the richtext path roundtrips through sanitize_html (which is designed
+    # for untrusted blog input — strips classes, unwraps span/div/h1/h5/h6,
+    # collapses whitespace) on every render, breaking the agency's design
+    # even when nobody edited anything.
     if ftype == "image":
+        if el.get("src", "") == value:
+            return
         _apply_image(el, value)
         return
     if ftype == "video":
-        # Prefer updating an inner <source> if present, else set src on the element.
         source = el.find("source") if el.name == "video" else None
+        current_src = source.get("src", "") if source is not None else el.get("src", "")
+        if current_src == value:
+            return
         if source is not None:
             source["src"] = value
         else:
             el["src"] = value
         return
     if ftype == "link":
+        if el.get("href", "") == value:
+            return
         el["href"] = value
         return
     if ftype == "color":
@@ -256,9 +270,14 @@ def _apply_field(el, value: str, ftype: str) -> None:
         el["style"] = (cleaned + f" {prop}: {value};").strip()
         return
     if ftype == "richtext":
+        # Compare current inner HTML to the value before deciding to rewrite.
+        # decode_contents() returns the inner HTML byte-for-byte from the
+        # parsed soup, so a no-edit value (which was extracted via the same
+        # decode_contents().strip() in the parser) will match exactly.
+        current = (el.decode_contents() or "").strip()
+        if current == (value or "").strip():
+            return
         el.clear()
-        # Client-authored HTML — strip scripts / event handlers / unsafe URLs
-        # before it ever lands in the rendered (and same-origin preview) DOM.
         value = sanitize_html(value)
         fragment = BeautifulSoup(value, "lxml").body
         if fragment:
@@ -268,6 +287,9 @@ def _apply_field(el, value: str, ftype: str) -> None:
                 el.append(child)
         else:
             el.append(value)
+        return
+    # text type
+    if el.get_text() == value:
         return
     el.string = value
 
