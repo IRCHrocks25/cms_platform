@@ -255,6 +255,57 @@ via the `CustomDomain` table. No per-client Dokploy step.
 
 ---
 
+## Zero-downtime deploys (the `/healthz` health check)
+
+**Symptom this prevents:** a redeploy recreates the single `web` container.
+While `entrypoint.sh` runs `migrate` and Gunicorn boots, the old container is
+already gone and the new one isn't serving yet — so in-flight requests are
+dropped and the browser shows `ERR_CONNECTION_CLOSED` for a few seconds. (Not a
+Django error: there's no 500 page, because nothing is listening.)
+
+**The probe:** `GET /healthz` (defined in `cms_platform/urls.py`) — host-agnostic,
+unauthenticated, ordered first so nothing shadows it, and **no trailing slash** so
+the probe gets a direct `200` instead of an `APPEND_SLASH` 301. It calls
+`connection.ensure_connection()` and returns:
+- `200 {"status":"ok"}` once the DB is reachable (i.e. migrations have run), or
+- `503 {"status":"error","db":"unreachable"}` if the DB isn't up yet.
+
+It deliberately returns **503, not 500** — "not ready yet", so an orchestrator
+treats startup as transient rather than as an app crash.
+
+**Wired in two places:**
+- `docker-compose.yml` → `web.healthcheck` (`curl -fsS http://localhost:8000/healthz`,
+  30s interval, **40s `start_period`** so migrate+boot doesn't count as failures).
+  `curl` is already in the image.
+- `Dockerfile` → `HEALTHCHECK` with the same probe, so the image self-reports
+  health even outside compose.
+
+**IMPORTANT — the health check alone does NOT make deploys zero-downtime.** It only
+lets Docker label the container `healthy`/`unhealthy`. The orchestrator still has to
+*wait for healthy before swapping*. What you must do on the Dokploy side:
+
+- **COMPOSE stack (current layout):** plain `docker compose up -d` recreates the
+  container with a gap regardless of health. Enable Dokploy's **Zero-Downtime /
+  rolling** option for the stack if your Dokploy version exposes it. If it doesn't,
+  the reliable path is to run `web` as a Dokploy **Application** (Swarm) — see the
+  Recovery section below — which does `start-first` rolling updates gated on the
+  health check natively. (Swarm equivalent: `deploy.update_config.order: start-first`
+  + `failure_action: rollback`. Note these `deploy.*` keys are **ignored** by plain
+  `docker compose up`, which is why a COMPOSE stack needs the Dokploy toggle, not a
+  compose edit.)
+- Either way, Traefik routes to the container only once Docker marks it `healthy`,
+  closing the `ERR_CONNECTION_CLOSED` window.
+
+**Verify after a deploy:**
+```bash
+curl -i https://sites.katek.app/healthz                                   # → 200 {"status":"ok"}
+docker inspect --format '{{.State.Health.Status}}' <web-container>        # → healthy
+```
+If `/healthz` returns 503, the container is up but the DB isn't reachable — check
+`DATABASE_URL` and that `migrate` succeeded in the entrypoint logs.
+
+---
+
 ## Recovery: if we ever switch from COMPOSE to a Dokploy Application
 
 A Dokploy **Application** (as opposed to a raw Compose service) generates its own
