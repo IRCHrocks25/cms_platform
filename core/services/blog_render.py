@@ -372,9 +372,19 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     # Any content section the sweep didn't reach (nested outside the span,
     # or no top-level host at all) still gets removed individually.
     for section in content_sections:
-        if not section.decomposed:
-            _rescue_assets(section)
-            section.decompose()
+        if section.decomposed:
+            continue
+        # Don't destroy chrome nested INSIDE a content section. A plain
+        # <nav>/<footer> (no data-section) can live within a content block;
+        # decomposing the block would take the chrome with it, detaching it
+        # so the insert_before/after below raises "Element has no parent".
+        # The sweep above already skips such hosts; mirror that here.
+        if nav is not None and any(d is nav for d in section.descendants):
+            continue
+        if footer is not None and any(d is footer for d in section.descendants):
+            continue
+        _rescue_assets(section)
+        section.decompose()
 
     frag = BeautifulSoup(inner_html, "lxml")
     # lxml hoists a leading <style> (and any <link>/<meta>) into the fragment's
@@ -384,10 +394,13 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
         for node in list(frag.head.children):
             head.append(node)
     body_nodes = list(frag.body.children) if frag.body else list(frag.children)
-    if footer is not None:
+    # Guard on .parent: insert_before/after on a detached node raises. The
+    # chrome-protection above normally keeps these attached, but a nav/footer
+    # that ended up parentless for any reason falls through to a plain append.
+    if footer is not None and footer.parent is not None:
         for node in body_nodes:
             footer.insert_before(node)
-    elif nav is not None:
+    elif nav is not None and nav.parent is not None:
         ref = nav
         for node in body_nodes:
             ref.insert_after(node)
@@ -557,7 +570,7 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/") 
         return html
 
     footer = soup.find(attrs={"data-section": "footer"}) or soup.find("footer")
-    if footer is not None:
+    if footer is not None and footer.parent is not None:
         for node in nodes:
             footer.insert_before(node)
     else:
