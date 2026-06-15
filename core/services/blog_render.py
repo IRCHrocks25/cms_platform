@@ -328,6 +328,15 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     for section in soup.find_all(attrs={"data-section": True}):
         if section is nav or section is footer:
             continue
+        # RESCUE chrome (nav/footer) nested *inside* a content section before
+        # we decompose it. A plain <footer>/<nav> (no data-section) can live
+        # within a content block; decomposing its ancestor would destroy it,
+        # detaching it from the tree so the insert_before/after below raises
+        # "Element has no parent". Re-home it on <body> so it survives.
+        for chrome in (nav, footer):
+            if chrome is not None and chrome is not section and chrome in section.descendants:
+                chrome.extract()
+                body.append(chrome)
         for asset in section.find_all(["script", "style", "link"]):
             asset.extract()
             if asset.name == "script":
@@ -344,10 +353,13 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
         for node in list(frag.head.children):
             head.append(node)
     body_nodes = list(frag.body.children) if frag.body else list(frag.children)
-    if footer is not None:
+    # Guard on .parent: insert_before/after on a detached node raises. The
+    # rescue above normally keeps these attached, but a chrome element that
+    # ended up parentless for any reason falls through to a plain append.
+    if footer is not None and footer.parent is not None:
         for node in body_nodes:
             footer.insert_before(node)
-    elif nav is not None:
+    elif nav is not None and nav.parent is not None:
         ref = nav
         for node in body_nodes:
             ref.insert_after(node)

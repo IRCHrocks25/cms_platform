@@ -238,6 +238,28 @@ class BlogPublicTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Live Post")
 
+    def test_detail_renders_when_footer_nested_in_content_section(self):
+        # Regression: a plain <footer> (no data-section) nested INSIDE a content
+        # section used to be destroyed when that section was decomposed, leaving
+        # it detached so footer.insert_before() raised "Element has no parent"
+        # (production 500 on /blog/.../ and the editor preview). Now the chrome
+        # is rescued before decomposition.
+        nested_footer_html = (
+            "<!doctype html><html><head><title>Home</title></head><body>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1>"
+            "<section data-section='contact'><p>Reach us</p>"
+            "<footer><p>nested foot</p></footer></section>"
+            "</body></html>"
+        )
+        tpl = Template.objects.create(name="Nested footer", html_source=nested_footer_html)
+        tenant = Tenant.objects.create(
+            name="Nest", subdomain="nest", template=tpl, owner=self.staff, is_published=True,
+        )
+        post = _post(tenant, "Nested Footer Post", body="<p>body</p>")
+        r = Client(HTTP_HOST="nest.localhost").get(f"/blog/{post.slug}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "nested foot")  # footer survived, not dropped
+
 
 # --------------------------------------------------------------------------- #
 # Homepage strip                                                                #
