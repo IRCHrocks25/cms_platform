@@ -46,6 +46,17 @@ services:
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
     volumes:
       - media:/app/media
+    healthcheck:
+      # Probe the DB-backed /healthz endpoint. curl is installed in the image.
+      # start_period covers migrations + gunicorn boot so failures during
+      # startup don't count against the container. An orchestrator that waits
+      # for "healthy" before swapping (Dokploy zero-downtime / Swarm rolling)
+      # uses this to avoid the ERR_CONNECTION_CLOSED window on redeploy.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     networks:
       - dokploy-network
     labels:

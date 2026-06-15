@@ -35,6 +35,11 @@ RUN sed -i 's/\r$//' /app/entrypoint.sh \
 
 EXPOSE 8000
 
+# Container health: probe the DB-backed /healthz endpoint. start-period covers
+# migrations + gunicorn boot. Orchestrators that gate routing on health use this.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -fsS http://localhost:8000/healthz || exit 1
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 # --timeout 180: the AI annotation endpoint calls OpenAI synchronously and can
 # run well past 60s on large pages. At 60s Gunicorn killed the worker mid-request

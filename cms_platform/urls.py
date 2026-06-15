@@ -1,9 +1,23 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
+from django.db import connection
 from django.http import JsonResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+
+
+def healthz(request):
+    """Container health check. Verifies the DB is reachable so an orchestrator
+    only routes traffic to a container that can actually serve requests (e.g.
+    after migrations have run). Host-agnostic and unauthenticated — no tenant
+    resolution gates it. Returns 503 (not 500) when unhealthy so it reads as a
+    transient "not ready" rather than an application error."""
+    try:
+        connection.ensure_connection()
+    except Exception:
+        return JsonResponse({"status": "error", "db": "unreachable"}, status=503)
+    return JsonResponse({"status": "ok"})
 
 from core import views as core_views
 from core import ghl_views
@@ -27,6 +41,10 @@ def debug_headers(request):
 
 
 urlpatterns = [
+    # Health check — no trailing slash so the orchestrator's probe gets a
+    # direct 200 instead of an APPEND_SLASH 301. Kept first so nothing shadows it.
+    path("healthz", healthz, name="healthz"),
+
     path("admin/", admin.site.urls),
 
     path("login/", TenantAwareLoginView.as_view(), name="login"),
