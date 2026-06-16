@@ -297,7 +297,17 @@ LOGGING = {
 
 CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = os.environ.get("CLOUDFLARE_ZONE_ID", "")
-CLOUDFLARE_DCV_DELEGATION_TARGET = "711b5e8ed3b3aa16.dcv.cloudflare.com"
+# Zone-level DCV Delegation tag: clients CNAME `_acme-challenge.<host>` to
+# `<host>.<this>` so Cloudflare for SaaS can auto-renew the per-domain cert.
+CLOUDFLARE_DCV_DELEGATION_TARGET = os.environ.get(
+    "CLOUDFLARE_DCV_DELEGATION_TARGET", "711b5e8ed3b3aa16.dcv.cloudflare.com"
+)
+# Single source of truth for the "route traffic" CNAME we tell clients to add.
+# Cloudflare-for-SaaS fallback origin (replaces the deprecated Railway-era
+# `proxy.sites.katek.app` Worker path). Override per-environment via env.
+CUSTOM_DOMAIN_CNAME_TARGET = os.environ.get(
+    "CUSTOM_DOMAIN_CNAME_TARGET", "origin.sites.katek.app"
+)
 
 # Directory where the custom-domain Traefik dynamic file is written. Only the
 # isolated `route-syncer` compose service sets this (and mounts the dir); the web

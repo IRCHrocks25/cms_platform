@@ -2212,7 +2212,11 @@ def _ssl_status_message(hostname_status: str, ssl_status: str) -> str:
 
 
 def _dns_name_for_domain(domain: str) -> str:
-    """`@` for a root domain (2 labels), else the leftmost label."""
+    """`@` for a root domain (2 labels), else the leftmost label.
+
+    TODO: handle multi-label public suffixes (e.g. `example.co.uk` should be
+    `@`, not `example`). Needs a public-suffix list; deferred for now.
+    """
     cleaned = (domain or "").strip().rstrip(".")
     if not cleaned:
         return "@"
@@ -2243,6 +2247,7 @@ def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
             "acme_challenge_name": acme_challenge_name,
             "dcv_target": dcv_target,
             "dcv_target_suffix": dcv_suffix,
+            "cname_target": settings.CUSTOM_DOMAIN_CNAME_TARGET,
             "error": error,
             "info": info,
         },

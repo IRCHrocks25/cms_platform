@@ -42,8 +42,8 @@
           <td><code>@</code> or subdomain (e.g. <code>www</code>)</td>
           <td>
             <span class="row" style="gap: 8px; align-items: center; margin: 0;">
-              <code>proxy.sites.katek.app</code>
-              {% include "dashboard/partials/_copy_button.html" with value="proxy.sites.katek.app" %}
+              <code>{{ cname_target }}</code>
+              {% include "dashboard/partials/_copy_button.html" with value=cname_target %}
             </span>
           </td>
         </tr>
@@ -117,8 +117,8 @@
           <td><code>{{ dns_name }}</code></td>
           <td>
             <span class="row" style="gap: 8px; align-items: center; margin: 0;">
-              <code>proxy.sites.katek.app</code>
-              {% include "dashboard/partials/_copy_button.html" with value="proxy.sites.katek.app" %}
+              <code>{{ cname_target }}</code>
+              {% include "dashboard/partials/_copy_button.html" with value=cname_target %}
             </span>
           </td>
         </tr>
