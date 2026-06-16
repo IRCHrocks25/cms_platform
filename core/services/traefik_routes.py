@@ -8,24 +8,25 @@ verified ``CustomDomain``, so we only ever claim domains we own.
 
 The file is regenerated wholesale from the DB (no incremental append/remove
 drift) and written atomically (temp file + ``os.replace``). Traefik's file
-provider (``directory: /etc/dokploy/traefik/dynamic``, ``watch: true``,
-recursive) hot-reloads it. Writing is gated on ``settings.TRAEFIK_DYNAMIC_DIR``;
-when unset (dev/test, and the web container — which deliberately has no Traefik
-mount) every call is a no-op. Only the isolated ``route-syncer`` service sets the
-dir and actually writes (see deploy/DOKPLOY.md).
+provider (``directory: /etc/dokploy/traefik/dynamic``, ``watch: true``)
+hot-reloads it. Writing is gated on ``settings.TRAEFIK_DYNAMIC_DIR``; when unset
+(dev/test, and the web container — which deliberately has no Traefik mount) every
+call is a no-op. Only the isolated ``route-syncer`` service sets the dir and
+actually writes (see deploy/DOKPLOY.md).
 
-Routers use ``HostRegexp(`^<domain>$`)``, NOT ``Host(`<domain>`)``: the websecure
-entrypoint defaults ``certResolver=letsencrypt``, and a ``Host()`` router would
-inherit it and try to ACME-issue for the client domain. ``HostRegexp`` exposes no
-extractable domain, so Traefik serves the default-store cert (the Cloudflare
-Origin CA) — correct under Cloudflare SSL=Full, where CF terminates the client's
-public TLS at the edge. Same reasoning as the apex router in docker-compose.yml.
-``service: cms-web@docker`` is the Compose-label service (docker provider).
+Routers use ``Host(`<domain>`)`` with ``tls.certResolver=letsencrypt``: the
+domain IS extractable from the rule, so Traefik opens an ACME (HTTP-01) order on
+the ``web`` entrypoint and issues a real, public Let's Encrypt cert for the
+client domain — auto-renewed. This is the direct-to-origin model: the client
+points an A record straight at this origin (no Cloudflare for SaaS), so public
+TLS terminates here at Traefik. (The agency's own apex/tenant routers in
+docker-compose.yml stay on HostRegexp + the CF Origin cert, since
+``sites.katek.app`` is still fronted by Cloudflare.) ``service: cms-web@docker``
+is the Compose-label service (docker provider).
 """
 import json
 import logging
 import os
-import re
 import tempfile
 
 from django.conf import settings
@@ -76,11 +77,14 @@ def _build_config(domains):
                 cd.pk,
             )
             continue
+        # Host(`<domain>`) + certResolver=letsencrypt: Traefik extracts the
+        # domain from the rule and ACME-issues a real public LE cert (HTTP-01 on
+        # the `web` entrypoint). Direct-to-origin — no Cloudflare for the client.
         routers[f"cms-cd-{cd.pk}"] = {
-            "rule": f"HostRegexp(`^{re.escape(cd.domain)}$`)",
+            "rule": f"Host(`{cd.domain}`)",
             "entryPoints": ["websecure"],
             "service": "cms-web@docker",
-            "tls": {},
+            "tls": {"certResolver": "letsencrypt"},
         }
     return {"http": {"routers": routers}}  # routers: {} when empty — valid config
 

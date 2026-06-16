@@ -98,9 +98,10 @@ class TenantResolverProductionDomainTests(TestCase):
         self.assertIsNone(request.tenant)
 
 
-@override_settings(TENANT_BASE_DOMAIN="katek.app", ALLOWED_HOSTS=["proxy.sites.katek.app", "testserver"])
-class TenantResolverCustomDomainForwardedHostTests(TestCase):
-    """Host rewritten at edge; original domain in ``X-Forwarded-Host``."""
+@override_settings(TENANT_BASE_DOMAIN="katek.app", ALLOWED_HOSTS=["*"])
+class TenantResolverCustomDomainTests(TestCase):
+    """Direct-to-origin model: a verified custom domain arrives as the Host
+    header itself (no edge Host-rewrite) and resolves to its tenant."""
 
     def setUp(self):
         User = get_user_model()
@@ -111,7 +112,7 @@ class TenantResolverCustomDomainForwardedHostTests(TestCase):
             template=_make_template(),
             owner=owner,
         )
-        CustomDomain.objects.create(
+        self.custom = CustomDomain.objects.create(
             tenant=self.tenant,
             domain="www.clientbrand.com",
             is_verified=True,
@@ -119,12 +120,15 @@ class TenantResolverCustomDomainForwardedHostTests(TestCase):
         self.middleware = TenantResolverMiddleware(lambda r: r)
         self.factory = RequestFactory()
 
-    def test_custom_domain_uses_x_forwarded_host_when_host_is_proxy(self):
-        request = self.factory.get(
-            "/",
-            HTTP_HOST="proxy.sites.katek.app",
-            HTTP_X_FORWARDED_HOST="www.clientbrand.com",
-        )
+    def test_verified_custom_domain_resolves(self):
+        request = self.factory.get("/", HTTP_HOST="www.clientbrand.com")
         self.middleware(request)
         self.assertEqual(request.tenant, self.tenant)
+
+    def test_unverified_custom_domain_does_not_resolve(self):
+        self.custom.is_verified = False
+        self.custom.save(update_fields=["is_verified"])
+        request = self.factory.get("/", HTTP_HOST="www.clientbrand.com")
+        self.middleware(request)
+        self.assertIsNone(request.tenant)
 

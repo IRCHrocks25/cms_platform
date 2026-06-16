@@ -161,34 +161,14 @@ class TenantResolverMiddleware:
 
     def _resolve_tenant(self, request):
         http_host = request.META.get("HTTP_HOST")
-        http_x_original_host = request.META.get("HTTP_X_ORIGINAL_HOST")
         host = request.get_host().split(":")[0].lower().rstrip(".")
         lookup_host = _x_forwarded_host_first(request, host)
         logger.debug(
-            "TenantResolverMiddleware: HTTP_HOST=%r HTTP_X_ORIGINAL_HOST=%r host=%r lookup_host=%r",
+            "TenantResolverMiddleware: HTTP_HOST=%r host=%r lookup_host=%r",
             http_host,
-            http_x_original_host,
             host,
             lookup_host,
         )
-
-        # Check for Cloudflare Worker forwarded host
-        x_original_host = (
-            request.META.get("HTTP_X_ORIGINAL_HOST", "")
-            .split(",")[0]
-            .strip()
-            .lower()
-            .rstrip(".")
-        )
-        logger.debug(f"X-Original-Host: {x_original_host}, host: {host}")
-        if x_original_host:
-            custom = (
-                CustomDomain.objects.select_related("tenant__template")
-                .filter(domain=x_original_host, is_verified=True)
-                .first()
-            )
-            if custom:
-                return custom.tenant
 
         if not host or host in self.APP_HOSTS:
             return None

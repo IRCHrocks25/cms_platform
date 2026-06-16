@@ -8,7 +8,7 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">Custom Domains</h1>
-        <p class="page-subtitle">Every custom domain across all client sites. Use the overrides when Cloudflare and the local row drift apart.</p>
+        <p class="page-subtitle">Every custom domain across all client sites. Use the overrides to fix a row that's stuck pending or needs removing.</p>
       </div>
     </div>
 
@@ -44,7 +44,6 @@
               <th>Domain</th>
               <th>Site</th>
               <th>Status</th>
-              <th>Cloudflare ID</th>
               <th>Added</th>
               <th class="right">Actions</th>
             </tr>
@@ -66,20 +65,13 @@
                     <span class="badge badge-soft">Pending</span>
                   {% endif %}
                 </td>
-                <td class="cell-muted">
-                  {% if d.cloudflare_hostname_id %}
-                    <code>{{ d.cloudflare_hostname_id|truncatechars:18 }}</code>
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
                 <td class="cell-muted">{{ d.created_at|naturaltime }}</td>
                 <td class="right">
                   <div class="row-actions">
                     {% if not d.is_verified %}
                       <form method="post"
                             action="{% url 'dashboard:custom_domain_force_verify' d.pk %}"
-                            onsubmit="return confirm('Force-mark {{ d.domain }} as verified without checking Cloudflare?');"
+                            onsubmit="return confirm('Force-mark {{ d.domain }} as verified without checking DNS?');"
                             class="inline-form">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-secondary btn-sm">Force verify</button>
@@ -87,7 +79,7 @@
                     {% endif %}
                     <form method="post"
                           action="{% url 'dashboard:custom_domain_force_delete_local' d.pk %}"
-                          onsubmit="return confirm('Delete the local row for {{ d.domain }}? Cloudflare will NOT be touched.');"
+                          onsubmit="return confirm('Delete the row for {{ d.domain }}? It drops from Traefik on the next route sync.');"
                           class="inline-form">
                       {% csrf_token %}
                       <button type="submit" class="btn btn-ghost btn-sm">Force delete</button>

@@ -19,7 +19,6 @@ from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST, require_GET
 
-import httpx
 
 from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
@@ -30,7 +29,6 @@ from core.models import (
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
-from core.services import cloudflare as cloudflare_service
 from core.services import blog_render
 from core.services import cloudinary_media
 from core.services.annotator import annotate_html, AnnotatorError
@@ -2187,35 +2185,16 @@ def tenant_site_settings_self(request):
 
 
 # --------------------------------------------------------------------------- #
-# Custom domain (Cloudflare for SaaS) — agency surface                         #
+# Custom domain (direct-to-origin + Let's Encrypt) — agency surface            #
 # --------------------------------------------------------------------------- #
 
 
-SSL_STATUS_MESSAGES = {
-    "pending_validation": "Waiting on the _acme-challenge CNAME — make sure both CNAMEs are at your registrar, then check again.",
-    "pending_issuance": "Validation passed. Cloudflare is issuing the SSL certificate — try again in a moment.",
-    "pending_deployment": "Certificate issued — Cloudflare is deploying it to the edge. Try again in a moment.",
-    "initializing": "Just created. Try again in a moment.",
-}
-
-
-def _ssl_status_message(hostname_status: str, ssl_status: str) -> str:
-    if ssl_status in SSL_STATUS_MESSAGES:
-        return SSL_STATUS_MESSAGES[ssl_status]
-    parts = []
-    if hostname_status:
-        parts.append(f"hostname: {hostname_status}")
-    if ssl_status:
-        parts.append(f"ssl: {ssl_status}")
-    detail = ", ".join(parts) or "unknown"
-    return f"Not active yet — Cloudflare reports {detail}. DNS can take a few minutes."
-
-
 def _dns_name_for_domain(domain: str) -> str:
-    """`@` for a root domain (2 labels), else the leftmost label.
+    """The record NAME to enter at the registrar: ``@`` for a root domain
+    (2 labels), else the leftmost label (``www``, ``training``, …).
 
-    TODO: handle multi-label public suffixes (e.g. `example.co.uk` should be
-    `@`, not `example`). Needs a public-suffix list; deferred for now.
+    TODO: handle multi-label public suffixes (e.g. ``example.co.uk`` should be
+    ``@``, not ``example``). Needs a public-suffix list; deferred for now.
     """
     cleaned = (domain or "").strip().rstrip(".")
     if not cleaned:
@@ -2226,17 +2205,21 @@ def _dns_name_for_domain(domain: str) -> str:
     return labels[0]
 
 
+def _resolve_a_records(domain: str) -> list:
+    """Best-effort A-record lookup for ``domain``. Returns the resolved IPv4
+    addresses (empty list on any failure — NXDOMAIN, timeout, no A record)."""
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(domain, None, family=socket.AF_INET)
+    except OSError:
+        return []
+    return sorted({info[4][0] for info in infos})
+
+
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
     custom_domain = tenant.custom_domains.order_by("-created_at").first()
     dns_name = _dns_name_for_domain(custom_domain.domain) if custom_domain else None
-    if dns_name == "@":
-        acme_challenge_name = "_acme-challenge"
-    elif dns_name:
-        acme_challenge_name = f"_acme-challenge.{dns_name}"
-    else:
-        acme_challenge_name = None
-    dcv_suffix = settings.CLOUDFLARE_DCV_DELEGATION_TARGET
-    dcv_target = f"{custom_domain.domain}.{dcv_suffix}" if custom_domain else None
     return render(
         request,
         "dashboard/partials/custom_domain.html",
@@ -2244,10 +2227,7 @@ def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
             "tenant": tenant,
             "custom_domain": custom_domain,
             "dns_name": dns_name,
-            "acme_challenge_name": acme_challenge_name,
-            "dcv_target": dcv_target,
-            "dcv_target_suffix": dcv_suffix,
-            "cname_target": settings.CUSTOM_DOMAIN_CNAME_TARGET,
+            "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
             "error": error,
             "info": info,
         },
@@ -2281,26 +2261,11 @@ def tenant_custom_domain_add(request, pk):
             request, tenant, error=f"“{domain}” is already in use."
         )
 
-    try:
-        cf_response = cloudflare_service.add_custom_hostname(domain)
-    except httpx.HTTPError as exc:
-        return _render_custom_domain_partial(
-            request, tenant,
-            error=f"Cloudflare rejected that domain ({exc.__class__.__name__}). Try again or contact support.",
-        )
-    except Exception:
-        return _render_custom_domain_partial(
-            request, tenant,
-            error="Couldn't reach Cloudflare. Try again in a moment.",
-        )
-
-    result = cf_response.get("result") or {}
-    CustomDomain.objects.create(
-        tenant=tenant,
-        domain=domain,
-        cloudflare_hostname_id=result.get("id") or "",
-        is_verified=False,
-    )
+    # No external registration step: the client just points an A record at our
+    # origin. The row starts unverified; "Check verification" confirms the DNS
+    # resolves to us before the route-syncer emits the Traefik router (which is
+    # what triggers Let's Encrypt issuance).
+    CustomDomain.objects.create(tenant=tenant, domain=domain, is_verified=False)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -2313,43 +2278,31 @@ def tenant_custom_domain_verify(request, pk):
         return _render_custom_domain_partial(
             request, tenant, error="No domain to verify."
         )
-    if not custom_domain.cloudflare_hostname_id:
+
+    target_ip = settings.CUSTOM_DOMAIN_TARGET_IP
+    resolved = _resolve_a_records(custom_domain.domain)
+
+    if target_ip in resolved:
+        if not custom_domain.is_verified:
+            custom_domain.is_verified = True
+            custom_domain.save(update_fields=["is_verified", "updated_at"])
         return _render_custom_domain_partial(
             request, tenant,
-            error="This domain has no Cloudflare hostname id — recreate it.",
+            info="DNS verified. Your SSL certificate is issued automatically "
+                 "within about a minute on first visit — then your domain is live.",
         )
 
-    try:
-        data = cloudflare_service.get_hostname_status(
-            custom_domain.cloudflare_hostname_id
-        )
-    except httpx.HTTPError as exc:
-        return _render_custom_domain_partial(
-            request, tenant,
-            error=f"Couldn't check status with Cloudflare ({exc.__class__.__name__}).",
-        )
-    except Exception:
-        return _render_custom_domain_partial(
-            request, tenant,
-            error="Couldn't reach Cloudflare. Try again in a moment.",
-        )
-
-    result = data.get("result") or {}
-    ssl_data = result.get("ssl") or {}
-    hostname_status = result.get("status") or ""
-    ssl_status = ssl_data.get("status") or ""
-
-    is_fully_active = hostname_status == "active" and ssl_status == "active"
-    if is_fully_active and not custom_domain.is_verified:
-        custom_domain.is_verified = True
-        custom_domain.save(update_fields=["is_verified", "updated_at"])
-
-    if is_fully_active:
-        return _render_custom_domain_partial(request, tenant)
-
+    if resolved:
+        detail = f"it currently points at {', '.join(resolved)}"
+    else:
+        detail = "it isn't resolving yet (DNS can take a few minutes to propagate)"
     return _render_custom_domain_partial(
         request, tenant,
-        info=_ssl_status_message(hostname_status, ssl_status),
+        info=(
+            f"Not verified yet — {custom_domain.domain} should point at "
+            f"{target_ip}, but {detail}. Add the A record at your registrar, "
+            "then check again."
+        ),
     )
 
 
@@ -2361,22 +2314,8 @@ def tenant_custom_domain_delete(request, pk):
     if custom_domain is None:
         return _render_custom_domain_partial(request, tenant)
 
-    if custom_domain.cloudflare_hostname_id:
-        try:
-            cloudflare_service.delete_custom_hostname(
-                custom_domain.cloudflare_hostname_id
-            )
-        except httpx.HTTPError as exc:
-            return _render_custom_domain_partial(
-                request, tenant,
-                error=f"Couldn't remove from Cloudflare ({exc.__class__.__name__}). Domain not deleted.",
-            )
-        except Exception:
-            return _render_custom_domain_partial(
-                request, tenant,
-                error="Couldn't reach Cloudflare. Domain not deleted.",
-            )
-
+    # Deleting the row drops the host from the next route-syncer pass (≤20s), so
+    # Traefik stops routing it. No external (Cloudflare/Railway) cleanup needed.
     custom_domain.delete()
     return _render_custom_domain_partial(request, tenant)
 
@@ -2439,7 +2378,7 @@ def custom_domain_force_delete_local(request, pk):
     domain.delete()
     messages.success(
         request,
-        f"“{label}” deleted locally. Cloudflare was not touched — clean up the CF hostname manually if needed.",
+        f"“{label}” deleted. It drops from Traefik on the next route sync (≤20s).",
     )
     return redirect("dashboard:custom_domain_list")
 
