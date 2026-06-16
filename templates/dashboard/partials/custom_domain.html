@@ -26,24 +26,23 @@
 {% endif %}
 
 {% if not custom_domain %}
-  {# State A — no domain configured #}
+  {# State A — no domain configured: how to point a domain at the site + add it #}
+  <p class="field-hint" style="margin: 0;">
+    Point a domain the client owns (e.g. <code>acme.com</code> or
+    <code>www.acme.com</code>) at this site. Three quick steps:
+  </p>
+
   <div class="card-tight"
        style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 8px; font-weight: 500;">
-      Point your domain at us with one DNS record at your registrar:
-    </p>
+    <p style="margin: 0 0 8px; font-weight: 600;">Step 1 — Add one DNS record at the domain's registrar</p>
     <table class="data-table data-table-flush" style="margin: 0;">
       <thead>
-        <tr>
-          <th>Type</th>
-          <th>Name</th>
-          <th>Value</th>
-        </tr>
+        <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
       </thead>
       <tbody>
         <tr>
           <td><code>A</code></td>
-          <td><code>@</code> for a root domain, or the subdomain (e.g. <code>www</code>)</td>
+          <td><code>@</code> for the root domain, or the subdomain (e.g. <code>www</code>)</td>
           <td>
             <span class="row" style="gap: 8px; align-items: center; margin: 0;">
               <code>{{ target_ip }}</code>
@@ -54,48 +53,44 @@
       </tbody>
     </table>
     <p class="field-hint" style="margin: 12px 0 0;">
-      Using a root domain (<code>acme.com</code>)? Add the <code>A</code> record on
-      <code>@</code>, and point <code>www</code> to it with a <code>CNAME</code> →
+      <strong>Root domain</strong> (<code>acme.com</code>)? Put the <code>A</code> record on
+      <code>@</code>, then point <code>www</code> at it with a <code>CNAME</code> →
       <code>acme.com</code> (or a second <code>A</code> → <code>{{ target_ip }}</code>).
-    </p>
-    <p class="field-hint" style="margin: 8px 0 0;">
-      No second record and no Cloudflare needed — HTTPS is provisioned
-      automatically by Let's Encrypt and renews forever.
-    </p>
-    <p class="field-hint" style="margin: 8px 0 0;">
-      Once the record is added, enter your domain below and click Add Domain.
+      That's the only record needed — no Cloudflare, and HTTPS is issued for you.
     </p>
   </div>
 
-  <form data-fetch-form
-        data-target="#custom-domain-section"
-        method="post"
-        action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
-        class="row" style="gap: 8px; flex-wrap: wrap;">
-    {% csrf_token %}
-    <input class="input" type="text" name="domain" required
-           placeholder="training.acme.com"
-           pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
-           style="flex: 1; min-width: 240px;">
-    <button type="submit" class="btn btn-primary">Add Domain</button>
-  </form>
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <p style="margin: 0 0 10px; font-weight: 600;">Step 2 — Enter the domain and add it</p>
+    <form data-fetch-form
+          data-target="#custom-domain-section"
+          method="post"
+          action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
+          class="row" style="gap: 8px; flex-wrap: wrap; margin: 0;">
+      {% csrf_token %}
+      <input class="input" type="text" name="domain" required
+             placeholder="acme.com   or   www.acme.com"
+             pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+             style="flex: 1; min-width: 240px;">
+      <button type="submit" class="btn btn-primary">Add Domain</button>
+    </form>
+    <p class="field-hint" style="margin: 10px 0 0;">
+      <strong>Step 3</strong> — once it's added, click <strong>Check verification</strong>.
+      We confirm the domain points here, then switch on HTTPS automatically (about a minute).
+    </p>
+  </div>
 
 {% elif not custom_domain.is_verified %}
   {# State B — added, awaiting DNS verification #}
-  <p style="margin: 0;">
-    <strong>{{ custom_domain.domain }}</strong>
-  </p>
+  <p style="margin: 0;"><strong>{{ custom_domain.domain }}</strong> — added, not verified yet.</p>
 
   <div class="card-tight"
        style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 8px; font-weight: 500;">Add this DNS record, then click Check verification</p>
+    <p style="margin: 0 0 8px; font-weight: 600;">1. Confirm this DNS record exists at the registrar</p>
     <table class="data-table data-table-flush" style="margin: 0;">
       <thead>
-        <tr>
-          <th>Type</th>
-          <th>Name</th>
-          <th>Value</th>
-        </tr>
+        <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -108,11 +103,19 @@
             </span>
           </td>
         </tr>
+        {% if dns_name == "@" %}
+        <tr>
+          <td><code>CNAME</code></td>
+          <td><code>www</code> <span class="cell-muted">(optional)</span></td>
+          <td><code style="word-break: break-all;">{{ custom_domain.domain }}</code></td>
+        </tr>
+        {% endif %}
       </tbody>
     </table>
     <p class="field-hint" style="margin: 12px 0 0;">
-      Once the domain resolves to <code>{{ target_ip }}</code>, your SSL
-      certificate is issued automatically within about a minute — no extra steps.
+      DNS can take a few minutes to propagate. Once <code>{{ custom_domain.domain }}</code>
+      resolves to <code>{{ target_ip }}</code>, the SSL certificate is issued
+      automatically — nothing else to do.
     </p>
   </div>
 
@@ -123,7 +126,7 @@
           action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk %}"
           class="inline-form">
       {% csrf_token %}
-      <button type="submit" class="btn btn-primary">Check Verification</button>
+      <button type="submit" class="btn btn-primary">2. Check verification</button>
     </form>
     <form data-fetch-form
           data-target="#custom-domain-section"
@@ -138,11 +141,14 @@
 
 {% else %}
   {# State C — verified and live #}
-  <p style="margin: 0;">
-    <strong>{{ custom_domain.domain }}</strong>
+  <p style="margin: 0;"><strong>{{ custom_domain.domain }}</strong></p>
+  <p class="cell-muted" style="margin: 0;">
+    Live over HTTPS — visitors to <code>{{ custom_domain.domain }}</code> see this site
+    with a valid SSL certificate.
   </p>
-  <p class="cell-muted" style="margin: 0;">Your custom domain is live over HTTPS.</p>
   <div class="row" style="gap: 8px;">
+    <a href="https://{{ custom_domain.domain }}/" target="_blank" rel="noopener"
+       class="btn btn-secondary">Visit site ↗</a>
     <form data-fetch-form
           data-target="#custom-domain-section"
           data-confirm="Remove {{ custom_domain.domain }}?"
