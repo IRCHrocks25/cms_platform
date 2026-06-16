@@ -295,19 +295,12 @@ LOGGING = {
 }
 
 
-CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
-CLOUDFLARE_ZONE_ID = os.environ.get("CLOUDFLARE_ZONE_ID", "")
-# Zone-level DCV Delegation tag: clients CNAME `_acme-challenge.<host>` to
-# `<host>.<this>` so Cloudflare for SaaS can auto-renew the per-domain cert.
-CLOUDFLARE_DCV_DELEGATION_TARGET = os.environ.get(
-    "CLOUDFLARE_DCV_DELEGATION_TARGET", "711b5e8ed3b3aa16.dcv.cloudflare.com"
-)
-# Single source of truth for the "route traffic" CNAME we tell clients to add.
-# Cloudflare-for-SaaS fallback origin (replaces the deprecated Railway-era
-# `proxy.sites.katek.app` Worker path). Override per-environment via env.
-CUSTOM_DOMAIN_CNAME_TARGET = os.environ.get(
-    "CUSTOM_DOMAIN_CNAME_TARGET", "origin.sites.katek.app"
-)
+# --- Custom client domains: direct-to-origin + Let's Encrypt ----------------
+# Clients point an A record at this origin IP; Traefik then issues a real
+# Let's Encrypt cert per domain via HTTP-01 (see core/services/traefik_routes.py
+# + deploy/DOKPLOY.md). No Cloudflare for SaaS, no per-domain DCV/TXT step.
+# The dashboard's verify step checks the domain's A record resolves here.
+CUSTOM_DOMAIN_TARGET_IP = os.environ.get("CUSTOM_DOMAIN_TARGET_IP", "5.78.149.237")
 
 # Directory where the custom-domain Traefik dynamic file is written. Only the
 # isolated `route-syncer` compose service sets this (and mounts the dir); the web
@@ -321,11 +314,6 @@ OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
 # the Gunicorn worker --timeout (180s) so a slow/hung API surfaces as a clean
 # AnnotatorError (JSON 502) instead of a killed worker (HTML 502 from the proxy).
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
-
-RAILWAY_TOKEN = os.environ.get("RAILWAY_TOKEN", "")
-RAILWAY_SERVICE_ID = os.environ.get("RAILWAY_SERVICE_ID", "")
-RAILWAY_ENVIRONMENT_ID = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
-RAILWAY_PROJECT_ID = os.environ.get("RAILWAY_PROJECT_ID", "")
 
 # --------------------------------------------------------------------------- #
 # GHL (GoHighLevel) marketplace app integration.                              #

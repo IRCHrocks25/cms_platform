@@ -25,12 +25,10 @@ services:
       # When the embed flow redirects to a tenant subdomain, the session
       # cookie needs to span the parent domain. Set to ".sites.katek.app".
       COOKIE_PARENT_DOMAIN: ${COOKIE_PARENT_DOMAIN:-}
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
-      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
-      RAILWAY_TOKEN: ${RAILWAY_TOKEN:-}
-      RAILWAY_SERVICE_ID: ${RAILWAY_SERVICE_ID:-}
-      RAILWAY_ENVIRONMENT_ID: ${RAILWAY_ENVIRONMENT_ID:-}
-      RAILWAY_PROJECT_ID: ${RAILWAY_PROJECT_ID:-}
+      # Custom client domains: origin IP clients point an A record at; the
+      # dashboard's verify step checks the domain resolves here. Traefik then
+      # auto-issues a Let's Encrypt cert per domain. See deploy/DOKPLOY.md.
+      CUSTOM_DOMAIN_TARGET_IP: ${CUSTOM_DOMAIN_TARGET_IP:-5.78.149.237}
       # AI annotation. Without these forwarded, the container never sees the key
       # Dokploy holds and annotate_html() raises "OPENAI_API_KEY is not set".
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -133,7 +131,7 @@ services:
     # the DB and writes one file. The image runs as root (no USER in Dockerfile),
     # so it can write the root-owned dynamic dir above.
     entrypoint: ["sh", "-c"]
-    command: ["while true; do python manage.py sync_traefik_routes; sleep 60; done"]
+    command: ["while true; do python manage.py sync_traefik_routes; sleep 20; done"]
     labels:
       - traefik.enable=false
 

@@ -14,8 +14,10 @@ Companion files:
 - Dokploy **COMPOSE** service, stack id `cmsdashboard-sites-2ka9w7`.
 - One container, service named `web` in Compose, `expose: 8000`, attached to the
   external `dokploy-network`.
-- Public TLS terminates at the **Cloudflare edge**. Cloudflare → origin is the
-  only hop our Origin Certificate has to satisfy.
+- The agency's own hosts (`sites.katek.app` + tenant subdomains) terminate public
+  TLS at the **Cloudflare edge** (Cloudflare → origin, SSL=Full). **Client custom
+  domains do NOT use Cloudflare** — the client points an A record straight at this
+  origin and **Traefik issues a real Let's Encrypt cert** per domain (see below).
 - Tenant routing is by **Host header** — `core/middleware.py::TenantResolverMiddleware`
   resolves `request.tenant` from the leftmost label vs `TENANT_BASE_DOMAIN`
   (`sites.katek.app`).
@@ -110,19 +112,24 @@ pointing all routers at `service=cms-web`, the wiring is stable and
 version-controlled. There is exactly one place the backend port lives.
 
 **Priorities:** higher wins. Apex (exact host, 100) beats the tenant wildcard
-(10) beats the custom-domain catch-all (1). The catch-all only fires for hosts
-that are neither the apex nor a `*.sites.katek.app` subdomain — i.e. verified
-client custom domains arriving via Cloudflare for SaaS.
+(10). There is no custom-domain catch-all label — each verified client custom
+domain gets its own `Host()` router in the route-syncer's dynamic file (see
+"Custom client domains" below), independent of these two compose-label routers.
 
 ---
 
-## Origin certificate (no ACME at the origin)
+## Origin certificate (agency hosts) + Let's Encrypt (client domains)
 
-We do **not** run ACME / a `certresolver` at the origin. Cloudflare terminates
-public TLS at the edge; the origin only needs a cert the edge trusts on the
-Full-mode hop. We install the **Cloudflare Origin Certificate** (covers
-`sites.katek.app` + `*.sites.katek.app`) as both a named cert and the Traefik
-**default store** cert via `traefik/origin-cert.yml`.
+For the **agency hosts** (`sites.katek.app` + tenant subdomains) we do **not** run
+ACME at the origin: Cloudflare terminates public TLS at the edge; the origin only
+needs a cert the edge trusts on the Full-mode hop. We install the **Cloudflare
+Origin Certificate** (covers `sites.katek.app` + `*.sites.katek.app`) as both a
+named cert and the Traefik **default store** cert via `traefik/origin-cert.yml`.
+
+**Client custom domains are different:** they bypass Cloudflare and use the
+`letsencrypt` resolver directly — their `Host()` routers carry
+`certResolver=letsencrypt`, so Traefik ACME-issues a real public cert per domain.
+The default-store Origin cert stays the fallback for the HostRegexp agency routers.
 
 Install steps and the in-container mount verification are documented at the top of
 `traefik/origin-cert.yml`. The routers set `tls=true` with **no certresolver**, so
@@ -177,10 +184,17 @@ double-register router names and error.
 ## Custom client domains (no catch-all on a shared host)
 
 This Dokploy host is **shared** with other stacks (e.g. `businesscenter-ibc`,
-`haptic-hard-drive`, `demo-acme`). So we deliberately do **not** run a
+`telos-staging`, `haptic-hard-drive`). So we deliberately do **not** run a
 `HostRegexp(`.+`)` catch-all — it would make this app the default backend for
 every otherwise-unmatched host on the box. Instead, each verified custom client
-domain gets its **own** router in a Traefik dynamic file.
+domain gets its **own** `Host()` router in a Traefik dynamic file.
+
+**TLS model — direct-to-origin Let's Encrypt.** Unlike the agency hosts (fronted
+by Cloudflare), client domains bypass Cloudflare entirely: the client points an
+**A record** straight at the origin IP (`CUSTOM_DOMAIN_TARGET_IP`). Their routers
+carry `certResolver=letsencrypt`, so Traefik runs the ACME **HTTP-01** challenge
+on the `web` entrypoint and issues a **real, public Let's Encrypt cert** per
+domain, auto-renewed. No CNAME, no `_acme-challenge`, no Cloudflare for SaaS.
 
 **Source of truth:** the `CustomDomain` table (`is_verified=True`). The file is
 regenerated wholesale from the DB — never edited by hand, never patched
@@ -201,22 +215,23 @@ incrementally.
 - The **web** container has **no** Traefik mount, so an internet-facing app
   compromise has no path to Traefik config. The syncer serves no traffic
   (`traefik.enable=false`, no ports) and only reads the DB + writes one file.
-- It loops every 60s; `core/services/traefik_routes.py` skips the write when the
+- It loops every 20s; `core/services/traefik_routes.py` skips the write when the
   verified set is unchanged, so an idle loop causes no Traefik reloads.
 
 **Emitted routers** (`core/services/traefik_routes.py`):
 ```json
 "cms-cd-<pk>": {
-  "rule": "HostRegexp(`^<escaped-domain>$`)",
+  "rule": "Host(`<domain>`)",
   "entryPoints": ["websecure"],
   "service": "cms-web@docker",
-  "tls": {}
+  "tls": {"certResolver": "letsencrypt"}
 }
 ```
-`HostRegexp` (not `Host()`) for the same reason as the apex: it exposes no
-extractable domain, so the default `letsencrypt` resolver can't ACME-issue for
-the client domain — Traefik serves the default-store CF Origin CA cert, correct
-under Cloudflare SSL=Full. Keyed by `<pk>` because slugified domains can collide.
+`Host()` (not `HostRegexp()`) on purpose: the domain IS extractable from the
+rule, so the `letsencrypt` resolver opens an ACME order and issues a real public
+cert for the client domain. (This is the opposite choice from the agency apex
+router, which uses `HostRegexp` precisely to AVOID ACME and serve the CF Origin
+cert.) Keyed by `<pk>` because slugified domains can collide.
 
 **File extension matters:** the file is named `custom-domains.yml`, not `.json`.
 Traefik's file provider picks its parser from the extension and silently ignores
@@ -238,7 +253,7 @@ migrations, and running them in both containers would race (concurrent DDL) on
 first deploy. The sync command is loop-resilient: a pre-migration DB error just
 logs and retries on the next tick.
 
-**Operator: immediate sync after onboarding** (skip the ≤60s loop wait):
+**Operator: immediate sync after onboarding** (skip the ≤20s loop wait):
 ```bash
 docker exec <route-syncer container> python manage.py sync_traefik_routes
 ```
@@ -246,12 +261,13 @@ The same command does the **first populate** on initial deploy and recovers from
 any drift. The `web` container's copy of the command is a no-op (no
 `TRAEFIK_DYNAMIC_DIR`, no mount) — run it in the syncer.
 
-**End-to-end custom-domain flow:** operator adds the domain → `cloudflare.py`
-registers the CF for SaaS custom hostname (TXT/DCV) → client publishes the CNAME
-+ `_acme-challenge` records → operator clicks verify → CF reports active →
-`is_verified` flips → within ≤60s the syncer emits the router → traffic for that
-host reaches `cms-web`, and `TenantResolverMiddleware` maps the host to the tenant
-via the `CustomDomain` table. No per-client Dokploy step.
+**End-to-end custom-domain flow:** operator adds the domain → client points an A
+record at the origin (`CUSTOM_DOMAIN_TARGET_IP`, e.g. `5.78.149.237`) → operator
+clicks verify → the dashboard resolves the domain's A record and, if it points at
+us, flips `is_verified` → within ≤20s the syncer emits the `Host()` router →
+Traefik ACME-issues the Let's Encrypt cert on the first HTTPS hit (~seconds) →
+traffic reaches `cms-web`, and `TenantResolverMiddleware` maps the host to the
+tenant via the `CustomDomain` table. No Cloudflare, no per-client Dokploy step.
 
 ---
 

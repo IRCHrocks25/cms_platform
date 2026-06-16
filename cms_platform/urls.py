@@ -28,18 +28,6 @@ from core.auth_views import (
 )
 
 
-# TEMPORARY: debug view for inspecting headers received from the Cloudflare Worker.
-# Mounted at the project root so tenant resolution does not gate access. Remove
-# after debugging.
-def debug_headers(request):
-    headers = {k: v for k, v in request.META.items() if k.startswith('HTTP_')}
-    return JsonResponse({
-        'http_x_original_host': request.META.get('HTTP_X_ORIGINAL_HOST', 'NOT FOUND'),
-        'http_host': request.META.get('HTTP_HOST', 'NOT FOUND'),
-        'all_http_headers': headers,
-    })
-
-
 urlpatterns = [
     # Health check — no trailing slash so the orchestrator's probe gets a
     # direct 200 instead of an APPEND_SLASH 301. Kept first so nothing shadows it.
@@ -71,8 +59,6 @@ urlpatterns = [
         ),
         name="password_reset_complete",
     ),
-
-    path("debug-headers/", debug_headers),
 
     # GHL marketplace app endpoints. URLs are deliberately neutral
     # (no /ghl/ exposed) — see core/ghl_views.py.

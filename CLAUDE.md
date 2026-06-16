@@ -165,7 +165,7 @@ cms_platform/
 │   ├── views.py                 # public_render, root_redirect
 │   ├── services/
 │   │   ├── annotator.py         # ★ OpenAI-powered HTML annotation (strip styles, send, restore)
-│   │   └── cloudflare.py        # Cloudflare for SaaS custom-hostname API
+│   │   └── traefik_routes.py    # custom domains → per-domain Traefik Host()+LE routes (route-syncer)
 │   ├── admin.py
 │   ├── migrations/              # 0001_initial, 0002_tenantmembership, 0003_tenant_custom_domain
 │   └── tests/
@@ -474,9 +474,13 @@ public DNS service that resolves all subdomains to `127.0.0.1`).
   site.** This changed in the agency-admin spec. If you need "which staff
   created this," that's not currently tracked — add a `created_by` field,
   don't repurpose `owner`.
-- **`Tenant.custom_domain` is a stub.** The field exists and persists,
-  but there's no DNS verification, no TLS, no Cloudflare integration. Don't
-  pretend it's wired up. The next spec (Cloudflare for SaaS) turns it on.
+- **Custom domains are wired — direct-to-origin + Let's Encrypt.** Verified
+  `CustomDomain` rows become per-domain Traefik `Host()` routers with
+  `certResolver=letsencrypt`, emitted by the `route-syncer`
+  (`core/services/traefik_routes.py`). Clients point an A record at
+  `CUSTOM_DOMAIN_TARGET_IP`; Traefik issues the cert via HTTP-01. See
+  `deploy/DOKPLOY.md`. (The legacy `Tenant.custom_domain` char field is vestigial;
+  resolution uses the `CustomDomain` table.)
 
 ---
 
