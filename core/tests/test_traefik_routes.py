@@ -28,6 +28,22 @@ class BuildConfigTests(TestCase):
         self.assertEqual(router["service"], "cms-web@docker")
         self.assertEqual(router["entryPoints"], ["websecure"])
 
+    def test_emits_http_to_https_redirect_router(self):
+        """Each domain also gets a :80 router that 308s to HTTPS (custom
+        domains hit the origin directly — no CF edge to upgrade http://)."""
+        t = _tenant()
+        cd = CustomDomain.objects.create(
+            tenant=t, domain="www.acme.com", is_verified=True
+        )
+        cfg = _build_config([cd])
+        web = cfg["http"]["routers"][f"cms-cd-{cd.pk}-web"]
+        self.assertEqual(web["rule"], "Host(`www.acme.com`)")
+        self.assertEqual(web["entryPoints"], ["web"])
+        self.assertEqual(web["middlewares"], ["cms-redirect-to-https"])
+        mw = cfg["http"]["middlewares"]["cms-redirect-to-https"]
+        self.assertEqual(mw["redirectScheme"]["scheme"], "https")
+        self.assertTrue(mw["redirectScheme"]["permanent"])
+
     def test_empty_set_is_valid_empty_config(self):
         self.assertEqual(_build_config([]), {"http": {"routers": {}}})
 

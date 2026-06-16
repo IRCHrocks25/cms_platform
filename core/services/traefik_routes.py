@@ -86,7 +86,29 @@ def _build_config(domains):
             "service": "cms-web@docker",
             "tls": {"certResolver": "letsencrypt"},
         }
-    return {"http": {"routers": routers}}  # routers: {} when empty — valid config
+        # Plain-HTTP (:80) router that 308s to HTTPS. Custom domains hit the
+        # origin directly — unlike the CF-fronted agency hosts (where Cloudflare
+        # upgrades http:// at the edge), there's no edge here, so without this
+        # http://<domain> would 404. The ACME HTTP-01 challenge is unaffected:
+        # Traefik serves /.well-known/acme-challenge/ on its own higher-priority
+        # internal router before this one ever matches.
+        routers[f"cms-cd-{cd.pk}-web"] = {
+            "rule": f"Host(`{cd.domain}`)",
+            "entryPoints": ["web"],
+            "service": "cms-web@docker",
+            "middlewares": ["cms-redirect-to-https"],
+        }
+    config = {"http": {"routers": routers}}  # routers: {} when empty — valid config
+    if routers:
+        # Self-contained redirect middleware — we don't reference Dokploy's
+        # redirect-to-https@file (which could change). Only emitted when there's
+        # a router to attach it to, so an empty verified set stays minimal.
+        config["http"]["middlewares"] = {
+            "cms-redirect-to-https": {
+                "redirectScheme": {"scheme": "https", "permanent": True}
+            }
+        }
+    return config
 
 
 def sync_custom_domain_routes() -> bool:
