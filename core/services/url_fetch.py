@@ -262,3 +262,269 @@ def fetch_url_html(
         body = rewrite_relative_urls(body, str(response.url))
 
     return body
+
+
+# --------------------------------------------------------------------------- #
+# SPA detection + JavaScript-rendered fallback                                #
+# --------------------------------------------------------------------------- #
+#
+# Some agency clients hand over Figma Make exports built as Vite + React (or
+# Next.js, SvelteKit, etc.) SPAs. A plain HTTP GET on those URLs returns only
+# the index.html shell: a `<div id="root">` mount point and a `<script>` tag.
+# The real content lives in the JS bundle and is rendered into the DOM at
+# load time, which means the annotator has nothing to mark up.
+#
+# We deal with this in three steps, all exposed below:
+#
+#   1. ``looks_like_spa_shell()`` — heuristic to flag a response as SPA-style
+#   2. ``render_url_html()``      — re-fetch through a headless browser so
+#                                   the JS runs and we capture the hydrated
+#                                   document. Requires the optional playwright
+#                                   dependency (see README); raises a clear
+#                                   error when unavailable so the operator can
+#                                   either paste manually or enable it on the
+#                                   server.
+#   3. ``inline_external_assets()`` — purely string-level cleanup that turns
+#                                   the captured DOM into something the CMS
+#                                   can render standalone: inlines external
+#                                   stylesheets, absolutizes image and other
+#                                   asset URLs to the origin host, and strips
+#                                   the now-redundant client-side JS bundle.
+#
+# The view in dashboard/views.py wires these together so the operator's
+# normal "Fetch from URL" button just works on SPA sites whenever the optional
+# render dependency is installed.
+
+DEFAULT_RENDER_TIMEOUT_SECONDS = 60
+_SPA_BODY_TEXT_THRESHOLD = 200  # chars of real text below which we suspect a shell
+_SPA_MOUNT_IDS = ("root", "app", "__next", "__nuxt", "main", "svelte")
+
+
+def looks_like_spa_shell(html: str) -> bool:
+    """Return True when ``html`` looks like an unrendered SPA index document.
+
+    Heuristic: strip script/style/comments/noscript, then if the visible
+    body text is short *and* the body holds a known SPA mount point (e.g.
+    ``<div id="root">`` for Vite/React, ``<div id="__next">`` for Next),
+    treat this as a shell. Falsy on substantial static pages even when
+    they happen to have a ``<div id="app">``.
+    """
+    if not html or not html.strip():
+        return False
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:  # noqa: BLE001 — never let parser failure crash the fetch
+        return False
+    for tag in soup.find_all(["script", "style", "noscript", "template"]):
+        tag.decompose()
+    body = soup.find("body") or soup
+    text = body.get_text(" ", strip=True)
+    if len(text) > _SPA_BODY_TEXT_THRESHOLD:
+        return False
+    for mount_id in _SPA_MOUNT_IDS:
+        if body.find(id=mount_id) is not None:
+            return True
+    return False
+
+
+def render_url_html(
+    url: str,
+    *,
+    timeout_seconds: int = DEFAULT_RENDER_TIMEOUT_SECONDS,
+) -> str:
+    """Fetch ``url`` through a headless browser and return the hydrated DOM.
+
+    Used as the SPA-aware sibling of :func:`fetch_url_html`. The optional
+    ``playwright`` dependency must be installed on the server alongside the
+    chromium browser bundle (``pip install playwright && playwright install
+    --with-deps chromium``). When it isn't, this raises ``UrlFetchError``
+    with a message the operator can act on; the caller is expected to fall
+    back to the static fetch and surface the message verbatim.
+
+    The function scrolls the page top-to-bottom after navigation so reveal-
+    on-scroll components mount and emit their final markup, then captures
+    ``document.documentElement.outerHTML``. ``<!DOCTYPE html>`` is prepended
+    so the result is a complete document the parser can consume.
+    """
+    url = (url or "").strip()
+    if not url:
+        raise UrlFetchError("URL is required.")
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ALLOWED_SCHEMES:
+        raise UrlFetchError(
+            f"Only http and https URLs are supported (got {parsed.scheme!r})."
+        )
+
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+        from playwright._impl._errors import TimeoutError as PWTimeoutError  # type: ignore
+    except ImportError as exc:  # pragma: no cover — env-dependent
+        raise UrlFetchError(
+            "Server-side JavaScript rendering isn't enabled on this deploy. "
+            "Install the optional dependency: `pip install playwright` then "
+            "`playwright install --with-deps chromium`."
+        ) from exc
+
+    scroll_script = """
+        async () => {
+            const step = Math.max(window.innerHeight - 50, 400);
+            for (let y = 0; y < document.body.scrollHeight; y += step) {
+                window.scrollTo(0, y);
+                await new Promise(r => setTimeout(r, 200));
+            }
+            window.scrollTo(0, 0);
+        }
+    """
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                ctx = browser.new_context(
+                    viewport={"width": 1440, "height": 900},
+                    user_agent=USER_AGENT,
+                )
+                page = ctx.new_page()
+                try:
+                    page.goto(
+                        url,
+                        wait_until="networkidle",
+                        timeout=timeout_seconds * 1000,
+                    )
+                except PWTimeoutError as exc:
+                    raise UrlFetchError(
+                        f"Browser render timed out after {timeout_seconds}s."
+                    ) from exc
+                page.wait_for_timeout(1500)
+                page.evaluate(scroll_script)
+                page.wait_for_timeout(800)
+                html = page.evaluate("() => document.documentElement.outerHTML")
+            finally:
+                browser.close()
+    except UrlFetchError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — playwright wraps its own errors
+        raise UrlFetchError(f"Browser render failed: {exc}") from exc
+
+    return "<!DOCTYPE html>\n" + html
+
+
+# Regex hot-paths for the inliner. Kept module-level so the patterns compile
+# once per process instead of per call.
+import re as _re_assets
+
+_RE_STYLESHEET_LINK = _re_assets.compile(
+    r'<link\b[^>]*?rel=(?:"|\')stylesheet(?:"|\')[^>]*?href=(?:"|\')([^"\']+)(?:"|\')[^>]*>',
+    _re_assets.IGNORECASE,
+)
+_RE_MODULE_SCRIPT = _re_assets.compile(
+    r'<script\b[^>]*\btype=(?:"|\')module(?:"|\')[^>]*></script>',
+    _re_assets.IGNORECASE,
+)
+_RE_EXTERNAL_SCRIPT = _re_assets.compile(
+    r'<script\b[^>]*\bsrc=(?:"|\')[^"\']+(?:"|\')[^>]*></script>',
+    _re_assets.IGNORECASE,
+)
+_RE_NOINDEX_META = _re_assets.compile(
+    r'<meta\b[^>]*\bname=(?:"|\')robots(?:"|\')[^>]*>\s*',
+    _re_assets.IGNORECASE,
+)
+_RE_ASSET_SRC = _re_assets.compile(
+    r'(<(?:img|source|video|audio|track)\b[^>]*?\ssrc=)(?:"|\')(/[^"\']*)(?:"|\')',
+    _re_assets.IGNORECASE,
+)
+_RE_SRCSET = _re_assets.compile(r'srcset=(?:"|\')([^"\']+)(?:"|\')', _re_assets.IGNORECASE)
+_RE_CSS_URL = _re_assets.compile(r'url\(([^)]+)\)', _re_assets.IGNORECASE)
+
+
+def inline_external_assets(html: str, base_url: str) -> str:
+    """Make ``html`` self-contained relative to ``base_url``.
+
+    Designed for the rendered output of :func:`render_url_html`: turns the
+    captured SPA DOM into HTML that the CMS can serve standalone. Three
+    operations, in order:
+
+    1. Each external ``<link rel="stylesheet">`` is replaced inline by the
+       fetched CSS, with relative ``url(...)`` references inside the CSS
+       rewritten to absolute origin URLs. If a stylesheet can't be fetched,
+       the link is rewritten to absolute and left as a ``<link>`` (the
+       template still works, it just depends on the origin host).
+    2. Relative ``src`` (and ``srcset`` entries) on ``<img>``/``<source>``/
+       ``<video>``/``<audio>``/``<track>`` are absolutized so images load
+       from the origin host instead of the CMS subdomain.
+    3. The hydrated DOM is now static, so the bundle ``<script type="module">``
+       and the ``robots: noindex`` meta from the original deploy are removed.
+    """
+    if not html or not html.strip():
+        return html
+    if not base_url:
+        return html
+
+    parsed = urlparse(base_url)
+    if not parsed.scheme or not parsed.netloc:
+        return html
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+
+    def _abs(url_ref: str) -> str:
+        ref = url_ref.strip().strip("'\"")
+        if not ref or ref.startswith(_ABSOLUTE_URL_PREFIXES):
+            return ref
+        return urljoin(base_url, ref)
+
+    def _inline_link(match: "_re_assets.Match[str]") -> str:
+        href = match.group(1)
+        abs_url = _abs(href)
+        if not abs_url or not abs_url.startswith(("http://", "https://")):
+            return match.group(0)
+        try:
+            with httpx.Client(
+                timeout=DEFAULT_TIMEOUT_SECONDS,
+                follow_redirects=True,
+                max_redirects=DEFAULT_MAX_REDIRECTS,
+                headers={"User-Agent": USER_AGENT},
+            ) as client:
+                resp = client.get(abs_url)
+            if resp.status_code >= 400:
+                raise UrlFetchError(f"HTTP {resp.status_code}")
+            css = resp.text
+        except (httpx.HTTPError, UrlFetchError) as exc:
+            logger.warning(
+                "inline_external_assets: keeping external <link href=%r>: %s",
+                abs_url, exc,
+            )
+            return f'<link rel="stylesheet" href="{abs_url}">'
+
+        def _rewrite_css_url(m: "_re_assets.Match[str]") -> str:
+            ref = m.group(1).strip().strip("'\"")
+            if not ref or ref.startswith(_ABSOLUTE_URL_PREFIXES):
+                return m.group(0)
+            return f"url({urljoin(abs_url, ref)})"
+
+        css = _RE_CSS_URL.sub(_rewrite_css_url, css)
+        return f'<style data-inlined-from="{href}">\n{css}\n</style>'
+
+    def _abs_asset_src(match: "_re_assets.Match[str]") -> str:
+        path = match.group(2)
+        return f'{match.group(1)}"{origin}{path}"'
+
+    def _abs_srcset(match: "_re_assets.Match[str]") -> str:
+        out: list[str] = []
+        for entry in match.group(1).split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            parts = entry.split(None, 1)
+            url_part = parts[0]
+            rest = parts[1] if len(parts) > 1 else ""
+            if not url_part.startswith(_ABSOLUTE_URL_PREFIXES):
+                url_part = urljoin(base_url, url_part)
+            out.append((url_part + " " + rest).strip())
+        return 'srcset="' + ", ".join(out) + '"'
+
+    html = _RE_STYLESHEET_LINK.sub(_inline_link, html)
+    html = _RE_ASSET_SRC.sub(_abs_asset_src, html)
+    html = _RE_SRCSET.sub(_abs_srcset, html)
+    html = _RE_MODULE_SCRIPT.sub("", html)
+    html = _RE_EXTERNAL_SCRIPT.sub("", html)
+    html = _RE_NOINDEX_META.sub("", html)
+    return html

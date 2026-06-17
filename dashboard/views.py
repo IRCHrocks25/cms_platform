@@ -287,10 +287,23 @@ def template_fetch_url(request):
     form's HTML textarea without copy-pasting. The fetched HTML then goes
     through the existing AI annotator like any pasted source.
 
-    Expects JSON body: {"url": "https://example.com/"}
-    Returns: {"html": "..."} on success, {"error": "..."} on failure.
+    On responses that look like an unrendered SPA shell (Vite/React/Next/etc.
+    deploys whose index.html is just a ``<div id="root">`` mount point), the
+    view re-fetches through a headless browser so the JS bundle runs and we
+    capture the hydrated DOM, then inlines external stylesheets and
+    absolutizes asset URLs so the resulting HTML is self-contained.
+
+    Expects JSON body: ``{"url": "https://example.com/", "force_render": false}``
+    Returns: ``{"html": "...", "rendered_with_js": bool, "warning": "..."}``
+    on success, ``{"error": "..."}`` on failure.
     """
-    from core.services.url_fetch import UrlFetchError, fetch_url_html
+    from core.services.url_fetch import (
+        UrlFetchError,
+        fetch_url_html,
+        inline_external_assets,
+        looks_like_spa_shell,
+        render_url_html,
+    )
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
@@ -300,13 +313,48 @@ def template_fetch_url(request):
     url = (payload.get("url") or "").strip()
     if not url:
         return JsonResponse({"error": "URL is required."}, status=400)
+    force_render = bool(payload.get("force_render"))
 
-    try:
-        html = fetch_url_html(url)
-    except UrlFetchError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+    rendered_with_js = False
+    warning: str | None = None
 
-    return JsonResponse({"html": html, "bytes": len(html)})
+    if force_render:
+        # Operator explicitly asked for JS rendering; skip the static fetch.
+        try:
+            html = render_url_html(url)
+            html = inline_external_assets(html, base_url=url)
+            rendered_with_js = True
+        except UrlFetchError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+    else:
+        try:
+            html = fetch_url_html(url)
+        except UrlFetchError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        if looks_like_spa_shell(html):
+            try:
+                rendered = render_url_html(url)
+                html = inline_external_assets(rendered, base_url=url)
+                rendered_with_js = True
+            except UrlFetchError as exc:
+                # Render path unavailable / failed — keep the static fetch
+                # and tell the operator what happened so they can either
+                # install the dependency on the server or paste manually.
+                warning = (
+                    "This URL looks like a JavaScript-rendered single-page "
+                    "app (the static response has almost no content). "
+                    f"Couldn't auto-render it: {exc}"
+                )
+
+    response: dict[str, object] = {
+        "html": html,
+        "bytes": len(html),
+        "rendered_with_js": rendered_with_js,
+    }
+    if warning:
+        response["warning"] = warning
+    return JsonResponse(response)
 
 
 @agency_operator_required

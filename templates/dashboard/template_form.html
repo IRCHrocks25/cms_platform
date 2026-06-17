@@ -635,7 +635,16 @@
           if (ok && data.html) {
             textarea.value = data.html;
             textarea.dispatchEvent(new Event("input", { bubbles: true }));
-            showStatus("Loaded " + (data.bytes || data.html.length).toLocaleString() + " bytes. Click 'Annotate with AI' to continue.", "info");
+            var bytes = (data.bytes || data.html.length).toLocaleString();
+            var rendered = data.rendered_with_js
+              ? " — rendered with JavaScript (SPA detected)"
+              : "";
+            var msg = "Loaded " + bytes + " bytes" + rendered
+              + ". Click 'Annotate with AI' to continue.";
+            if (data.warning) {
+              msg += "\n\n" + data.warning;
+            }
+            showStatus(msg, "info");
           } else {
             showStatus(data.error || "Could not fetch that URL.", "error");
           }

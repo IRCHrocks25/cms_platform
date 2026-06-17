@@ -12,3 +12,11 @@ openai>=1.40,<2.0
 resend>=2.0,<3.0
 cloudinary>=1.40,<2.0
 
+# OPTIONAL: server-side rendering for SPA templates fetched via the
+# "Fetch from URL" button. Without these the static-fetch path still
+# works, but Vite/React/Next/etc. deploys return only their shell. To
+# enable, uncomment, redeploy, then exec inside the container:
+#     playwright install --with-deps chromium
+# Adds ~150 MB to the image; only install where the agency hands over
+# JS-rendered templates.
+# playwright>=1.40,<2.0
