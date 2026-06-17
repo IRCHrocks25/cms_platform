@@ -1,106 +1,419 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{% block title %}Users · Locked CMS{% endblock %}
+{% block title %}Users · KATEK-AI CMS{% endblock %}
 
 {% block content %}
-  <div class="page">
-    <div class="page-head">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    .users{
+      --canvas:#F3F3F1;--surface:#FFFFFF;--surface-2:#F8F8F6;
+      --ink:#15141A;--ink-2:#42414B;--muted:#8A8893;
+      --line:#E7E5E0;--line-2:#EFEDE9;
+      --accent:#4B3FE4;--accent-wash:#ECEAFB;
+      --live:#0E9D63;
+      --shadow:0 1px 2px rgba(20,19,26,.04), 0 10px 30px -14px rgba(20,19,26,.12);
+      --shadow-lift:0 4px 10px rgba(20,19,26,.06), 0 26px 50px -20px rgba(20,19,26,.26);
+      --r:16px;
+      max-width:1160px;margin:0 auto;padding:6px 0 48px;
+      font-family:"Inter",system-ui,sans-serif;color:var(--ink);
+    }
+
+    .users .head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px;}
+    .users .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+    .users .title{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:38px;letter-spacing:-.025em;margin:0;line-height:1;}
+    .users .title em{font-style:normal;color:var(--muted);font-weight:500;}
+    .users .btn-new{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:#fff;font-weight:600;font-size:14px;padding:11px 18px;border-radius:11px;text-decoration:none;box-shadow:var(--shadow);transition:transform .12s, box-shadow .14s;}
+    .users .btn-new:hover{transform:translateY(-1px);box-shadow:var(--shadow-lift);}
+
+    .users .toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:24px;}
+    .users .search{position:relative;flex:1;max-width:340px;min-width:200px;}
+    .users .search > svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
+    .users .search input{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:11px 14px 11px 40px;font:inherit;font-size:14px;color:var(--ink);box-shadow:var(--shadow);}
+    .users .search input::placeholder{color:var(--muted);}
+    .users .search input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash);}
+    .users .seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:3px;gap:2px;box-shadow:var(--shadow);}
+    .users .seg a{padding:7px 15px;border-radius:8px;font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;transition:all .14s;white-space:nowrap;}
+    .users .seg a:hover{color:var(--ink);}
+    .users .seg a.on{background:var(--ink);color:#fff;font-weight:600;}
+    .users .count{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted);}
+    .users .btn-clear{font-size:13px;color:var(--muted);text-decoration:none;padding:7px 4px;}
+    .users .btn-clear:hover{color:var(--ink);}
+
+    .users .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;}
+    .users .scroll{overflow-x:auto;}
+    .users table{width:100%;border-collapse:collapse;min-width:860px;}
+    .users thead th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:13px 18px;border-bottom:1px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+    .users thead th.right{text-align:right;}
+    .users tbody td{padding:13px 18px;border-bottom:1px solid var(--line-2);vertical-align:middle;}
+    .users tbody tr:last-child td{border-bottom:none;}
+    .users tbody tr{transition:background .12s;}
+    .users tbody tr:hover{background:var(--surface-2);}
+
+    .users .who{display:flex;align-items:center;gap:12px;}
+    .users .av{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:13px;letter-spacing:.01em;}
+    .users .av.staff{color:#fff;background:linear-gradient(150deg,#4B3FE4,#6E60EC);}
+    .users .av.client{color:#1C5A8F;background:#DCEAF7;}
+    .users .who-main{min-width:0;}
+    .users .who-name{font-weight:600;font-size:14.5px;color:var(--ink);text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .users .who-name:hover{color:var(--accent);}
+    .users .who-mail{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    .users .role{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+    .users .role .d{width:5px;height:5px;border-radius:50%;}
+    .users .role.staff{color:#3A2FC2;background:var(--accent-wash);}.users .role.staff .d{background:var(--accent);}
+    .users .role.client{color:#1C5A8F;background:#E4EFF9;}.users .role.client .d{background:#2E7FC2;}
+
+    .users .chips{display:flex;flex-wrap:wrap;gap:5px;max-width:240px;}
+    .users .chip{font-size:12px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:3px 8px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;}
+    .users .chip.more{color:var(--muted);background:transparent;border-style:dashed;}
+    .users .dash{color:var(--muted);}
+
+    .users .lastlogin{font-size:13px;color:var(--ink-2);white-space:nowrap;}
+    .users .lastlogin.never{color:var(--muted);}
+
+    .users .status{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;white-space:nowrap;}
+    .users .status .d{width:7px;height:7px;border-radius:50%;}
+    .users .status.active{color:var(--ink-2);}.users .status.active .d{background:var(--live);box-shadow:0 0 0 3px rgba(14,157,99,.14);}
+    .users .status.inactive{color:var(--muted);}.users .status.inactive .d{background:#C7C5CC;}
+
+    .users .btn-d{font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;border:1px solid var(--line);background:var(--surface);padding:7px 13px;border-radius:9px;transition:background .14s, border-color .14s;}
+    .users .btn-d:hover{background:var(--surface-2);border-color:#DAD6CD;}
+
+    .users .empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:52px 28px;text-align:center;box-shadow:var(--shadow);}
+    .users .empty h3{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px;margin:0 0 6px;}
+    .users .empty p{margin:0 0 18px;color:var(--muted);font-size:14px;}
+    .users .empty .btn-new{box-shadow:none;}
+
+    /* New-user modal */
+    .um-overlay{position:fixed;inset:0;z-index:1000;background:rgba(10,10,20,.5);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:48px 20px;overflow-y:auto;font-family:"Inter",system-ui,sans-serif;}
+    .um-overlay[hidden]{display:none;}
+    .um-card{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lift);}
+    .um-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 0;}
+    .um-head h2{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:21px;letter-spacing:-.02em;margin:0;}
+    .um-head p{margin:5px 0 0;font-size:13px;color:var(--muted);line-height:1.45;}
+    .um-x{flex:none;width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:18px;line-height:1;cursor:pointer;display:grid;place-items:center;}
+    .um-x:hover{background:var(--surface-2);color:var(--ink);}
+    .um-body{padding:20px 24px 24px;}
+    .um-field{margin-bottom:16px;}
+    .um-field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:7px;}
+    .um-field .opt{font-weight:400;color:var(--muted);}
+    .um-field input[type=text],.um-field input[type=email],.um-field select{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:11px 14px;font:inherit;font-size:14px;color:var(--ink);}
+    .um-field input:focus,.um-field select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash);}
+    .um-types{display:grid;gap:10px;}
+    .um-type{display:flex;gap:11px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:12px 13px;cursor:pointer;transition:border-color .14s, background .14s;}
+    .um-type:hover{background:var(--surface-2);}
+    .um-type input{margin-top:3px;accent-color:var(--accent);}
+    .um-type:has(input:checked){border-color:var(--accent);background:var(--accent-wash);}
+    .um-type.disabled{opacity:.55;cursor:not-allowed;}
+    .um-type-name{font-weight:600;font-size:14px;}
+    .um-type-desc{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4;}
+    .um-grid2{display:grid;grid-template-columns:1fr 150px;gap:12px;}
+    #client-fields[hidden]{display:none;}
+    .um-errors{display:none;background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B;border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.45;margin-bottom:16px;}
+    .um-errors.show{display:block;}
+    .um-errors ul{margin:0;padding-left:18px;}
+    .um-actions{display:flex;align-items:center;gap:14px;margin-top:20px;}
+    .um-submit{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:#fff;font-weight:600;font-size:14px;padding:11px 20px;border-radius:11px;border:none;cursor:pointer;font-family:inherit;}
+    .um-submit:disabled{opacity:.6;cursor:default;}
+    .um-cancel{font-size:14px;font-weight:500;color:var(--muted);background:none;border:none;cursor:pointer;font-family:inherit;}
+    .um-cancel:hover{color:var(--ink);}
+    .um-note{margin-top:16px;font-size:12px;color:var(--muted);line-height:1.5;border-top:1px solid var(--line-2);padding-top:14px;}
+  </style>
+
+  <div class="users">
+    <div class="head">
       <div>
-        <h1 class="page-title">Users</h1>
-        <p class="page-subtitle">Agency staff and client accounts.</p>
+        <p class="eyebrow">KATEK-AI · CMS</p>
+        <h1 class="title">Users <em>/ {{ user_rows|length }} {{ user_rows|length|pluralize:"person,people" }}</em></h1>
       </div>
-      <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <a id="open-new-user" href="{% url 'dashboard:user_create' %}" class="btn-new" style="background:var(--surface);color:var(--ink);border:1px solid var(--line);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New user
+        </a>
+        <a href="{% url 'dashboard:tenant_create' %}" class="btn-new">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New client site
+        </a>
+      </div>
     </div>
 
-    <form method="get" class="filter-bar">
-      <input
-        class="input"
-        type="search"
-        name="q"
-        placeholder="Search by username or email…"
-        value="{{ q }}"
-        autocomplete="off"
-        style="max-width: 380px;"
-      >
-      <div class="filter-pills">
-        <a href="?{% if q %}q={{ q }}&{% endif %}role=all"
-           class="filter-pill {% if role == 'all' or not role %}active{% endif %}">All</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}role=staff"
-           class="filter-pill {% if role == 'staff' %}active{% endif %}">Agency staff</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}role=client"
-           class="filter-pill {% if role == 'client' %}active{% endif %}">Clients</a>
+    <form method="get" class="toolbar">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" name="q" placeholder="Search by username or email…" value="{{ q }}" autocomplete="off">
+      </div>
+      <div class="seg">
+        <a href="?{% if q %}q={{ q }}&{% endif %}role=all" class="{% if role == 'all' or not role %}on{% endif %}">All</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}role=staff" class="{% if role == 'staff' %}on{% endif %}">Agency staff</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}role=client" class="{% if role == 'client' %}on{% endif %}">Clients</a>
       </div>
       {% if q or role and role != 'all' %}
-        <a href="?" class="btn btn-ghost btn-sm">Clear</a>
+        <a href="?" class="btn-clear">Clear</a>
       {% endif %}
-      <noscript><button type="submit" class="btn btn-secondary btn-sm">Search</button></noscript>
+      <span class="count">{{ user_rows|length }} {{ user_rows|length|pluralize:"person,people" }}</span>
+      <noscript><button type="submit" class="btn-clear">Search</button></noscript>
     </form>
 
     {% if user_rows %}
-      <div class="card card-flush content-block">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Sites</th>
-              <th>Last login</th>
-              <th>Status</th>
-              <th class="right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in user_rows %}
-              {% with u=row.user %}
-                <tr>
-                  <td><a href="{% url 'dashboard:user_detail' u.pk %}" class="cell-strong">{{ u.username }}</a></td>
-                  <td class="cell-muted">{{ u.email|default:'—' }}</td>
-                  <td>
-                    {% if u.is_staff or u.is_superuser %}
-                      <span class="badge badge-purple">Agency staff</span>
-                    {% else %}
-                      <span class="badge badge-blue">Client</span>
-                    {% endif %}
-                  </td>
-                  <td class="cell-muted">
-                    {% if row.site_names %}
-                      {{ row.site_names_truncated|join:", " }}{% if row.site_names_overflow %} +{{ row.site_names_overflow }} more{% endif %}
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                  <td class="cell-muted">
-                    {% if u.last_login %}{{ u.last_login|naturaltime }}{% else %}Never{% endif %}
-                  </td>
-                  <td>
-                    {% if u.is_active %}
-                      <span class="badge badge-success">Active</span>
-                    {% else %}
-                      <span class="badge badge-soft">Inactive</span>
-                    {% endif %}
-                  </td>
-                  <td class="right">
-                    <a href="{% url 'dashboard:user_detail' u.pk %}" class="btn btn-secondary btn-sm">Details</a>
-                  </td>
-                </tr>
-              {% endwith %}
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="card">
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Role</th>
+                <th>Sites</th>
+                <th>Last login</th>
+                <th>Status</th>
+                <th class="right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in user_rows %}
+                {% with u=row.user %}
+                  <tr>
+                    <td>
+                      <div class="who">
+                        <span class="av {% if u.is_staff or u.is_superuser %}staff{% else %}client{% endif %}">{{ u.username|slice:":2"|upper }}</span>
+                        <div class="who-main">
+                          <a href="{% url 'dashboard:user_detail' u.pk %}" class="who-name">{{ u.username }}</a>
+                          <div class="who-mail">{{ u.email|default:'—' }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {% if u.is_staff or u.is_superuser %}
+                        <span class="role staff"><span class="d"></span>Agency staff</span>
+                      {% else %}
+                        <span class="role client"><span class="d"></span>Client</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.site_names %}
+                        <div class="chips">
+                          {% for name in row.site_names_truncated %}
+                            <span class="chip">{{ name }}</span>
+                          {% endfor %}
+                          {% if row.site_names_overflow %}
+                            <span class="chip more">+{{ row.site_names_overflow }} more</span>
+                          {% endif %}
+                        </div>
+                      {% else %}
+                        <span class="dash">—</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if u.last_login %}
+                        <span class="lastlogin">{{ u.last_login|naturaltime }}</span>
+                      {% else %}
+                        <span class="lastlogin never">Never</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if u.is_active %}
+                        <span class="status active"><span class="d"></span>Active</span>
+                      {% else %}
+                        <span class="status inactive"><span class="d"></span>Inactive</span>
+                      {% endif %}
+                    </td>
+                    <td class="right">
+                      <a href="{% url 'dashboard:user_detail' u.pk %}" class="btn-d">Details</a>
+                    </td>
+                  </tr>
+                {% endwith %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     {% else %}
-      <div class="empty content-block">
+      <div class="empty">
         {% if q or role and role != 'all' %}
           <h3>No users match those filters</h3>
-          <a href="?" class="btn btn-secondary">Clear filters</a>
+          <p>Try clearing the search or switching the role filter.</p>
+          <a href="?" class="btn-new">Clear filters</a>
         {% else %}
           <h3>No users yet</h3>
           <p>Create a client to add the first user account.</p>
-          <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+          <a href="{% url 'dashboard:tenant_create' %}" class="btn-new">+ New client site</a>
         {% endif %}
       </div>
     {% endif %}
+
+    <!-- New-user modal -->
+    <div id="new-user-modal" class="um-overlay" hidden>
+      <div class="um-card" role="dialog" aria-modal="true" aria-labelledby="um-title">
+        <div class="um-head">
+          <div>
+            <h2 id="um-title">New user</h2>
+            <p>Create an agency staff login, or a client login attached to a site.</p>
+          </div>
+          <button type="button" class="um-x" data-um-close aria-label="Close">×</button>
+        </div>
+        <div class="um-body">
+          <div class="um-errors" id="new-user-errors" role="alert"></div>
+          <form id="new-user-form" method="post" action="{% url 'dashboard:user_create' %}">
+            {% csrf_token %}
+
+            <div class="um-field">
+              <label>Account type</label>
+              <div class="um-types">
+                <label class="um-type">
+                  <input type="radio" name="account_type" value="client" checked>
+                  <span>
+                    <span class="um-type-name">Client</span>
+                    <span class="um-type-desc">A site login. Attached to the site you choose below.</span>
+                  </span>
+                </label>
+                <label class="um-type {% if not can_create_staff %}disabled{% endif %}">
+                  <input type="radio" name="account_type" value="staff" {% if not can_create_staff %}disabled{% endif %}>
+                  <span>
+                    <span class="um-type-name">Agency staff</span>
+                    <span class="um-type-desc">Full access to the agency dashboard and every site.{% if not can_create_staff %} Only a superuser can create staff.{% endif %}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div class="um-field">
+              <label for="um-username">Username</label>
+              <input type="text" id="um-username" name="username" autocomplete="off" required>
+            </div>
+
+            <div class="um-field">
+              <label for="um-email">Email <span class="opt">(optional)</span></label>
+              <input type="email" id="um-email" name="email" autocomplete="off">
+            </div>
+
+            <div id="client-fields">
+              {% if tenants %}
+                <div class="um-grid2">
+                  <div class="um-field" style="margin-bottom:0;">
+                    <label for="um-tenant">Site</label>
+                    <select id="um-tenant" name="tenant_id">
+                      <option value="" disabled selected>Choose a site…</option>
+                      {% for t in tenants %}
+                        <option value="{{ t.pk }}">{{ t.name }} ({{ t.subdomain }})</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="um-field" style="margin-bottom:0;">
+                    <label for="um-role">Role</label>
+                    <select id="um-role" name="role">
+                      {% for value, label in role_choices %}
+                        <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+              {% else %}
+                <div class="um-errors show" style="margin-bottom:0;">
+                  No sites yet — <a href="{% url 'dashboard:tenant_create' %}">create a site first</a> to add a client, or choose Agency staff.
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="um-actions">
+              <button type="submit" class="um-submit">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Create user
+              </button>
+              <button type="button" class="um-cancel" data-um-close>Cancel</button>
+            </div>
+
+            <p class="um-note">A 16-character password is generated automatically and shown <b>once</b> on the next screen. Copy it before leaving — it is never stored in plain text.</p>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    var modal = document.getElementById("new-user-modal");
+    var openBtn = document.getElementById("open-new-user");
+    var form = document.getElementById("new-user-form");
+    if (!modal || !openBtn || !form) return;
+
+    var clientFields = document.getElementById("client-fields");
+    var errorBox = document.getElementById("new-user-errors");
+    var tenantSelect = document.getElementById("um-tenant");
+    var submitBtn = form.querySelector(".um-submit");
+
+    function open() {
+      clearErrors();
+      modal.removeAttribute("hidden");
+      document.body.style.overflow = "hidden";
+      var u = document.getElementById("um-username");
+      if (u) u.focus();
+    }
+    function close() {
+      modal.setAttribute("hidden", "");
+      document.body.style.overflow = "";
+    }
+    function clearErrors() {
+      errorBox.classList.remove("show");
+      errorBox.innerHTML = "";
+    }
+    function showErrors(list) {
+      errorBox.innerHTML = "<ul><li>" + list.map(function (e) {
+        return String(e).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }).join("</li><li>") + "</li></ul>";
+      errorBox.classList.add("show");
+    }
+    function selectedType() {
+      var checked = form.querySelector('input[name="account_type"]:checked');
+      return checked ? checked.value : "client";
+    }
+    function syncFields() {
+      var isClient = selectedType() === "client";
+      if (clientFields) clientFields.hidden = !isClient;
+      if (tenantSelect) tenantSelect.required = isClient;
+    }
+
+    openBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      open();
+    });
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal || (e.target.closest && e.target.closest("[data-um-close]"))) close();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.hasAttribute("hidden")) close();
+    });
+    form.addEventListener("change", function (e) {
+      if (e.target.name === "account_type") syncFields();
+    });
+    syncFields();
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      clearErrors();
+      submitBtn.disabled = true;
+      fetch(form.getAttribute("action"), {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "fetch" },
+      })
+        .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+        .then(function (r) {
+          if (r.data && r.data.ok && r.data.redirect) {
+            window.location = r.data.redirect;
+            return;
+          }
+          showErrors((r.data && r.data.errors) || ["Something went wrong. Try again."]);
+          submitBtn.disabled = false;
+        })
+        .catch(function () {
+          showErrors(["Network error. Reload and try again."]);
+          submitBtn.disabled = false;
+        });
+    });
+  })();
+</script>
 {% endblock %}

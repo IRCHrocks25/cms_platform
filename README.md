@@ -1,4 +1,4 @@
-# Locked CMS — Phase 1 MVP
+# KATEK-AI CMS — Phase 1 MVP
 
 A multi-tenant Django CMS where you paste annotated HTML and a friendly client
 dashboard auto-generates from it. Clients can edit text, images, colors and

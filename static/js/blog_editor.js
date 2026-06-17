@@ -1,4 +1,4 @@
-/* Locked CMS — blog post editor
+/* KATEK-AI CMS — blog post editor
  * A small contenteditable rich-text editor (no external library) wired to a
  * hidden <textarea name="body">. Inline + cover image uploads reuse the
  * existing tenant media upload endpoint.

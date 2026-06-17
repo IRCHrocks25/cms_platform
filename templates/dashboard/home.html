@@ -1,66 +1,257 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{% block title %}Overview · Locked CMS{% endblock %}
+{% block title %}Overview · KATEK-AI CMS{% endblock %}
 
 {% block content %}
-  <div class="page">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    .overview-page{
+      --canvas:#F6F5F1;--surface:#FFFFFF;--surface-2:#FBFAF7;
+      --ink:#16151C;--ink-2:#46454F;--muted:#86848F;
+      --line:#E9E6DF;--line-2:#F0EEE8;
+      --brand:#5A45D6;--brand-ink:#4636B8;--brand-wash:#EFECFC;
+      --live:#0E9D63;--live-wash:#E4F4EC;--draft:#B07314;--draft-wash:#F6EEDD;
+      --shadow:0 1px 2px rgba(22,21,28,.04), 0 8px 24px -12px rgba(22,21,28,.10);
+      --shadow-lift:0 2px 4px rgba(22,21,28,.05), 0 16px 40px -16px rgba(22,21,28,.18);
+      --r:14px;--r-sm:10px;
+      max-width:1080px;margin:0 auto;padding:8px 0 40px;
+      font-family:"Inter",-apple-system,system-ui,sans-serif;color:var(--ink);
+    }
+
+    .overview-page .page-head{
+      display:flex;align-items:flex-start;justify-content:space-between;
+      gap:24px;flex-wrap:wrap;margin-bottom:36px;
+    }
+    .overview-page .page-title{
+      font-family:"Space Grotesk",sans-serif;font-weight:700;
+      font-size:34px;letter-spacing:-.02em;margin:0 0 4px;color:var(--ink);
+    }
+    .overview-page .page-subtitle{margin:0;color:var(--muted);font-size:15px;}
+
+    .overview-page .status-pill{
+      display:inline-flex;align-items:center;gap:9px;background:var(--surface);
+      border:1px solid var(--line);padding:9px 14px 9px 12px;border-radius:999px;
+      font-size:13px;font-weight:500;color:var(--ink-2);box-shadow:var(--shadow);white-space:nowrap;
+    }
+    .overview-page .status-pill--warn{color:var(--draft);}
+    .overview-page .pulse{position:relative;width:9px;height:9px;}
+    .overview-page .pulse::before{content:"";position:absolute;inset:0;border-radius:50%;background:var(--live);}
+    .overview-page .pulse::after{
+      content:"";position:absolute;inset:0;border-radius:50%;background:var(--live);
+      opacity:.5;animation:ovw-pulse 2.4s ease-out infinite;
+    }
+    .overview-page .pulse--warn::before,.overview-page .pulse--warn::after{background:var(--draft);}
+    @keyframes ovw-pulse{0%{transform:scale(1);opacity:.5;}70%{transform:scale(2.6);opacity:0;}100%{opacity:0;}}
+
+    .overview-page .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+    .overview-page .stat-card{
+      position:relative;background:var(--surface);border:1px solid var(--line);
+      border-radius:var(--r);padding:20px 20px 18px;box-shadow:var(--shadow);
+      transition:transform .18s ease, box-shadow .18s ease;overflow:hidden;
+    }
+    .overview-page .stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift);}
+    .overview-page .stat-card.is-primary{
+      border:1.5px solid transparent;
+      background:linear-gradient(var(--surface),var(--surface)) padding-box,
+                 linear-gradient(135deg,var(--brand),#8E7BF0) border-box;
+    }
+    .overview-page .stat-card-label{
+      font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:7px;
+    }
+    .overview-page .stat-dot{width:6px;height:6px;border-radius:50%;background:var(--brand);}
+    .overview-page .stat-card-value{
+      font-family:"JetBrains Mono",monospace;font-weight:600;font-size:38px;line-height:1;
+      letter-spacing:-.02em;color:var(--ink);font-feature-settings:"tnum";
+    }
+    .overview-page .stat-card-foot{
+      margin-top:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+      font-size:12.5px;color:var(--muted);
+    }
+    .overview-page .stat-card-foot--muted{color:var(--muted);}
+    .overview-page .spark{position:absolute;right:16px;top:18px;opacity:.9;}
+
+    .overview-page .badge{
+      display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
+      font-size:12px;font-weight:500;line-height:1;
+    }
+    .overview-page .badge-live{background:var(--live-wash);color:var(--live);}
+    .overview-page .badge-draft{background:var(--draft-wash);color:var(--draft);}
+    .overview-page .badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+
+    .overview-page .split-row{display:grid;grid-template-columns:1fr 320px;gap:28px;margin-top:40px;}
+    .overview-page .row-between{display:flex;align-items:center;justify-content:space-between;}
+    .overview-page .section-h{
+      font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px;
+      letter-spacing:-.01em;margin:0;color:var(--ink);
+    }
+    .overview-page .card{
+      background:var(--surface);border:1px solid var(--line);
+      border-radius:var(--r);box-shadow:var(--shadow);
+    }
+
+    .overview-page .activity-list{list-style:none;margin:0;padding:6px;}
+    .overview-page .activity-row{
+      display:flex;align-items:center;gap:14px;padding:13px 14px;border-radius:var(--r-sm);
+      text-decoration:none;color:inherit;transition:background .14s ease;
+    }
+    .overview-page .activity-row:hover{background:var(--surface-2);}
+    .overview-page .activity-list li + li{border-top:1px solid var(--line-2);}
+    .overview-page .avatar{
+      flex:none;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+      font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:13px;
+      color:var(--brand-ink);background:var(--brand-wash);letter-spacing:.01em;
+    }
+    .overview-page .avatar--v1{color:#9A5B12;background:#F6ECDB;}
+    .overview-page .avatar--v2{color:#0E7B6B;background:#DCF1ED;}
+    .overview-page .avatar--v3{color:#2C5BD6;background:#E2EAFB;}
+    .overview-page .activity-main{flex:1;min-width:0;}
+    .overview-page .activity-main strong{
+      font-weight:600;font-size:14.5px;color:var(--ink);display:block;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .overview-page .activity-sub{font-size:12.5px;color:var(--muted);}
+    .overview-page .activity-sub b{font-weight:600;color:var(--ink-2);}
+    .overview-page .activity-time{
+      flex:none;font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted);
+      display:flex;align-items:center;gap:8px;
+    }
+    .overview-page .activity-state{width:7px;height:7px;border-radius:50%;background:var(--muted);}
+    .overview-page .activity-state.live{background:var(--live);}
+    .overview-page .activity-state.draft{background:var(--draft);}
+
+    .overview-page .split-aside{align-self:start;}
+    .overview-page .stack-3{display:flex;flex-direction:column;gap:10px;}
+    .overview-page .aside-note{
+      margin-top:16px;padding:14px 16px;border-radius:var(--r-sm);
+      background:var(--surface-2);border:1px solid var(--line-2);
+      font-size:12.5px;color:var(--ink-2);line-height:1.55;
+    }
+    .overview-page .aside-note .note-k{
+      font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:5px;
+    }
+
+    .overview-page .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      font-family:"Inter",sans-serif;font-weight:600;font-size:14px;padding:11px 16px;
+      border-radius:var(--r-sm);text-decoration:none;cursor:pointer;border:1px solid transparent;
+      transition:transform .12s ease, box-shadow .14s ease, background .14s ease;
+    }
+    .overview-page .btn:active{transform:translateY(1px);}
+    .overview-page .btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px;}
+    .overview-page .btn-block{width:100%;}
+    .overview-page .btn-sm{padding:7px 12px;font-size:13px;}
+    .overview-page .btn-purple{
+      background:var(--brand);color:#fff;
+      box-shadow:0 1px 2px rgba(90,69,214,.4), 0 8px 20px -8px rgba(90,69,214,.5);
+    }
+    .overview-page .btn-purple:hover{background:var(--brand-ink);}
+    .overview-page .btn-secondary{background:var(--surface);color:var(--ink);border-color:var(--line);}
+    .overview-page .btn-secondary:hover{background:var(--surface-2);border-color:#DAD6CD;}
+    .overview-page .btn-ghost{background:transparent;color:var(--ink-2);}
+    .overview-page .btn-ghost:hover{background:var(--surface-2);color:var(--ink);}
+
+    .overview-page .empty{
+      background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);
+      padding:40px 28px;text-align:center;box-shadow:var(--shadow);
+    }
+    .overview-page .empty h3{
+      font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:16px;margin:0 0 6px;color:var(--ink);
+    }
+    .overview-page .empty p{margin:0 0 16px;color:var(--muted);font-size:13.5px;}
+
+    @media (max-width:880px){
+      .overview-page .stat-grid{grid-template-columns:repeat(2,1fr);}
+      .overview-page .split-row{grid-template-columns:1fr;}
+    }
+    @media (max-width:480px){.overview-page .page-title{font-size:27px;}}
+    @media (prefers-reduced-motion:reduce){.overview-page *{animation:none!important;transition:none!important;}}
+  </style>
+
+  <div class="overview-page">
+
+    {# ---- Header ---- #}
     <div class="page-head">
       <div>
         <h1 class="page-title">Overview</h1>
         <p class="page-subtitle">All client sites at a glance.</p>
       </div>
+      {% if stats.draft_sites %}
+        <span class="status-pill status-pill--warn">
+          <span class="pulse pulse--warn"></span>
+          {{ stats.draft_sites }} site{{ stats.draft_sites|pluralize }} in draft
+        </span>
+      {% else %}
+        <span class="status-pill">
+          <span class="pulse"></span>
+          All sites operational
+        </span>
+      {% endif %}
     </div>
 
+    {# ---- Telemetry strip ---- #}
     <section class="stat-grid">
-      <div class="stat-card">
+      <div class="stat-card is-primary">
+        {# Illustrative trend line — swap points for a real 7-point series when available. #}
+        <svg class="spark" width="78" height="30" viewBox="0 0 78 30" fill="none" aria-hidden="true">
+          <polyline points="0,24 13,21 26,22 39,15 52,12 65,7 78,4"
+            stroke="#5A45D6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="78" cy="4" r="2.6" fill="#5A45D6"/>
+        </svg>
+        <div class="stat-card-label"><span class="stat-dot"></span>Total sites</div>
         <div class="stat-card-value">{{ stats.total_sites }}</div>
-        <div class="stat-card-label">Total sites</div>
         <div class="stat-card-foot">
-          <span class="badge badge-success">{{ stats.published_sites }} live</span>
-          <span class="badge badge-soft">{{ stats.draft_sites }} draft</span>
+          <span class="badge badge-live"><span class="badge-dot"></span>{{ stats.published_sites }} live</span>
+          <span class="badge badge-draft"><span class="badge-dot"></span>{{ stats.draft_sites }} draft</span>
         </div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-value">{{ stats.total_clients }}</div>
         <div class="stat-card-label">Clients</div>
-        <div class="stat-card-foot stat-card-foot-muted">With at least one site</div>
+        <div class="stat-card-value">{{ stats.total_clients }}</div>
+        <div class="stat-card-foot stat-card-foot--muted">With at least one site</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-value">{{ stats.total_templates }}</div>
         <div class="stat-card-label">Templates</div>
-        <div class="stat-card-foot stat-card-foot-muted">Available designs</div>
+        <div class="stat-card-value">{{ stats.total_templates }}</div>
+        <div class="stat-card-foot stat-card-foot--muted">Available designs</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-value">{{ stats.sites_edited_recently }}</div>
         <div class="stat-card-label">Edited this week</div>
-        <div class="stat-card-foot stat-card-foot-muted">Past 7 days</div>
+        <div class="stat-card-value">{{ stats.sites_edited_recently }}</div>
+        <div class="stat-card-foot stat-card-foot--muted">Past 7 days</div>
       </div>
     </section>
 
-    <section class="split-row" style="margin-top: 48px;">
+    {# ---- Split row ---- #}
+    <section class="split-row">
       <div class="split-main">
-        <div class="row-between" style="margin-bottom: 16px;">
-          <h2 style="margin: 0;">Recent activity</h2>
+        <div class="row-between" style="margin-bottom:16px;">
+          <h2 class="section-h">Recent activity</h2>
           <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-ghost btn-sm">All sites →</a>
         </div>
 
         {% if recent_activity %}
-          <div class="card" style="padding: 0;">
+          <div class="card">
             <ul class="activity-list">
               {% for v in recent_activity %}
                 <li>
                   <a href="{% url 'dashboard:tenant_editor' v.tenant_id %}" class="activity-row">
-                    <div class="activity-row-main">
+                    <span class="avatar {% cycle 'avatar--v3' 'avatar--v1' 'avatar--v2' '' %}">
+                      {{ v.tenant.name|slice:":2"|upper }}
+                    </span>
+                    <span class="activity-main">
                       <strong>{{ v.tenant.name }}</strong>
-                      <span class="activity-row-sub">
-                        saved by {{ v.saved_by.username|default:'unknown' }}
-                      </span>
-                    </div>
-                    <span class="activity-row-time">{{ v.saved_at|naturaltime }}</span>
+                      <span class="activity-sub">saved by <b>{{ v.saved_by.username|default:'unknown' }}</b></span>
+                    </span>
+                    <span class="activity-time">
+                      <span class="activity-state {% if v.tenant.is_published %}live{% else %}draft{% endif %}"></span>
+                      {{ v.saved_at|naturaltime }}
+                    </span>
                   </a>
                 </li>
               {% endfor %}
@@ -75,12 +266,12 @@
       </div>
 
       <aside class="split-aside">
-        <h2 style="margin: 0 0 16px;">Quick actions</h2>
+        <h2 class="section-h" style="margin:0 0 16px;">Quick actions</h2>
         {% if stats.total_sites == 0 and stats.total_templates == 0 %}
-          <div class="empty" style="padding: 24px;">
+          <div class="empty" style="padding:24px;">
             <h3>Get started</h3>
             <p>Add a template, then create your first client site.</p>
-            <a href="{% url 'dashboard:template_create' %}" class="btn btn-purple">+ New template</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-purple btn-block">+ New template</a>
           </div>
         {% else %}
           <div class="stack-3">
@@ -88,8 +279,15 @@
             <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary btn-block">+ New template</a>
             <a href="{% url 'dashboard:user_list' %}" class="btn btn-ghost btn-block">Manage users</a>
           </div>
+          {# Plain-language value prop — edit to match what your locking actually does. #}
+          <div class="aside-note">
+            <span class="note-k">System</span>
+            Every site is version-locked. Edits are saved as restorable revisions —
+            nothing your clients touch can break a live page.
+          </div>
         {% endif %}
       </aside>
     </section>
+
   </div>
 {% endblock %}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}New user · KATEK-AI CMS{% endblock %}
+
+{% block extra_head %}
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  .ucreate{
+    --surface:#FFFFFF;--surface-2:#F8F8F6;
+    --ink:#15141A;--ink-2:#42414B;--muted:#8A8893;
+    --line:#E7E5E0;--line-2:#EFEDE9;
+    --accent:#4B3FE4;--accent-wash:#ECEAFB;
+    --shadow:0 1px 2px rgba(20,19,26,.04), 0 10px 30px -14px rgba(20,19,26,.12);
+    --r:16px;
+    max-width:620px;margin:0 auto;padding:6px 0 48px;
+    font-family:"Inter",system-ui,sans-serif;color:var(--ink);
+  }
+  .ucreate .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+  .ucreate .title{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:32px;letter-spacing:-.025em;margin:0 0 6px;line-height:1.05;}
+  .ucreate .lede{margin:0 0 26px;color:var(--ink-2);font-size:14px;line-height:1.5;}
+
+  .ucreate .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:26px;}
+  .ucreate .field{margin-bottom:20px;}
+  .ucreate label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:7px;}
+  .ucreate .hint{font-weight:400;color:var(--muted);font-size:12.5px;margin-top:5px;}
+  .ucreate input[type=text],.ucreate input[type=email],.ucreate select{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:11px 14px;font:inherit;font-size:14px;color:var(--ink);}
+  .ucreate input:focus,.ucreate select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash);}
+  .ucreate .grid2{display:grid;grid-template-columns:1fr 160px;gap:14px;}
+  .ucreate #client-fields[hidden]{display:none;}
+  .ucreate .nosite{background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B;border-radius:11px;padding:12px 14px;font-size:13px;line-height:1.45;}
+
+  .ucreate .types{display:grid;gap:12px;}
+  .ucreate .type{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:border-color .14s, background .14s;}
+  .ucreate .type:hover{background:var(--surface-2);}
+  .ucreate .type input{margin-top:3px;accent-color:var(--accent);}
+  .ucreate .type:has(input:checked){border-color:var(--accent);background:var(--accent-wash);}
+  .ucreate .type input:disabled{cursor:not-allowed;}
+  .ucreate .type.disabled{opacity:.55;cursor:not-allowed;}
+  .ucreate .type-name{font-weight:600;font-size:14px;}
+  .ucreate .type-desc{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.45;}
+
+  .ucreate .actions{display:flex;align-items:center;gap:14px;margin-top:26px;}
+  .ucreate .btn-primary{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:#fff;font-weight:600;font-size:14px;padding:11px 20px;border-radius:11px;border:none;cursor:pointer;font-family:inherit;box-shadow:var(--shadow);}
+  .ucreate .btn-primary:hover{transform:translateY(-1px);}
+  .ucreate .btn-ghost{font-size:14px;font-weight:500;color:var(--muted);text-decoration:none;}
+  .ucreate .btn-ghost:hover{color:var(--ink);}
+
+  .ucreate .note{margin-top:18px;font-size:12.5px;color:var(--muted);line-height:1.5;border-top:1px solid var(--line-2);padding-top:16px;}
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="ucreate">
+    <p class="eyebrow">KATEK-AI · CMS</p>
+    <h1 class="title">New user</h1>
+    <p class="lede">Create a standalone login — agency staff or a client account — without spinning up a new client site.</p>
+
+    <form method="post" action="{% url 'dashboard:user_create' %}">
+      {% csrf_token %}
+      <div class="card">
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" value="{{ form_data.username }}"
+                 autocomplete="off" autofocus required>
+        </div>
+
+        <div class="field">
+          <label for="email">Email <span class="hint" style="display:inline;">(optional)</span></label>
+          <input type="email" id="email" name="email" value="{{ form_data.email }}" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label>Account type</label>
+          <div class="types">
+            <label class="type">
+              <input type="radio" name="account_type" value="client"
+                     {% if form_data.account_type != 'staff' %}checked{% endif %}>
+              <span>
+                <span class="type-name">Client</span>
+                <span class="type-desc">A site login, attached to the site you choose below.</span>
+              </span>
+            </label>
+
+            <label class="type {% if not can_create_staff %}disabled{% endif %}">
+              <input type="radio" name="account_type" value="staff"
+                     {% if form_data.account_type == 'staff' %}checked{% endif %}
+                     {% if not can_create_staff %}disabled{% endif %}>
+              <span>
+                <span class="type-name">Agency staff</span>
+                <span class="type-desc">
+                  Full access to the agency dashboard and every client site.
+                  {% if not can_create_staff %}Only a superuser can create staff accounts.{% endif %}
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field" id="client-fields">
+          {% if tenants %}
+            <div class="grid2">
+              <div>
+                <label for="tenant_id">Site</label>
+                <select id="tenant_id" name="tenant_id">
+                  <option value="" disabled {% if not form_data.tenant_id %}selected{% endif %}>Choose a site…</option>
+                  {% for t in tenants %}
+                    <option value="{{ t.pk }}" {% if form_data.tenant_id|stringformat:'s' == t.pk|stringformat:'s' %}selected{% endif %}>{{ t.name }} ({{ t.subdomain }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label for="role">Role</label>
+                <select id="role" name="role">
+                  {% for value, label in role_choices %}
+                    <option value="{{ value }}" {% if value == form_data.role %}selected{% elif value == 'editor' and not form_data.role %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          {% else %}
+            <div class="nosite">
+              No sites yet — <a href="{% url 'dashboard:tenant_create' %}">create a site first</a> to add a client, or choose Agency staff.
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Create user
+          </button>
+          <a href="{% url 'dashboard:user_list' %}" class="btn-ghost">Cancel</a>
+        </div>
+
+        <p class="note">A 16-character password is generated automatically and shown <b>once</b> on the next screen. Copy it before leaving — it is never stored in plain text and cannot be retrieved later (you'd have to reset it).</p>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    var form = document.querySelector(".ucreate form");
+    var clientFields = document.getElementById("client-fields");
+    var tenant = document.getElementById("tenant_id");
+    if (!form || !clientFields) return;
+    function sync() {
+      var checked = form.querySelector('input[name="account_type"]:checked');
+      var isClient = !checked || checked.value === "client";
+      clientFields.hidden = !isClient;
+      if (tenant) tenant.required = isClient;
+    }
+    form.addEventListener("change", function (e) {
+      if (e.target.name === "account_type") sync();
+    });
+    sync();
+  })();
+</script>
+{% endblock %}

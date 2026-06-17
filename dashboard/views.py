@@ -992,8 +992,123 @@ def user_list(request):
             "user_rows": user_rows,
             "q": q,
             "role": role,
+            "tenants": Tenant.objects.all().order_by("name"),
+            "role_choices": TenantMembership.ROLE_CHOICES,
+            "can_create_staff": request.user.is_superuser,
             "nav_section": "users",
         },
+    )
+
+
+@agency_operator_required
+def user_create(request):
+    """Create a user account — an agency-staff login, or a client login attached
+    to one of its sites — without going through the full new-client-site flow.
+
+    Two account types:
+
+    * ``staff`` — a site-less ``is_staff=True`` operator. Gated behind superuser,
+      mirroring ``user_make_staff`` (promoting/creating agency operators is a
+      privilege escalation only superusers may perform).
+    * ``client`` — a non-staff login scoped to an existing site. A site is
+      **required**; we reuse ``_create_scoped_login`` to mint the User and its
+      ``TenantMembership`` atomically.
+
+    Either way the generated password is revealed once via the shared
+    credentials flow. The form is normally driven as an in-page modal on the
+    user list and submitted with ``fetch`` (``X-Requested-With: fetch``), in
+    which case we answer with JSON; a plain (no-JS) POST keeps the classic
+    redirect/re-render behavior so ``user_create.html`` still works on its own.
+    """
+    is_ajax = request.headers.get("x-requested-with") == "fetch"
+
+    def render_form(form_data, status=200):
+        return render(
+            request,
+            "dashboard/user_create.html",
+            {
+                "form_data": form_data,
+                "can_create_staff": request.user.is_superuser,
+                "tenants": Tenant.objects.all().order_by("name"),
+                "role_choices": TenantMembership.ROLE_CHOICES,
+                "nav_section": "users",
+            },
+            status=status,
+        )
+
+    if request.method == "POST":
+        username = (request.POST.get("username") or "").strip()
+        email = (request.POST.get("email") or "").strip()
+        account_type = (request.POST.get("account_type") or "client").lower()
+        if account_type not in ("staff", "client"):
+            account_type = "client"
+        tenant_id = (request.POST.get("tenant_id") or "").strip()
+        role = (request.POST.get("role") or TenantMembership.ROLE_EDITOR).strip()
+        if role not in dict(TenantMembership.ROLE_CHOICES):
+            role = TenantMembership.ROLE_EDITOR
+
+        form_data = {
+            "username": username,
+            "email": email,
+            "account_type": account_type,
+            "tenant_id": tenant_id,
+            "role": role,
+        }
+
+        if account_type == "staff":
+            errors = []
+            if not request.user.is_superuser:
+                errors.append("Only a superuser can create an agency staff account.")
+            if not username:
+                errors.append("A username is required.")
+            elif User.objects.filter(username__iexact=username).exists():
+                errors.append(
+                    f"A user named “{username}” already exists. Pick a different username."
+                )
+            if not errors:
+                password = _generate_password()
+                with transaction.atomic():
+                    new_user = User.objects.create_user(
+                        username=username, email=email, password=password
+                    )
+                    new_user.is_active = True
+                    new_user.is_staff = True
+                    new_user.is_superuser = False
+                    new_user.save(
+                        update_fields=["is_active", "is_staff", "is_superuser"]
+                    )
+                label = "Agency staff"
+        else:
+            # client → must be scoped to an existing site.
+            tenant = (
+                Tenant.objects.filter(pk=tenant_id).first() if tenant_id else None
+            )
+            if tenant is None:
+                errors = ["Pick a site for this client."]
+            else:
+                new_user, password, errors = _create_scoped_login(
+                    tenant, username=username, email=email, role=role
+                )
+            label = "Client"
+
+        if errors:
+            if is_ajax:
+                return JsonResponse({"ok": False, "errors": errors}, status=400)
+            for e in errors:
+                messages.error(request, e)
+            return render_form(form_data, status=400)
+
+        token = _stash_credentials_in_session(request, new_user, password)
+        creds_url = (
+            f"{reverse('dashboard:user_credentials', args=[new_user.pk])}?token={token}"
+        )
+        messages.success(request, f"{label} account “{new_user.username}” created.")
+        if is_ajax:
+            return JsonResponse({"ok": True, "redirect": creds_url})
+        return redirect(creds_url)
+
+    return render_form(
+        {"username": "", "email": "", "account_type": "client", "tenant_id": "", "role": TenantMembership.ROLE_EDITOR}
     )
 
 

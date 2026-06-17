@@ -70,6 +70,7 @@ urlpatterns = [
     path("custom-domains/<int:pk>/force-delete/", views.custom_domain_force_delete_local, name="custom_domain_force_delete_local"),
 
     path("users/", views.user_list, name="user_list"),
+    path("users/new/", views.user_create, name="user_create"),
     path("users/<int:pk>/", views.user_detail, name="user_detail"),
     path("users/<int:pk>/credentials/", views.user_credentials, name="user_credentials"),
     path("users/<int:pk>/create-login/", views.user_create_login, name="user_create_login"),

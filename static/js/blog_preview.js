@@ -1,4 +1,4 @@
-/* Locked CMS — blog live-preview bridge (runs INSIDE the preview iframe).
+/* KATEK-AI CMS — blog live-preview bridge (runs INSIDE the preview iframe).
  *
  * Mirrors the main editor's preview bridge but scoped to a single blog post.
  * The dashboard (parent) sends `apply-content` with the post fields; this

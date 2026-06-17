@@ -1,4 +1,4 @@
-/* Locked CMS — editor client
+/* KATEK-AI CMS — editor client
  * Wires:
  *   - form fields (text, richtext, image upload, color, link)
  *   - live preview iframe (postMessage bridge)

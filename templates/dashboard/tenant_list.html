@@ -1,110 +1,220 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{% block title %}Sites · Locked CMS{% endblock %}
+{% block title %}Sites · KATEK-AI CMS{% endblock %}
 
 {% block content %}
-  <div class="page">
-    <div class="page-head">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    .sites{
+      --canvas:#F3F3F1;--surface:#FFFFFF;--surface-2:#F8F8F6;
+      --ink:#15141A;--ink-2:#42414B;--muted:#8A8893;
+      --line:#E7E5E0;--line-2:#EFEDE9;
+      --accent:#4B3FE4;--accent-wash:#ECEAFB;
+      --live:#0E9D63;--draft:#B07314;
+      --shadow:0 1px 2px rgba(20,19,26,.04), 0 10px 30px -14px rgba(20,19,26,.12);
+      --shadow-lift:0 4px 10px rgba(20,19,26,.06), 0 26px 50px -20px rgba(20,19,26,.26);
+      --r:16px;
+      max-width:1240px;margin:0 auto;padding:6px 0 48px;
+      font-family:"Inter",system-ui,sans-serif;color:var(--ink);
+    }
+
+    /* head */
+    .sites .head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px;}
+    .sites .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+    .sites .title{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:38px;letter-spacing:-.025em;margin:0;line-height:1;}
+    .sites .title em{font-style:normal;color:var(--muted);font-weight:500;}
+    .sites .btn-new{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:#fff;font-weight:600;font-size:14px;padding:11px 18px;border-radius:11px;text-decoration:none;transition:transform .12s ease, box-shadow .14s ease;box-shadow:var(--shadow);}
+    .sites .btn-new:hover{transform:translateY(-1px);box-shadow:var(--shadow-lift);}
+
+    /* toolbar */
+    .sites .toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:28px;}
+    .sites .search{position:relative;flex:1;max-width:340px;min-width:200px;}
+    .sites .search > svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
+    .sites .search input{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:11px 14px 11px 40px;font:inherit;font-size:14px;color:var(--ink);box-shadow:var(--shadow);}
+    .sites .search input::placeholder{color:var(--muted);}
+    .sites .search input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash);}
+    .sites .seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:3px;gap:2px;box-shadow:var(--shadow);}
+    .sites .seg a{padding:7px 15px;border-radius:8px;font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;transition:all .14s;}
+    .sites .seg a:hover{color:var(--ink);}
+    .sites .seg a.on{background:var(--ink);color:#fff;font-weight:600;}
+    .sites .count{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted);}
+    .sites .btn-clear{font-size:13px;color:var(--muted);text-decoration:none;padding:7px 4px;}
+    .sites .btn-clear:hover{color:var(--ink);}
+
+    /* gallery */
+    .sites .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+    @media (max-width:1040px){.sites .gallery{grid-template-columns:repeat(2,1fr);}}
+    @media (max-width:640px){.sites .gallery{grid-template-columns:1fr;}}
+
+    .sites .site{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;display:flex;flex-direction:column;}
+    .sites .site:hover{transform:translateY(-4px);box-shadow:var(--shadow-lift);border-color:#DCD9D2;}
+
+    /* browser chrome */
+    .sites .chrome{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line-2);background:var(--surface-2);}
+    .sites .dots{display:flex;gap:5px;}
+    .sites .dots i{width:8px;height:8px;border-radius:50%;display:block;}
+    .sites .dots i:nth-child(1){background:#E5675B;}.sites .dots i:nth-child(2){background:#E7B04A;}.sites .dots i:nth-child(3){background:#5FB562;}
+    .sites .url{flex:1;font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line-2);border-radius:6px;padding:3px 9px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+    /* preview frame */
+    .sites .frame{position:relative;aspect-ratio:16/10;overflow:hidden;background:var(--surface-2);}
+    .sites .shot{position:absolute;top:0;left:0;width:1280px;height:800px;border:0;transform-origin:0 0;pointer-events:none;background:#fff;}
+    .sites .frame.loading::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,var(--surface-2) 30%,#fff 50%,var(--surface-2) 70%);background-size:200% 100%;animation:sites-shimmer 1.3s linear infinite;}
+    @keyframes sites-shimmer{to{background-position:-200% 0;}}
+
+    /* branded fallback (no public URL yet) */
+    .sites .fallback{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:22px;color:#fff;}
+    .sites .fallback .fb-mark{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:30px;letter-spacing:-.02em;}
+    .sites .fallback .fb-name{font-size:12px;opacity:.85;margin-top:4px;}
+    .sites .fb--0{background:linear-gradient(150deg,#4B3FE4,#7A6DF0);}
+    .sites .fb--1{background:linear-gradient(150deg,#0E9D8A,#13B89B);}
+    .sites .fb--2{background:linear-gradient(150deg,#11233A,#24405F);}
+    .sites .fb--3{background:linear-gradient(150deg,#B5532A,#D07A45);}
+
+    /* hover overlay */
+    .sites .overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,19,26,0) 40%,rgba(20,19,26,.55));opacity:0;transition:opacity .18s ease;display:flex;align-items:flex-end;justify-content:center;gap:8px;padding:16px;}
+    .sites .site:hover .overlay,.sites .site:focus-within .overlay{opacity:1;}
+    .sites .ov-btn{background:#fff;color:var(--ink);font-weight:600;font-size:12.5px;padding:8px 14px;border-radius:9px;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.25);transform:translateY(6px);transition:transform .18s ease;}
+    .sites .site:hover .ov-btn,.sites .site:focus-within .ov-btn{transform:translateY(0);}
+    .sites .ov-btn.ghost{background:rgba(255,255,255,.18);color:#fff;}
+
+    /* meta footer */
+    .sites .meta{display:flex;align-items:center;gap:12px;padding:14px 16px;}
+    .sites .meta-main{flex:1;min-width:0;}
+    .sites .meta-name{font-weight:600;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);text-decoration:none;}
+    .sites .meta-name:hover{color:var(--accent);}
+    .sites .meta-sub{font-size:12.5px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .sites .pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;}
+    .sites .pill .d{width:6px;height:6px;border-radius:50%;}
+    .sites .pill.live{color:var(--live);background:#E6F5EE;}.sites .pill.live .d{background:var(--live);}
+    .sites .pill.draft{color:var(--draft);background:#F6EEDD;}.sites .pill.draft .d{background:var(--draft);}
+
+    /* empty */
+    .sites .empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:52px 28px;text-align:center;box-shadow:var(--shadow);}
+    .sites .empty h3{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px;margin:0 0 6px;}
+    .sites .empty p{margin:0 0 18px;color:var(--muted);font-size:14px;}
+    .sites .empty .btn-new{box-shadow:none;}
+  </style>
+
+  <div class="sites">
+    <div class="head">
       <div>
-        <h1 class="page-title">Sites</h1>
-        <p class="page-subtitle">Every client site you manage.</p>
+        <p class="eyebrow">KATEK-AI · CMS</p>
+        <h1 class="title">Sites <em>/ {{ tenants|length }} client site{{ tenants|length|pluralize }}</em></h1>
       </div>
-      <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+      <a href="{% url 'dashboard:tenant_create' %}" class="btn-new">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        New client site
+      </a>
     </div>
 
-    <form method="get" class="filter-bar">
-      <input
-        class="input"
-        type="search"
-        name="q"
-        placeholder="Search by name or subdomain…"
-        value="{{ q }}"
-        autocomplete="off"
-        style="max-width: 380px;"
-      >
-      <div class="filter-pills">
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=all"
-           class="filter-pill {% if status == 'all' or not status %}active{% endif %}">All</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=published"
-           class="filter-pill {% if status == 'published' %}active{% endif %}">Published</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=draft"
-           class="filter-pill {% if status == 'draft' %}active{% endif %}">Draft</a>
+    <form method="get" class="toolbar">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" name="q" placeholder="Search sites…" value="{{ q }}" autocomplete="off">
+      </div>
+      <div class="seg">
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=all" class="{% if status == 'all' or not status %}on{% endif %}">All</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=published" class="{% if status == 'published' %}on{% endif %}">Published</a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}status=draft" class="{% if status == 'draft' %}on{% endif %}">Draft</a>
       </div>
       {% if q or status and status != 'all' %}
-        <a href="?" class="btn btn-ghost btn-sm">Clear</a>
+        <a href="?" class="btn-clear">Clear</a>
       {% endif %}
-      <noscript><button type="submit" class="btn btn-secondary btn-sm">Search</button></noscript>
+      <span class="count">{{ tenants|length }} site{{ tenants|length|pluralize }}</span>
+      <noscript><button type="submit" class="btn-clear">Search</button></noscript>
     </form>
 
     {% if tenants %}
-      <div class="card card-flush content-block">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Site name</th>
-              <th>Subdomain</th>
-              <th>Template</th>
-              <th>Status</th>
-              <th>Members</th>
-              <th>Last edited</th>
-              <th class="right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for tenant in tenants %}
-              <tr>
-                <td>
-                  <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="cell-strong">
-                    {{ tenant.name }}
-                  </a>
-                </td>
-                <td><code>{{ tenant.subdomain }}</code></td>
-                <td>{{ tenant.template.name }}</td>
-                <td>
-                  {% if tenant.is_published %}
-                    <span class="badge badge-success">Published</span>
-                  {% else %}
-                    <span class="badge badge-soft">Draft</span>
-                  {% endif %}
-                </td>
-                <td>
-                  <a href="{% url 'dashboard:tenant_detail' tenant.pk %}#members"
-                     class="cell-link">
-                    {{ tenant.member_count }} member{{ tenant.member_count|pluralize }}
-                  </a>
-                </td>
-                <td class="cell-muted">
-                  {% if tenant.last_edited %}
-                    {{ tenant.last_edited|naturaltime }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td class="right">
-                  <div class="row-actions">
-                    <a href="{{ tenant.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">View site ↗</a>
-                    <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
-                    <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="btn btn-ghost btn-sm">Details</a>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="gallery">
+        {% for tenant in tenants %}
+          <article class="site">
+            <div class="chrome">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="url">{{ tenant.subdomain }}</span>
+            </div>
+
+            <div class="frame{% if tenant.public_url %} loading{% endif %}">
+              {% if tenant.public_url %}
+                {# Live preview: a scaled-down iframe of the actual site. The site's
+                   origin must allow embedding from this dashboard (see notes). #}
+                <iframe class="shot" src="{{ tenant.public_url }}" loading="lazy"
+                        scrolling="no" tabindex="-1" aria-hidden="true"
+                        sandbox="allow-scripts allow-same-origin"></iframe>
+              {% else %}
+                {# No public URL yet (e.g. a fresh draft): branded placeholder. #}
+                <div class="fallback fb--{% cycle '0' '1' '2' '3' %}">
+                  <span class="fb-mark">{{ tenant.name|slice:":2"|upper }}</span>
+                  <span class="fb-name">{{ tenant.name }}</span>
+                </div>
+              {% endif %}
+
+              <div class="overlay">
+                <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="ov-btn">Open editor</a>
+                {% if tenant.public_url %}
+                  <a href="{{ tenant.public_url }}" target="_blank" rel="noopener" class="ov-btn ghost">View ↗</a>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="meta">
+              <div class="meta-main">
+                <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="meta-name">{{ tenant.name }}</a>
+                <div class="meta-sub">
+                  {{ tenant.template.name }}
+                  · {{ tenant.member_count }} member{{ tenant.member_count|pluralize }}
+                  {% if tenant.last_edited %} · edited {{ tenant.last_edited|naturaltime }}{% endif %}
+                </div>
+              </div>
+              {% if tenant.is_published %}
+                <span class="pill live"><span class="d"></span>Live</span>
+              {% else %}
+                <span class="pill draft"><span class="d"></span>Draft</span>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
       </div>
     {% else %}
-      <div class="empty content-block">
+      <div class="empty">
         {% if q or status and status != 'all' %}
           <h3>No sites match those filters</h3>
           <p>Try clearing the search or switching the status filter.</p>
-          <a href="?" class="btn btn-secondary">Clear filters</a>
+          <a href="?" class="btn-new">Clear filters</a>
         {% else %}
           <h3>No sites yet</h3>
           <p>Create your first client site to start.</p>
-          <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+          <a href="{% url 'dashboard:tenant_create' %}" class="btn-new">+ New client site</a>
         {% endif %}
       </div>
     {% endif %}
   </div>
+
+  {# Scales each live-preview iframe to fit its card, at any breakpoint. #}
+  <script>
+    (function () {
+      function fit(shot) {
+        var frame = shot.parentElement;
+        shot.style.transform = "scale(" + (frame.clientWidth / 1280) + ")";
+        frame.classList.remove("loading");
+      }
+      function fitAll() { document.querySelectorAll(".sites .shot").forEach(fit); }
+      document.querySelectorAll(".sites .shot").forEach(function (s) {
+        if (s.complete) fit(s);
+        s.addEventListener("load", function () { fit(s); });
+      });
+      window.addEventListener("resize", fitAll);
+      if (window.ResizeObserver) {
+        var ro = new ResizeObserver(function (entries) {
+          entries.forEach(function (e) {
+            var s = e.target.querySelector(".shot");
+            if (s) s.style.transform = "scale(" + (e.contentRect.width / 1280) + ")";
+          });
+        });
+        document.querySelectorAll(".sites .frame").forEach(function (f) { ro.observe(f); });
+      }
+      fitAll();
+    })();
+  </script>
 {% endblock %}

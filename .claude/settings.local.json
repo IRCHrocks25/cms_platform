@@ -75,7 +75,7 @@
       "Bash(DATABASE_URL=\"sqlite:///test_blog.sqlite3\" DJANGO_ALLOWED_HOSTS=\"*\" TENANT_BASE_DOMAIN=\"localhost\" python manage.py test --noinput -v1)",
       "Bash(python manage.py shell -c ' *)",
       "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.template.loader import get_template; get_template\\('dashboard/tenant_detail.html'\\); print\\('TEMPLATE OK'\\)\")",
-      "Bash(python \"C:/Users/ADMIN/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"SaaS multi-tenant CMS admin dashboard operator console professional modern\" --design-system -p \"Locked CMS\")",
+      "Bash(python \"C:/Users/ADMIN/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"SaaS multi-tenant CMS admin dashboard operator console professional modern\" --design-system -p \"KATEK-AI CMS\")",
       "Bash(python -c \"import yaml,sys; d=yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('compose OK, web labels:', len\\(d['services']['web']['labels']\\)\\); yaml.safe_load\\(open\\('deploy/traefik/origin-cert.yml'\\)\\); print\\('origin-cert.yml OK'\\)\")",
       "Bash(ls deploy/traefik/ deploy/cloudflare/)",
       "Bash(ls deploy/DOKPLOY.md)",
@@ -103,7 +103,14 @@
       "PowerShell(python manage.py check)",
       "PowerShell(python manage.py test core.tests 2>$null; exit 0)",
       "PowerShell(python _inspect_chrome.py)",
-      "PowerShell(Remove-Item *)"
+      "PowerShell(Remove-Item *)",
+      "Bash(python manage.py showmigrations core)",
+      "Bash(python manage.py makemigrations --check --dry-run)",
+      "Bash(python manage.py dbshell -- -c \"\\\\d core_customdomain\")",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.db import connection; c=connection.cursor\\(\\); c.execute\\(\\\\\"select column_name from information_schema.columns where table_name='core_customdomain' order by ordinal_position\\\\\"\\); print\\([r[0] for r in c.fetchall\\(\\)]\\)\")",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.db import connection; c=connection.cursor\\(\\); c.execute\\(\\\\\"ALTER TABLE core_customdomain ADD COLUMN IF NOT EXISTS cloudflare_hostname_id varchar\\(255\\) NOT NULL DEFAULT ''\\\\\"\\); print\\('added'\\); c.execute\\(\\\\\"select column_name from information_schema.columns where table_name='core_customdomain' order by ordinal_position\\\\\"\\); print\\([r[0] for r in c.fetchall\\(\\)]\\)\")",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from core.models import CustomDomain; print\\('rows:', CustomDomain.objects.count\\(\\)\\); print\\([d.cloudflare_hostname_id for d in CustomDomain.objects.all\\(\\)[:5]]\\)\")",
+      "Bash(python -c \"import django,os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','cms_platform.settings'\\); django.setup\\(\\); from django.urls import reverse; print\\('reverse:', reverse\\('dashboard:user_create'\\)\\)\")"
     ]
   }
 }

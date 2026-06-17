@@ -1,4 +1,4 @@
-/* Locked CMS — featured-posts drag-to-reorder on the blog list page.
+/* KATEK-AI CMS — featured-posts drag-to-reorder on the blog list page.
  * Posts the new order to the reorder endpoint as JSON.
  */
 (function () {

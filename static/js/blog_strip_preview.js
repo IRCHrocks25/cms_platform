@@ -1,4 +1,4 @@
-/* Locked CMS — live homepage-strip preview on the blog list screen.
+/* KATEK-AI CMS — live homepage-strip preview on the blog list screen.
  *
  * Loads the chosen blog style's strip fragment in an iframe, reflecting the
  * *unsaved* strip settings (style / heading / count / on-off) via query

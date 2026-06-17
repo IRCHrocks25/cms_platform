@@ -28,7 +28,7 @@
           </button>
           <a href="{% if request.tenant %}{{ tenant_home_url }}{% else %}{{ agency_root_url }}{% endif %}" class="brand">
             <span class="brand-mark">L</span>
-            <span>{% if request.tenant %}{{ request.tenant.name }}{% else %}Locked CMS{% endif %}</span>
+            <span>{% if request.tenant %}{{ request.tenant.name }}{% else %}KATEK-AI CMS{% endif %}</span>
           </a>
         </div>
 
@@ -39,7 +39,7 @@
           <a href="{% if request.tenant %}{{ tenant_home_url }}{% else %}{{ agency_root_url }}{% endif %}" class="sidebar-brand">
             <span class="brand-mark">L</span>
             <span class="sidebar-brand-text">
-              <span class="sidebar-brand-name">{% if request.tenant %}{{ request.tenant.name }}{% else %}Locked CMS{% endif %}</span>
+              <span class="sidebar-brand-name">{% if request.tenant %}{{ request.tenant.name }}{% else %}KATEK-AI CMS{% endif %}</span>
               <span class="sidebar-brand-sub">{% if request.tenant %}Client editor{% else %}Agency console{% endif %}</span>
             </span>
           </a>

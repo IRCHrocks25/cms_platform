@@ -1,6 +1,6 @@
 """Tests for the GHL /embed/ auto-login view.
 
-This view is hit when a user clicks the "Locked CMS" Custom Menu Link inside
+This view is hit when a user clicks the "KATEK-AI CMS" Custom Menu Link inside
 a GHL sub-account. GHL substitutes ?location_id={{location.id}}&email={{user.email}}
 into the URL; the view trusts those params (Phase 1), finds the matching
 Tenant + User, logs them in, and redirects to the editor."""
