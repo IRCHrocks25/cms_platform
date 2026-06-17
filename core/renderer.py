@@ -12,7 +12,10 @@ from typing import Any
 from bs4 import BeautifulSoup
 from django.utils.html import escape
 
-from core.services.sanitizer import sanitize_html
+from core.services.template_sanitizer import (
+    canonicalize_fragment,
+    sanitize_template_html,
+)
 
 
 PREVIEW_BRIDGE_SCRIPT = """
@@ -238,11 +241,11 @@ def _apply_field(el, value: str, ftype: str) -> None:
     # No-op short-circuit. Skip the write when the value already equals what's
     # in the element — typically every render where the tenant hasn't actually
     # edited that field (merge_with_defaults pre-fills every field with its
-    # default, extracted from this same element). Without this short-circuit,
-    # the richtext path roundtrips through sanitize_html (which is designed
-    # for untrusted blog input — strips classes, unwraps span/div/h1/h5/h6,
-    # collapses whitespace) on every render, breaking the agency's design
-    # even when nobody edited anything.
+    # default, extracted from this same element). The richtext path falls back
+    # to ``sanitize_template_html`` on a real edit, which preserves classes,
+    # structural tags, and design-bearing attributes (unlike the blog-body
+    # ``sanitize_html``, which is built for untrusted contenteditable input
+    # and would strip the agency's design on every render).
     if ftype == "image":
         if el.get("src", "") == value:
             return
@@ -270,23 +273,35 @@ def _apply_field(el, value: str, ftype: str) -> None:
         el["style"] = (cleaned + f" {prop}: {value};").strip()
         return
     if ftype == "richtext":
-        # Compare current inner HTML to the value before deciding to rewrite.
-        # decode_contents() returns the inner HTML byte-for-byte from the
-        # parsed soup, so a no-edit value (which was extracted via the same
-        # decode_contents().strip() in the parser) will match exactly.
+        # First pass: byte-for-byte equality. Most no-edit renders hit
+        # this and we're done — saves a re-parse.
         current = (el.decode_contents() or "").strip()
-        if current == (value or "").strip():
+        value_stripped = (value or "").strip()
+        if current == value_stripped:
             return
+        # Second pass: normalize both sides through the same parser so
+        # cosmetic round-trip drift (attribute order, entity encoding,
+        # whitespace inside tags) doesn't push us into the destructive
+        # path on a render that *should* be a no-op. The parser pulls
+        # defaults via decode_contents(); BS4 + lxml are not idempotent
+        # on every input, so the stored default and the renderer's
+        # second pass can disagree byte-for-byte while representing the
+        # same fragment. Canonicalize both, then compare.
+        if canonicalize_fragment(current) == canonicalize_fragment(value_stripped):
+            return
+        # Real edit. Use the template-aware sanitizer (preserves classes,
+        # styles, structural tags) rather than the blog-body sanitizer.
+        # See ``core/services/template_sanitizer.py`` for the trust model.
         el.clear()
-        value = sanitize_html(value)
-        fragment = BeautifulSoup(value, "lxml").body
+        cleaned = sanitize_template_html(value_stripped)
+        fragment = BeautifulSoup(cleaned, "lxml").body
         if fragment:
             if el.name in _PHRASING_HOSTS:
                 _flatten_for_phrasing_host(fragment)
             for child in list(fragment.children):
                 el.append(child)
         else:
-            el.append(value)
+            el.append(cleaned)
         return
     # text type
     if el.get_text() == value:
