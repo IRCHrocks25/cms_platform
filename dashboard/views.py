@@ -207,11 +207,13 @@ def template_detail(request, pk):
         messages.success(request, "Template updated.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
+    tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
     return render(
         request,
         "dashboard/template_form.html",
         {
             "template": template,
+            "tenants_using": tenants_using,
             "form_data": {"name": "", "description": "", "html_source": ""},
         },
     )
@@ -821,6 +823,7 @@ def tenant_detail(request, pk):
     activity = (
         tenant.versions.select_related("saved_by").order_by("-saved_at")[:20]
     )
+    available_templates = Template.objects.order_by("name")
     return render(
         request,
         "dashboard/tenant_detail.html",
@@ -832,6 +835,7 @@ def tenant_detail(request, pk):
             "custom_domain": custom_domain,
             "nav_section": "sites",
             "role_choices": TenantMembership.ROLE_CHOICES,
+            "available_templates": available_templates,
             # URLs for visiting the client's live site (subdomain host) and a
             # fallback that always works on the current host (/site/<sub>/).
             "site_urls": build_tenant_url_bundle(request, tenant),
@@ -880,6 +884,42 @@ def tenant_settings_update(request, pk):
 
     tenant.save(update_fields=["name", "subdomain", "ghl_location_id", "updated_at"])
     messages.success(request, "Site settings updated.")
+    return redirect("dashboard:tenant_detail", pk=tenant.pk)
+
+
+@agency_operator_required
+@require_POST
+def tenant_template_swap(request, pk):
+    """Re-point ``Tenant.template`` at a different ``Template`` row.
+
+    The tenant's ``content`` JSON is left intact: fields that exist under
+    the same ``section.field`` id in the new template's schema keep
+    rendering with the saved value; fields that don't have a slot in the
+    new schema sit dormant on the row and come back if the agency ever
+    swaps back. Nothing is deleted.
+    """
+    tenant = get_object_or_404(Tenant.objects.select_related("template"), pk=pk)
+    raw = (request.POST.get("template_id") or "").strip()
+    try:
+        new_template = Template.objects.get(pk=int(raw))
+    except (Template.DoesNotExist, ValueError, TypeError):
+        messages.error(request, "Pick a valid template.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+
+    if new_template.pk == tenant.template_id:
+        messages.info(request, f"“{tenant.name}” already uses that template.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+
+    old_template_name = tenant.template.name if tenant.template_id else "—"
+    tenant.template = new_template
+    tenant.save(update_fields=["template", "updated_at"])
+    messages.success(
+        request,
+        f"Switched “{tenant.name}” from “{old_template_name}” to "
+        f"“{new_template.name}”. Existing content survives where field IDs "
+        "match the new template; the rest stays on the row and comes back "
+        "if you switch back."
+    )
     return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
 

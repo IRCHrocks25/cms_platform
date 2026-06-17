@@ -181,8 +181,31 @@
             </div>
             <div class="overview-row">
               <span class="overview-key">Template</span>
-              <span class="overview-val" title="{{ tenant.template.name }}">{{ tenant.template.name }}</span>
+              <span class="overview-val" title="{{ tenant.template.name }}">
+                <a href="{% url 'dashboard:template_detail' tenant.template.pk %}">{{ tenant.template.name }}</a>
+                <span class="overview-actions" style="margin-left: 8px; font-size: 12px;">
+                  <a href="{% url 'dashboard:template_detail' tenant.template.pk %}" class="link-muted">Edit&nbsp;HTML</a>
+                  &nbsp;·&nbsp;
+                  <a href="#change-template" class="link-muted" onclick="document.getElementById('change-template-details').open=true; return true;">Change</a>
+                </span>
+              </span>
             </div>
+            <details id="change-template-details" class="overview-row" style="grid-column: 1 / -1;">
+              <summary id="change-template" style="cursor: pointer; font-size: 13px; color: var(--color-muted, #666);">Swap to a different template</summary>
+              <form method="post" action="{% url 'dashboard:tenant_template_swap' tenant.pk %}" style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                {% csrf_token %}
+                <label for="swap-template-id" class="sr-only">New template</label>
+                <select id="swap-template-id" name="template_id" required style="flex: 1; min-width: 220px;">
+                  {% for t in available_templates %}
+                    <option value="{{ t.pk }}"{% if t.pk == tenant.template_id %} selected disabled{% endif %}>{{ t.name }}{% if t.pk == tenant.template_id %} (current){% endif %}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm">Switch template</button>
+                <span style="font-size: 12px; color: var(--color-muted, #666);">
+                  Existing content survives where field IDs match the new template.
+                </span>
+              </form>
+            </details>
             <div class="overview-row">
               <span class="overview-key">Owner</span>
               <span class="overview-val">

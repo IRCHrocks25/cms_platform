@@ -27,6 +27,7 @@ urlpatterns = [
     # Back-compat alias — old bookmarks/redirects still resolve.
     path("sites/<int:pk>/credentials/", views.site_credentials, name="site_credentials"),
     path("sites/<int:pk>/settings/", views.tenant_settings_update, name="tenant_settings_update"),
+    path("sites/<int:pk>/template/", views.tenant_template_swap, name="tenant_template_swap"),
     path("sites/<int:pk>/custom-domain/", views.tenant_custom_domain_section, name="tenant_custom_domain_section"),
     path("sites/<int:pk>/custom-domain/add/", views.tenant_custom_domain_add, name="tenant_custom_domain_add"),
     path("sites/<int:pk>/custom-domain/verify/", views.tenant_custom_domain_verify, name="tenant_custom_domain_verify"),
