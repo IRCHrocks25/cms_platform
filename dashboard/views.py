@@ -881,6 +881,12 @@ def tenant_detail(request, pk):
             "add_member_candidates": add_member_candidates,
             "activity": activity,
             "custom_domain": custom_domain,
+            # The custom-domain partial is included on initial load here and
+            # re-rendered via fetch-swap by _render_custom_domain_partial.
+            # Both paths need target_ip + dns_name, or the copy button and
+            # DNS rows come back blank until the first interaction.
+            "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
+            "dns_name": _dns_name_for_domain(custom_domain.domain) if custom_domain else None,
             "nav_section": "sites",
             "role_choices": TenantMembership.ROLE_CHOICES,
             "available_templates": available_templates,

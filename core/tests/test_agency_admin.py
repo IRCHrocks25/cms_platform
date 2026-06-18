@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template, Tenant, TenantMembership
+from core.models import CustomDomain, Template, Tenant, TenantMembership
 
 
 User = get_user_model()
@@ -378,3 +378,48 @@ class DeleteSiteTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertFalse(Tenant.objects.filter(pk=tenant_pk).exists())
+
+
+@override_settings(
+    TENANT_BASE_DOMAIN="localhost", CUSTOM_DOMAIN_TARGET_IP="203.0.113.7"
+)
+class CustomDomainSectionInitialLoadTests(TestCase):
+    """The custom-domain copy button must carry the target IP on the FIRST
+    page load — not only after a fetch-swap (add/verify/delete). The initial
+    include inherits the tenant_detail view context, so the view must seed
+    target_ip and dns_name just like _render_custom_domain_partial does."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("agency", password="x", is_staff=True)
+        template = _make_template()
+        cls.tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=template, owner=cls.staff,
+        )
+
+    def _get_detail(self):
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(self.staff)
+        return c.get(reverse("dashboard:tenant_detail", args=[self.tenant.pk]))
+
+    def test_target_ip_in_copy_button_on_initial_load(self):
+        response = self._get_detail()
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('data-copy="203.0.113.7"', body)
+        self.assertIn("<code>203.0.113.7</code>", body)
+
+    def test_pending_domain_shows_ip_and_dns_name_on_initial_load(self):
+        # Mirrors the live State B (sites/27): a domain added but not yet
+        # verified. Both the copy button (target_ip) and the Name/Host cell
+        # (dns_name) must populate on first load, not only after fetch-swap.
+        CustomDomain.objects.create(
+            tenant=self.tenant, domain="healthwavercm.com", is_verified=False
+        )
+        response = self._get_detail()
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('data-copy="203.0.113.7"', body)
+        self.assertIn("<code>203.0.113.7</code>", body)
+        # Root domain (2 labels) → dns_name "@" rendered in the host cell.
+        self.assertIn("<code>@</code>", body)
