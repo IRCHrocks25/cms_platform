@@ -91,10 +91,22 @@ All three routers point at a service **we declare ourselves**:
 traefik.http.services.cms-web.loadbalancer.server.port=8000
 ```
 
-| Router       | Rule                                            | Priority |
-|--------------|-------------------------------------------------|----------|
-| `cms-apex`   | `HostRegexp(`^sites\.katek\.app$`)`             | 100      |
-| `cms-tenants`| `HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)` | 10       |
+| Router            | Entrypoint  | Rule                                            | Priority |
+|-------------------|-------------|-------------------------------------------------|----------|
+| `cms-apex`        | `websecure` | `HostRegexp(`^sites\.katek\.app$`)`             | 100      |
+| `cms-tenants`     | `websecure` | `HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)` | 10       |
+| `cms-apex-web`    | `web`       | `HostRegexp(`^sites\.katek\.app$`)`             | 100      |
+| `cms-tenants-web` | `web`       | `HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)` | 10       |
+
+The two `*-web` routers listen on the **`web` (:80)** entrypoint and carry the
+`cms-redirect-to-https` middleware (`redirectScheme` → https, permanent), so plain
+HTTP to the agency hosts is redirected at the origin — a backstop to Cloudflare's
+edge "Always Use HTTPS" and consistent with the custom-domain routers. They define
+their **own** middleware in the compose labels rather than reusing the syncer's
+`cms-redirect-to-https@file`, which only exists when ≥1 custom domain is verified.
+We deliberately do **not** use Django `SECURE_SSL_REDIRECT`: it would 301 the
+internal `/healthz` probe (plain `http://localhost:8000`, no `X-Forwarded-Proto`)
+and break the healthcheck.
 
 There is **no** `.+` catch-all router (shared host — see "Custom client domains"
 below). Custom client domains are routed by per-domain routers in a dynamic file,
@@ -171,7 +183,7 @@ expected to work — but confirm after every (re)deploy:
 
 ```bash
 docker exec dokploy-traefik wget -qO- http://localhost:8080/api/http/routers \
-  | grep -o '"name":"cms-[^"]*"'        # expect cms-apex@docker, cms-tenants@docker (custom-domain routers come from the dynamic file, named cms-cd-<pk>@file)
+  | grep -o '"name":"cms-[^"]*"'        # expect cms-apex@docker, cms-tenants@docker, cms-apex-web@docker, cms-tenants-web@docker (custom-domain routers come from the dynamic file, named cms-cd-<pk>@file)
 ```
 
 If nothing comes back, it deployed as a Swarm service: move every

@@ -95,6 +95,44 @@ services:
       - traefik.http.routers.cms-tenants.service=cms-web
       - traefik.http.routers.cms-tenants.priority=10
 
+      # HTTP→HTTPS redirect (origin-level) for the agency apex + tenant hosts.
+      # The CF-fronted hosts already get upgraded at the Cloudflare edge ("Always
+      # Use HTTPS"), but that's the ONLY redirect today — nothing fires if a
+      # request reaches the origin on :80 directly (e.g. someone hitting the IP
+      # with a Host header, or the edge toggle off). These web-entrypoint routers
+      # make the redirect consistent with the custom-domain routers (which already
+      # 30x http→https via core/services/traefik_routes.py) and independent of the
+      # CF toggle. The redirect middleware short-circuits before the backend, so no
+      # plain-HTTP request ever reaches Django — which is why we DON'T use Django's
+      # SECURE_SSL_REDIRECT (it would 301 the internal /healthz probe that hits
+      # http://localhost:8000 with no X-Forwarded-Proto and break the healthcheck).
+      #
+      # Self-contained middleware (docker provider), NOT the syncer's
+      # cms-redirect-to-https@file: that file middleware only exists when there's
+      # ≥1 verified custom domain, so referencing it here would 404 these routers
+      # whenever the verified set is empty. Same redirectScheme config as the
+      # syncer's, so behavior is identical across all hosts.
+      - traefik.http.middlewares.cms-redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.cms-redirect-to-https.redirectscheme.permanent=true
+
+      # Agency apex on :80 → redirect. Anchored HostRegexp (matches only the apex),
+      # so this is not a port-80 catch-all on the shared host. No tls (plain HTTP);
+      # service is required by Traefik even though the middleware answers first.
+      - traefik.http.routers.cms-apex-web.rule=HostRegexp(`^sites\.katek\.app$`)
+      - traefik.http.routers.cms-apex-web.entrypoints=web
+      - traefik.http.routers.cms-apex-web.middlewares=cms-redirect-to-https
+      - traefik.http.routers.cms-apex-web.service=cms-web
+      - traefik.http.routers.cms-apex-web.priority=100
+
+      # Tenant subdomains on :80 → redirect. Same anchored regex as cms-tenants.
+      # Does not match client custom domains (different hosts), so their ACME
+      # HTTP-01 challenge on :80 is untouched.
+      - traefik.http.routers.cms-tenants-web.rule=HostRegexp(`^[a-z0-9-]+\.sites\.katek\.app$`)
+      - traefik.http.routers.cms-tenants-web.entrypoints=web
+      - traefik.http.routers.cms-tenants-web.middlewares=cms-redirect-to-https
+      - traefik.http.routers.cms-tenants-web.service=cms-web
+      - traefik.http.routers.cms-tenants-web.priority=10
+
       # NOTE: no `.+` catch-all router. This Dokploy host is SHARED with other
       # stacks, and a catch-all would make this app the default backend for every
       # unmatched host on the box. Custom client domains are routed instead by
