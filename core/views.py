@@ -258,21 +258,35 @@ def embed_assistant_loader(request):
   launcher.style.alignItems = "center";
   launcher.style.gap = "10px";
   launcher.style.border = "none";
-  launcher.style.padding = "12px 14px";
+  launcher.style.padding = "8px 12px 8px 8px";
   launcher.style.borderRadius = "999px";
-  launcher.style.background = "linear-gradient(135deg,#1d4ed8,#1e3a8a)";
+  launcher.style.background = "linear-gradient(135deg,#0f172a,#1e293b)";
   launcher.style.color = "#fff";
   launcher.style.fontSize = "13px";
   launcher.style.fontWeight = "600";
   launcher.style.cursor = "pointer";
-  launcher.style.boxShadow = "0 12px 32px -16px rgba(30,58,138,.65)";
-  launcher.textContent = script.dataset.launcherLabel || "Need help? Ask us!";
+  launcher.style.boxShadow = "0 14px 40px -18px rgba(0,0,0,.65)";
+
+  var orb = document.createElement("span");
+  orb.style.width = "34px";
+  orb.style.height = "34px";
+  orb.style.borderRadius = "999px";
+  orb.style.background = "radial-gradient(circle at 30% 30%, #1d4ed8, #111827 68%)";
+  orb.style.display = "inline-block";
+  orb.style.boxShadow = "0 0 0 6px rgba(236,72,153,.16)";
+
+  var label = document.createElement("span");
+  label.textContent = script.dataset.launcherLabel || "Need help? Ask us!";
+  label.style.whiteSpace = "nowrap";
+
+  launcher.appendChild(orb);
+  launcher.appendChild(label);
 
   launcher.addEventListener("click", function () {
     var open = frame.style.display !== "none";
     frame.style.display = open ? "none" : "block";
     launcher.setAttribute("aria-expanded", open ? "false" : "true");
-    launcher.textContent = open ? (script.dataset.launcherLabel || "Need help? Ask us!") : "Close assistant";
+    label.textContent = open ? (script.dataset.launcherLabel || "Need help? Ask us!") : "Close assistant";
   });
 
   root.appendChild(frame);
