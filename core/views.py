@@ -5,6 +5,7 @@ from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonRespo
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 from .models import EmbeddableAssistant, Page, Tenant
 from .renderer import render_site, merge_with_defaults, apply_head_settings
@@ -298,10 +299,11 @@ def embed_assistant_loader(request):
 
 
 @require_GET
+@xframe_options_exempt
 def embed_assistant_frame(request, slug):
     assistant = get_object_or_404(EmbeddableAssistant, slug=slug, is_active=True)
     config = _assistant_config(assistant, request)
-    return render(
+    response = render(
         request,
         "embed/assistant_widget.html",
         {
@@ -310,6 +312,9 @@ def embed_assistant_frame(request, slug):
             "chat_endpoint": f"/api/embed/chat/{assistant.slug}/",
         },
     )
+    # This endpoint is intentionally embeddable on third-party sites.
+    response["Content-Security-Policy"] = "frame-ancestors *;"
+    return response
 
 
 @require_http_methods(["POST"])
