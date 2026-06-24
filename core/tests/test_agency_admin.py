@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template, Tenant, TenantMembership
+from core.models import EmbeddableAssistant, Template, Tenant, TenantMembership
 
 
 User = get_user_model()
@@ -378,3 +378,68 @@ class DeleteSiteTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertFalse(Tenant.objects.filter(pk=tenant_pk).exists())
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class AssistantDashboardTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("agency", password="x", is_staff=True)
+        cls.outsider = User.objects.create_user("eve", password="x")
+        cls.assistant = EmbeddableAssistant.objects.create(
+            name="Acme Sales Bot",
+            slug="acme-sales",
+            brand="Acme",
+            greeting="Hi, ask me anything about Acme.",
+            suggestions="Pricing|Book a demo|Talk to support",
+            is_active=True,
+        )
+
+    def _agency_client(self, *, login_as_staff=True):
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(self.staff if login_as_staff else self.outsider)
+        return c
+
+    def test_staff_can_open_assistant_list(self):
+        response = self._agency_client().get(reverse("dashboard:assistant_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "dashboard/assistant_list.html")
+        self.assertContains(response, "AI Assistants")
+        self.assertContains(response, self.assistant.name)
+
+    def test_non_staff_cannot_open_assistant_list(self):
+        response = self._agency_client(login_as_staff=False).get(
+            reverse("dashboard:assistant_list")
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_can_create_assistant(self):
+        response = self._agency_client().post(
+            reverse("dashboard:assistant_create"),
+            data={
+                "name": "Support Bot",
+                "slug": "support-bot",
+                "brand": "Support",
+                "brand_full": "Support AI",
+                "greeting": "Hello there",
+                "suggestions": "Help|Onboarding",
+                "is_active": "on",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(EmbeddableAssistant.objects.filter(slug="support-bot").exists())
+
+    def test_embed_routes_work_for_active_assistant(self):
+        c = Client(HTTP_HOST="localhost")
+        frame = c.get(reverse("embed_assistant_frame", args=[self.assistant.slug]))
+        self.assertEqual(frame.status_code, 200)
+        self.assertContains(frame, "ask me anything")
+
+        chat = c.post(
+            reverse("embed_assistant_chat", args=[self.assistant.slug]),
+            data='{"message": "How much does it cost?"}',
+            content_type="application/json",
+        )
+        self.assertEqual(chat.status_code, 200)
+        self.assertTrue(chat.json()["success"])
+        self.assertIn("pricing", chat.json()["reply"].lower())

@@ -59,6 +59,9 @@ urlpatterns = [
     # GHL marketplace app endpoints. URLs are deliberately neutral
     # (no /ghl/ exposed) — see core/ghl_views.py.
     path("embed/", ghl_views.embed_view, name="ghl_embed"),
+    path("embed/sop-assistant.js", core_views.embed_assistant_loader, name="embed_assistant_loader"),
+    path("embed/assistant/<slug:slug>/", core_views.embed_assistant_frame, name="embed_assistant_frame"),
+    path("api/embed/chat/<slug:slug>/", core_views.embed_assistant_chat, name="embed_assistant_chat"),
     path("connect/install/", ghl_views.oauth_install, name="ghl_oauth_install"),
     path("connect/callback/", ghl_views.oauth_callback, name="ghl_oauth_callback"),
     path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),

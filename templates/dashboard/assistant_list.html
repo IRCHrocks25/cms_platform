@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}AI Assistants · KATEK-AI CMS{% endblock %}
+
+{% block extra_head %}
+<style>
+  .assist-list{
+    --bg:#f7f8fc;--surface:#fff;--line:#e6e8f0;--ink:#111827;--muted:#6b7280;
+    --brand:#2563eb;--brand-soft:#eaf1ff;--ok:#059669;--warn:#b45309;
+  }
+  .assist-list .head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:24px;}
+  .assist-list h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px;}
+  .assist-list .sub{margin:0;color:var(--muted);}
+  .assist-list .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;margin-top:18px;}
+  .assist-list .card{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:18px;box-shadow:0 1px 2px rgba(17,24,39,.04);display:flex;flex-direction:column;gap:14px;transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease;}
+  .assist-list .card:hover{transform:translateY(-2px);box-shadow:0 10px 30px -18px rgba(17,24,39,.35);border-color:#cfd8ea;}
+  .assist-list .row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .assist-list .name{font-size:19px;font-weight:600;color:var(--ink);text-decoration:none;}
+  .assist-list .name:hover{color:var(--brand);}
+  .assist-list .slug{font-family:var(--font-mono);font-size:12px;color:var(--muted);}
+  .assist-list .desc{font-size:13px;color:var(--muted);line-height:1.55;min-height:40px;}
+  .assist-list .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;}
+  .assist-list .pill.on{background:#e7f8ef;color:var(--ok);}
+  .assist-list .pill.off{background:#fff4e5;color:var(--warn);}
+  .assist-list .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding-top:10px;border-top:1px solid var(--line);}
+  .assist-list .meta a{font-weight:600;}
+  .assist-list .embed-url{display:block;padding:8px 10px;border:1px solid var(--line);background:#fafbff;border-radius:10px;font-family:var(--font-mono);font-size:11px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .assist-list .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .assist-list .filters .input{min-width:230px;}
+  .assist-list .empty{margin-top:20px;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page assist-list">
+  <div class="head">
+    <div>
+      <h1>AI Assistants</h1>
+      <p class="sub">Create branded assistants and embed them in external websites with an iframe or script snippet.</p>
+    </div>
+    <a href="{% url 'dashboard:assistant_create' %}" class="btn btn-purple">+ New assistant</a>
+  </div>
+
+  <form method="get" class="card card-tight filters">
+    <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by name, slug, or brand">
+    <div class="filter-pills">
+      <a href="?q={{ q|urlencode }}&status=all" class="filter-pill {% if status == 'all' %}active{% endif %}">All</a>
+      <a href="?q={{ q|urlencode }}&status=active" class="filter-pill {% if status == 'active' %}active{% endif %}">Active</a>
+      <a href="?q={{ q|urlencode }}&status=inactive" class="filter-pill {% if status == 'inactive' %}active{% endif %}">Inactive</a>
+    </div>
+  </form>
+
+  {% if assistants %}
+    <div class="grid">
+      {% for assistant in assistants %}
+        <article class="card">
+          <div class="row">
+            <div>
+              <a class="name" href="{% url 'dashboard:assistant_detail' assistant.pk %}">{{ assistant.name }}</a>
+              <div class="slug">/{{ assistant.slug }}/</div>
+            </div>
+            <span class="pill {% if assistant.is_active %}on{% else %}off{% endif %}">
+              {% if assistant.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </div>
+          <p class="desc">{{ assistant.description|default:"No description yet." }}</p>
+          <code class="embed-url">{{ host_origin }}/embed/assistant/{{ assistant.slug }}/</code>
+          <div class="meta">
+            <span>Updated {{ assistant.updated_at|naturaltime }}</span>
+            <a href="{% url 'dashboard:assistant_detail' assistant.pk %}">Edit & integrate →</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <h3>No assistants yet</h3>
+      <p>Create your first assistant profile, then copy its embed code into any external site.</p>
+      <a href="{% url 'dashboard:assistant_create' %}" class="btn btn-purple">Create assistant</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

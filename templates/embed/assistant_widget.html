@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ config.brand_full|default:assistant.name }}</title>
+  <style>
+    :root{
+      --bg:#f4f7ff;--panel:#ffffff;--line:#e5eaf5;--ink:#0f172a;--muted:#64748b;
+      --brand:#2563eb;--brand2:#1e3a8a;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;height:100%;font-family:Roboto,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+    .shell{height:100%;display:flex;flex-direction:column;max-width:100%}
+    .head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff}
+    .head img{width:28px;height:28px;border-radius:8px;background:#fff;object-fit:contain}
+    .title{font-weight:700;font-size:14px;line-height:1}
+    .subtitle{font-size:11px;opacity:.88;margin-top:2px}
+    .body{flex:1;overflow:auto;padding:12px}
+    .bubble{max-width:88%;padding:10px 12px;border-radius:14px;font-size:13px;line-height:1.45;margin-bottom:8px;white-space:pre-wrap}
+    .bubble.bot{background:#fff;border:1px solid var(--line);color:var(--ink)}
+    .bubble.user{margin-left:auto;background:#dbeafe;border:1px solid #bfdbfe}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 10px;font-size:12px;color:#1e40af;cursor:pointer}
+    .composer{padding:10px;border-top:1px solid var(--line);background:#fff}
+    .row{display:flex;gap:8px}
+    .input{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 11px;font-size:13px;outline:none}
+    .input:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+    .send{border:none;border-radius:10px;padding:0 14px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer}
+    .send:disabled{opacity:.5;cursor:not-allowed}
+    .foot{font-size:11px;color:var(--muted);padding:8px 2px 2px;text-align:center}
+    a{color:#1d4ed8}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="head">
+      {% if config.logo %}
+        <img src="{{ config.logo }}" alt="{{ config.brand }}">
+      {% else %}
+        <img src="https://placehold.co/64x64/ffffff/1e3a8a?text=AI" alt="{{ config.brand }}">
+      {% endif %}
+      <div>
+        <div class="title">{{ config.brand_full|default:config.brand }}</div>
+        <div class="subtitle">{{ config.description|default:"Embeddable assistant" }}</div>
+      </div>
+    </div>
+    <div class="body" id="chat-body">
+      <div class="bubble bot">{{ config.greeting }}</div>
+    </div>
+    <div class="composer">
+      <div class="chips" id="suggestions"></div>
+      <div class="row" style="margin-top:8px;">
+        <input id="chat-input" class="input" placeholder="Type your message…">
+        <button id="send-btn" class="send">Send</button>
+      </div>
+      <div class="foot">Powered by {{ config.powered_by|default:config.brand }}</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const endpoint = "{{ chat_endpoint|escapejs }}";
+      const rawSuggestions = "{{ config.suggestions|escapejs }}";
+      const suggestions = rawSuggestions.split("|").map(function (s) { return s.trim(); }).filter(Boolean);
+      const chatBody = document.getElementById("chat-body");
+      const chipWrap = document.getElementById("suggestions");
+      const input = document.getElementById("chat-input");
+      const sendBtn = document.getElementById("send-btn");
+
+      function pushBubble(role, text) {
+        const el = document.createElement("div");
+        el.className = "bubble " + role;
+        el.textContent = text;
+        chatBody.appendChild(el);
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+
+      function setBusy(busy) {
+        sendBtn.disabled = busy;
+        input.disabled = busy;
+      }
+
+      async function sendMessage(message) {
+        const text = (message || "").trim();
+        if (!text) return;
+        pushBubble("user", text);
+        input.value = "";
+        setBusy(true);
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: text})
+          });
+          const data = await res.json();
+          pushBubble("bot", data.reply || "Sorry, I could not generate a reply.");
+        } catch (err) {
+          pushBubble("bot", "Connection issue. Please try again in a moment.");
+        } finally {
+          setBusy(false);
+          input.focus();
+        }
+      }
+
+      suggestions.slice(0, 4).forEach(function (label) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip";
+        btn.textContent = label;
+        btn.addEventListener("click", function () { sendMessage(label); });
+        chipWrap.appendChild(btn);
+      });
+
+      sendBtn.addEventListener("click", function () { sendMessage(input.value); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendMessage(input.value);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
