@@ -314,6 +314,12 @@ OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
 # the Gunicorn worker --timeout (180s) so a slow/hung API surfaces as a clean
 # AnnotatorError (JSON 502) instead of a killed worker (HTML 502 from the proxy).
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
+# Public host used in generated embed snippets/documentation so agency users
+# always copy production-ready script/iframe URLs from the dashboard.
+EMBED_ASSISTANT_PUBLIC_ORIGIN = os.environ.get(
+    "EMBED_ASSISTANT_PUBLIC_ORIGIN",
+    "https://sites.katek.app",
+).rstrip("/")
 
 # --------------------------------------------------------------------------- #
 # GHL (GoHighLevel) marketplace app integration.                              #

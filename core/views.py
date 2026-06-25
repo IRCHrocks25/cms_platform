@@ -1,8 +1,13 @@
-from django.core.paginator import Paginator
-from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+import json
 
-from .models import Page, Tenant
+from django.core.paginator import Paginator
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.clickjacking import xframe_options_exempt
+
+from .models import EmbeddableAssistant, Page, Tenant
 from .renderer import render_site, merge_with_defaults, apply_head_settings
 from .services import blog_render
 
@@ -164,3 +169,177 @@ def _blog_detail(request, tenant, slug, *, blog_base):
     )
     html = apply_head_settings(html, post.resolved_seo(tenant.site_settings or {}))
     return HttpResponse(html)
+
+
+# --------------------------------------------------------------------------- #
+# Embeddable assistant (public iframe + loader + lightweight chat API)         #
+# --------------------------------------------------------------------------- #
+
+
+def _assistant_config(assistant: EmbeddableAssistant, request) -> dict:
+    """Assistant config with query overrides for one-off embeds."""
+    cfg = {
+        "brand": assistant.brand or "Assistant",
+        "brand_full": assistant.brand_full or assistant.brand or assistant.name,
+        "description": assistant.description or "",
+        "logo": assistant.logo_url or "",
+        "orb_logo": assistant.orb_logo_url or assistant.logo_url or "",
+        "greeting": assistant.greeting or "Hi there! How can I help you today?",
+        "suggestions": assistant.suggestions or "",
+        "powered_by": assistant.powered_by or assistant.brand or assistant.name,
+        "voice": assistant.voice or "marin",
+        "launcher_label": assistant.launcher_label or "Need help? Ask us!",
+        "extra_instructions": assistant.extra_instructions or "",
+    }
+    for key in cfg.keys():
+        override = (request.GET.get(key) or "").strip()
+        if override:
+            cfg[key] = override
+    return cfg
+
+
+@require_GET
+def embed_assistant_loader(request):
+    """Script-tag loader that mounts a toggleable fixed iframe widget."""
+    js = r"""
+(function () {
+  var script = document.currentScript;
+  if (!script) return;
+  var origin = (script.dataset.apiBase || new URL(script.src).origin).replace(/\/+$/, "");
+  var assistant = (script.dataset.assistant || "default").trim();
+  var width = parseInt(script.dataset.width || "400", 10) || 400;
+  var height = parseInt(script.dataset.height || "640", 10) || 640;
+  var zIndex = parseInt(script.dataset.zIndex || "150", 10) || 150;
+
+  var params = new URLSearchParams();
+  function addParam(dataKey, queryKey) {
+    var value = (script.dataset[dataKey] || "").trim();
+    if (value) params.set(queryKey, value);
+  }
+  addParam("brand", "brand");
+  addParam("brandFull", "brand_full");
+  addParam("description", "description");
+  addParam("logo", "logo");
+  addParam("orbLogo", "orb_logo");
+  addParam("greeting", "greeting");
+  addParam("suggestions", "suggestions");
+  addParam("poweredBy", "powered_by");
+  addParam("voice", "voice");
+  addParam("launcherLabel", "launcher_label");
+  addParam("extraInstructions", "extra_instructions");
+  addParam("tenant", "tenant");
+
+  var src = origin + "/embed/assistant/" + encodeURIComponent(assistant) + "/";
+  var query = params.toString();
+  if (query) src += "?" + query;
+
+  var root = document.createElement("div");
+  root.style.position = "fixed";
+  root.style.right = "20px";
+  root.style.bottom = "20px";
+  root.style.zIndex = String(zIndex);
+  root.style.fontFamily = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+
+  var frame = document.createElement("iframe");
+  frame.src = src;
+  frame.title = "AI Assistant";
+  frame.allow = "microphone";
+  frame.style.width = width + "px";
+  frame.style.height = height + "px";
+  frame.style.border = "none";
+  frame.style.borderRadius = "16px";
+  frame.style.boxShadow = "0 24px 60px -24px rgba(0,0,0,0.55)";
+  frame.style.display = "none";
+  frame.style.background = "#fff";
+
+  var launcher = document.createElement("button");
+  launcher.type = "button";
+  launcher.setAttribute("aria-expanded", "false");
+  launcher.style.display = "inline-flex";
+  launcher.style.alignItems = "center";
+  launcher.style.gap = "10px";
+  launcher.style.border = "none";
+  launcher.style.padding = "8px 12px 8px 8px";
+  launcher.style.borderRadius = "999px";
+  launcher.style.background = "linear-gradient(135deg,#0f172a,#1e293b)";
+  launcher.style.color = "#fff";
+  launcher.style.fontSize = "13px";
+  launcher.style.fontWeight = "600";
+  launcher.style.cursor = "pointer";
+  launcher.style.boxShadow = "0 14px 40px -18px rgba(0,0,0,.65)";
+
+  var orb = document.createElement("span");
+  orb.style.width = "34px";
+  orb.style.height = "34px";
+  orb.style.borderRadius = "999px";
+  orb.style.background = "radial-gradient(circle at 30% 30%, #1d4ed8, #111827 68%)";
+  orb.style.display = "inline-block";
+  orb.style.boxShadow = "0 0 0 6px rgba(236,72,153,.16)";
+
+  var label = document.createElement("span");
+  label.textContent = script.dataset.launcherLabel || "Need help? Ask us!";
+  label.style.whiteSpace = "nowrap";
+
+  launcher.appendChild(orb);
+  launcher.appendChild(label);
+
+  launcher.addEventListener("click", function () {
+    var open = frame.style.display !== "none";
+    frame.style.display = open ? "none" : "block";
+    launcher.setAttribute("aria-expanded", open ? "false" : "true");
+    label.textContent = open ? (script.dataset.launcherLabel || "Need help? Ask us!") : "Close assistant";
+  });
+
+  root.appendChild(frame);
+  root.appendChild(launcher);
+  document.body.appendChild(root);
+})();
+"""
+    return HttpResponse(js, content_type="application/javascript")
+
+
+@require_GET
+@xframe_options_exempt
+def embed_assistant_frame(request, slug):
+    assistant = get_object_or_404(EmbeddableAssistant, slug=slug, is_active=True)
+    config = _assistant_config(assistant, request)
+    response = render(
+        request,
+        "embed/assistant_widget.html",
+        {
+            "assistant": assistant,
+            "config": config,
+            "chat_endpoint": f"/api/embed/chat/{assistant.slug}/",
+        },
+    )
+    # This endpoint is intentionally embeddable on third-party sites.
+    response["Content-Security-Policy"] = "frame-ancestors *;"
+    return response
+
+
+@require_http_methods(["POST"])
+@csrf_exempt
+def embed_assistant_chat(request, slug):
+    assistant = get_object_or_404(EmbeddableAssistant, slug=slug, is_active=True)
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON body.")
+    message = (payload.get("message") or "").strip()
+    if not message:
+        return JsonResponse({"success": False, "error": "Message is required."}, status=400)
+
+    tone = assistant.brand_full or assistant.brand or assistant.name
+    hints = [s.strip() for s in (assistant.suggestions or "").split("|") if s.strip()]
+    fallback_hint = hints[0] if hints else "Tell me your goal and I can point you to the right next step."
+    lowered = message.lower()
+    if any(token in lowered for token in ("price", "cost", "plan", "pricing")):
+        reply = f"{tone}: pricing can vary by setup. Share your use case and team size, and I will suggest the best-fit option."
+    elif any(token in lowered for token in ("demo", "book", "call", "meeting")):
+        reply = f"{tone}: great idea. I can help you prepare a short brief so your team can book the right demo quickly."
+    elif any(token in lowered for token in ("support", "help", "issue", "problem")):
+        reply = f"{tone}: I can help troubleshoot this. Start with what you expected to happen and what happened instead."
+    else:
+        reply = f"{tone}: thanks for the question. {fallback_hint}"
+
+    return JsonResponse({"success": True, "reply": reply})

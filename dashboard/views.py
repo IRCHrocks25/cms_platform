@@ -24,7 +24,7 @@ from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
     BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
-    Page, RESERVED_PAGE_SLUGS, AnnotationJob,
+    Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
 )
 from core.permissions import agency_operator_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
@@ -233,6 +233,174 @@ def template_delete(request, pk):
     template.delete()
     messages.success(request, "Template deleted.")
     return redirect("dashboard:template_list")
+
+
+# --------------------------------------------------------------------------- #
+# Agency: embeddable AI assistants                                             #
+# --------------------------------------------------------------------------- #
+
+
+def _assistant_seed_form_data() -> dict:
+    return {
+        "name": "",
+        "slug": "",
+        "description": "",
+        "brand": "",
+        "brand_full": "",
+        "greeting": "",
+        "suggestions": "",
+        "powered_by": "",
+        "logo_url": "",
+        "orb_logo_url": "",
+        "launcher_label": "",
+        "voice": "",
+        "extra_instructions": "",
+        "is_active": "on",
+    }
+
+
+def _assistant_form_context(request, *, assistant=None, form_data=None, status=200):
+    form_data = form_data or _assistant_seed_form_data()
+    return render(
+        request,
+        "dashboard/assistant_form.html",
+        {
+            "assistant_obj": assistant,
+            "form_data": form_data,
+            "host_origin": settings.EMBED_ASSISTANT_PUBLIC_ORIGIN,
+            "nav_section": "assistants",
+        },
+        status=status,
+    )
+
+
+def _assistant_apply_post(assistant_obj, post_data):
+    assistant_obj.name = (post_data.get("name") or "").strip()
+    assistant_obj.slug = (post_data.get("slug") or "").strip()
+    assistant_obj.description = (post_data.get("description") or "").strip()
+    assistant_obj.brand = (post_data.get("brand") or "").strip() or "Assistant"
+    assistant_obj.brand_full = (post_data.get("brand_full") or "").strip()
+    assistant_obj.greeting = (
+        (post_data.get("greeting") or "").strip()
+        or "Hi there! How can I help you today?"
+    )
+    assistant_obj.suggestions = (post_data.get("suggestions") or "").strip()
+    assistant_obj.powered_by = (post_data.get("powered_by") or "").strip()
+    assistant_obj.logo_url = (post_data.get("logo_url") or "").strip()
+    assistant_obj.orb_logo_url = (post_data.get("orb_logo_url") or "").strip()
+    assistant_obj.launcher_label = (
+        (post_data.get("launcher_label") or "").strip() or "Need help? Ask us!"
+    )
+    assistant_obj.voice = (post_data.get("voice") or "").strip() or "marin"
+    assistant_obj.extra_instructions = (post_data.get("extra_instructions") or "").strip()
+    assistant_obj.is_active = post_data.get("is_active") == "on"
+
+
+@agency_operator_required
+def assistant_list(request):
+    q = (request.GET.get("q") or "").strip()
+    status = (request.GET.get("status") or "all").lower()
+    assistants = EmbeddableAssistant.objects.all()
+    if q:
+        assistants = assistants.filter(
+            Q(name__icontains=q)
+            | Q(slug__icontains=q)
+            | Q(brand__icontains=q)
+            | Q(brand_full__icontains=q)
+        )
+    if status == "active":
+        assistants = assistants.filter(is_active=True)
+    elif status == "inactive":
+        assistants = assistants.filter(is_active=False)
+
+    return render(
+        request,
+        "dashboard/assistant_list.html",
+        {
+            "assistants": assistants.order_by("-updated_at"),
+            "q": q,
+            "status": status,
+            "host_origin": settings.EMBED_ASSISTANT_PUBLIC_ORIGIN,
+            "nav_section": "assistants",
+        },
+    )
+
+
+@agency_operator_required
+def assistant_create(request):
+    if request.method == "POST":
+        form_data = _assistant_seed_form_data() | {k: request.POST.get(k, "") for k in _assistant_seed_form_data().keys()}
+        assistant_obj = EmbeddableAssistant()
+        _assistant_apply_post(assistant_obj, request.POST)
+
+        if not assistant_obj.name:
+            messages.error(request, "Assistant name is required.")
+            return _assistant_form_context(
+                request, form_data=form_data, status=400
+            )
+        try:
+            assistant_obj.save()
+        except Exception as exc:
+            messages.error(request, f"Could not create assistant: {exc}")
+            return _assistant_form_context(
+                request, form_data=form_data, status=400
+            )
+        messages.success(request, f"Assistant “{assistant_obj.name}” created.")
+        return redirect("dashboard:assistant_detail", pk=assistant_obj.pk)
+
+    return _assistant_form_context(request, form_data=_assistant_seed_form_data())
+
+
+@agency_operator_required
+def assistant_detail(request, pk):
+    assistant_obj = get_object_or_404(EmbeddableAssistant, pk=pk)
+    if request.method == "POST":
+        form_data = _assistant_seed_form_data() | {k: request.POST.get(k, "") for k in _assistant_seed_form_data().keys()}
+        _assistant_apply_post(assistant_obj, request.POST)
+        if not assistant_obj.name:
+            messages.error(request, "Assistant name is required.")
+            return _assistant_form_context(
+                request, assistant=assistant_obj, form_data=form_data, status=400
+            )
+        try:
+            assistant_obj.save()
+        except Exception as exc:
+            messages.error(request, f"Could not save assistant: {exc}")
+            return _assistant_form_context(
+                request, assistant=assistant_obj, form_data=form_data, status=400
+            )
+        messages.success(request, "Assistant updated.")
+        return redirect("dashboard:assistant_detail", pk=assistant_obj.pk)
+
+    form_data = {
+        "name": assistant_obj.name,
+        "slug": assistant_obj.slug,
+        "description": assistant_obj.description,
+        "brand": assistant_obj.brand,
+        "brand_full": assistant_obj.brand_full,
+        "greeting": assistant_obj.greeting,
+        "suggestions": assistant_obj.suggestions,
+        "powered_by": assistant_obj.powered_by,
+        "logo_url": assistant_obj.logo_url,
+        "orb_logo_url": assistant_obj.orb_logo_url,
+        "launcher_label": assistant_obj.launcher_label,
+        "voice": assistant_obj.voice,
+        "extra_instructions": assistant_obj.extra_instructions,
+        "is_active": "on" if assistant_obj.is_active else "",
+    }
+    return _assistant_form_context(
+        request, assistant=assistant_obj, form_data=form_data
+    )
+
+
+@agency_operator_required
+@require_POST
+def assistant_delete(request, pk):
+    assistant_obj = get_object_or_404(EmbeddableAssistant, pk=pk)
+    label = assistant_obj.name
+    assistant_obj.delete()
+    messages.success(request, f"Assistant “{label}” deleted.")
+    return redirect("dashboard:assistant_list")
 
 
 # How long a job may sit non-terminal before the status endpoint declares it

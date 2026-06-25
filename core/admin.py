@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
-    Page, AnnotationJob,
+    Page, AnnotationJob, EmbeddableAssistant,
 )
 
 
@@ -64,3 +64,10 @@ class AnnotationJobAdmin(admin.ModelAdmin):
         "id", "status", "created_by", "result_html", "sections", "error",
         "created_at", "updated_at",
     )
+
+
+@admin.register(EmbeddableAssistant)
+class EmbeddableAssistantAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "brand", "is_active", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "slug", "brand", "brand_full")

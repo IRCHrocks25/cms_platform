@@ -18,6 +18,10 @@ urlpatterns = [
     path("templates/fetch-url/", views.template_fetch_url, name="template_fetch_url"),
     path("templates/<int:pk>/", views.template_detail, name="template_detail"),
     path("templates/<int:pk>/delete/", views.template_delete, name="template_delete"),
+    path("assistants/", views.assistant_list, name="assistant_list"),
+    path("assistants/new/", views.assistant_create, name="assistant_create"),
+    path("assistants/<int:pk>/", views.assistant_detail, name="assistant_detail"),
+    path("assistants/<int:pk>/delete/", views.assistant_delete, name="assistant_delete"),
 
     path("sites/", views.tenant_list, name="tenant_list"),
     path("sites/new/", views.tenant_create, name="tenant_create"),

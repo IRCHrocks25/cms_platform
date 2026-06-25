@@ -118,6 +118,57 @@ class Tenant(models.Model):
         return self.memberships.filter(user=user).exists()
 
 
+class EmbeddableAssistant(models.Model):
+    """Configurable chat assistant profile for external iframe/script embeds."""
+
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    description = models.CharField(max_length=260, blank=True)
+
+    brand = models.CharField(max_length=80, default="Assistant")
+    brand_full = models.CharField(max_length=140, blank=True)
+    greeting = models.CharField(
+        max_length=240,
+        default="Hi there! How can I help you today?",
+    )
+    suggestions = models.CharField(
+        max_length=500,
+        blank=True,
+        default="What do you offer?|How does onboarding work?|How do I contact support?",
+        help_text="Pipe-separated quick prompts (e.g. Pricing|Book a demo|Contact support).",
+    )
+    powered_by = models.CharField(max_length=120, blank=True)
+
+    logo_url = models.URLField(max_length=600, blank=True, default="")
+    orb_logo_url = models.URLField(max_length=600, blank=True, default="")
+    launcher_label = models.CharField(max_length=120, default="Need help? Ask us!")
+    voice = models.CharField(max_length=40, default="marin")
+    extra_instructions = models.TextField(blank=True, default="")
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)[:140]
+        if not self.brand_full:
+            self.brand_full = self.brand or self.name
+        if not self.powered_by:
+            self.powered_by = self.brand or self.name
+        super().save(*args, **kwargs)
+
+    @property
+    def suggestion_list(self) -> list[str]:
+        return [s.strip() for s in (self.suggestions or "").split("|") if s.strip()]
+
+    def __str__(self):
+        return self.name
+
+
 # Top-level paths on a tenant host that a Page slug must not shadow. A page
 # addressed at `/<slug>/` shares the URL namespace with these, so we refuse them.
 RESERVED_PAGE_SLUGS = {

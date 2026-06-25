@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block title %}{% if assistant_obj %}Edit assistant{% else %}New assistant{% endif %} · KATEK-AI CMS{% endblock %}
+
+{% block extra_head %}
+<style>
+  .assist-form{--line:#e6e8f0;--muted:#6b7280;--ink:#111827;--panel:#fff;--bg:#f8f9fd;--brand:#2563eb;}
+  .assist-form .breadcrumbs{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:18px;}
+  .assist-form .breadcrumbs a{color:var(--muted);font-weight:500;}
+  .assist-form .head h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;}
+  .assist-form .head p{margin:0;color:var(--muted);}
+  .assist-form .layout{margin-top:22px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);gap:18px;align-items:start;}
+  .assist-form .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(17,24,39,.04);}
+  .assist-form .fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .assist-form .fields .field{margin-bottom:0;}
+  .assist-form .fields .field.full{grid-column:1/-1;}
+  .assist-form .section-title{font-size:14px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;}
+  .assist-form .hint{font-size:12px;color:var(--muted);margin-top:6px;}
+  .assist-form .embed-box{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;}
+  .assist-form .embed-box h4{font-size:13px;margin:0 0 8px;color:var(--ink);}
+  .assist-form .code{width:100%;min-height:110px;border:1px solid #d9deed;border-radius:10px;background:#0f172a;color:#e2e8f0;font-family:var(--font-mono);font-size:12px;padding:10px;line-height:1.45;resize:vertical;}
+  .assist-form .code.short{min-height:64px;}
+  .assist-form .copy-row{display:flex;justify-content:flex-end;margin-top:8px;}
+  .assist-form .copy-btn{padding:6px 10px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;}
+  .assist-form .copy-btn:hover{border-color:#cfd8ea;}
+  .assist-form .preview-wrap{margin-top:14px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;}
+  .assist-form .preview-head{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);background:#f9fafe;}
+  .assist-form .preview-frame{width:100%;height:420px;border:0;background:#fff;}
+  .assist-form .stack > * + *{margin-top:14px;}
+  .assist-form .actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap;}
+  @media (max-width:1080px){.assist-form .layout{grid-template-columns:1fr;}.assist-form .fields{grid-template-columns:1fr;}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page assist-form">
+  <div class="breadcrumbs">
+    <a href="{% url 'dashboard:assistant_list' %}">AI Assistants</a>
+    <span>→</span>
+    <span>{% if assistant_obj %}{{ assistant_obj.name }}{% else %}New assistant{% endif %}</span>
+  </div>
+
+  <div class="head">
+    <h1>{% if assistant_obj %}{{ assistant_obj.name }}{% else %}Create embeddable assistant{% endif %}</h1>
+    <p>Configure branding once, then copy script/iframe snippets to any other website.</p>
+  </div>
+
+  <div class="layout">
+    <form method="post" class="panel">
+      {% csrf_token %}
+      <h3 class="section-title">Assistant settings</h3>
+      <div class="fields">
+        <div class="field">
+          <label class="field-label" for="id_name">Assistant name</label>
+          <input id="id_name" name="name" class="input" required value="{{ form_data.name }}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_slug">Slug <span class="field-optional">(optional)</span></label>
+          <input id="id_slug" name="slug" class="input" value="{{ form_data.slug }}" placeholder="auto-generated-from-name">
+        </div>
+        <div class="field full">
+          <label class="field-label" for="id_description">Description</label>
+          <input id="id_description" name="description" class="input" value="{{ form_data.description }}" placeholder="One-line summary for internal team usage">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_brand">Brand</label>
+          <input id="id_brand" name="brand" class="input" value="{{ form_data.brand|default:'Assistant' }}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_brand_full">Brand full</label>
+          <input id="id_brand_full" name="brand_full" class="input" value="{{ form_data.brand_full }}">
+        </div>
+        <div class="field full">
+          <label class="field-label" for="id_greeting">Greeting message</label>
+          <input id="id_greeting" name="greeting" class="input" value="{{ form_data.greeting|default:'Hi there! How can I help you today?' }}">
+        </div>
+        <div class="field full">
+          <label class="field-label" for="id_suggestions">Suggestions (pipe separated)</label>
+          <input id="id_suggestions" name="suggestions" class="input" value="{{ form_data.suggestions }}" placeholder="Pricing|Book a demo|Contact support">
+          <div class="hint">These appear as quick action chips in the widget.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_logo_url">Logo URL</label>
+          <input id="id_logo_url" name="logo_url" class="input" value="{{ form_data.logo_url }}" placeholder="https://example.com/logo.svg">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_orb_logo_url">Orb logo URL</label>
+          <input id="id_orb_logo_url" name="orb_logo_url" class="input" value="{{ form_data.orb_logo_url }}" placeholder="https://example.com/logo.svg">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_powered_by">Powered by text</label>
+          <input id="id_powered_by" name="powered_by" class="input" value="{{ form_data.powered_by }}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_launcher_label">Launcher label</label>
+          <input id="id_launcher_label" name="launcher_label" class="input" value="{{ form_data.launcher_label|default:'Need help? Ask us!' }}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="id_voice">Voice ID</label>
+          <input id="id_voice" name="voice" class="input" value="{{ form_data.voice|default:'marin' }}">
+        </div>
+        <div class="field full">
+          <label class="field-label" for="id_extra_instructions">Extra instructions</label>
+          <textarea id="id_extra_instructions" name="extra_instructions" class="textarea" rows="5" placeholder="Add product-specific directions for your assistant behavior.">{{ form_data.extra_instructions }}</textarea>
+        </div>
+        <div class="field full">
+          <label class="checkbox-row">
+            <input type="checkbox" name="is_active" {% if form_data.is_active %}checked{% endif %}>
+            <span>Assistant is active and publicly embeddable</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="row">
+          <button type="submit" class="btn btn-purple">{% if assistant_obj %}Save changes{% else %}Create assistant{% endif %}</button>
+          <a href="{% url 'dashboard:assistant_list' %}" class="btn btn-secondary">Back to assistants</a>
+        </div>
+        {% if assistant_obj %}
+          <button type="submit" class="btn btn-danger" form="assistant-delete-form" onclick="return confirm('Delete this assistant? This will break existing embeds.');">Delete assistant</button>
+        {% endif %}
+      </div>
+    </form>
+    {% if assistant_obj %}
+      <form id="assistant-delete-form" action="{% url 'dashboard:assistant_delete' assistant_obj.pk %}" method="post" class="inline-form">
+        {% csrf_token %}
+      </form>
+    {% endif %}
+
+    <aside class="panel stack">
+      <h3 class="section-title">Integration guide</h3>
+      <p class="hint">Use these snippets on websites outside this project.</p>
+
+      <div class="embed-box">
+        <h4>1) Script tag (recommended)</h4>
+        <textarea id="snippet-script" class="code" readonly></textarea>
+        <div class="copy-row"><button type="button" class="copy-btn" data-copy-target="snippet-script">Copy</button></div>
+      </div>
+
+      <div class="embed-box">
+        <h4>2) Direct iframe</h4>
+        <textarea id="snippet-iframe" class="code short" readonly></textarea>
+        <div class="copy-row"><button type="button" class="copy-btn" data-copy-target="snippet-iframe">Copy</button></div>
+      </div>
+
+      <div class="embed-box">
+        <h4>3) Widget URL</h4>
+        <textarea id="snippet-url" class="code short" readonly></textarea>
+        <div class="copy-row"><button type="button" class="copy-btn" data-copy-target="snippet-url">Copy</button></div>
+      </div>
+
+      <div class="preview-wrap">
+        <div class="preview-head">Live preview of iframe widget</div>
+        <iframe id="assistant-preview" class="preview-frame" title="Assistant preview"></iframe>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    const host = "{{ host_origin|escapejs }}";
+    const preview = document.getElementById("assistant-preview");
+    const snippetScript = document.getElementById("snippet-script");
+    const snippetIframe = document.getElementById("snippet-iframe");
+    const snippetUrl = document.getElementById("snippet-url");
+
+    const nameEl = document.getElementById("id_name");
+    const slugEl = document.getElementById("id_slug");
+    const brandEl = document.getElementById("id_brand");
+    const brandFullEl = document.getElementById("id_brand_full");
+    const descEl = document.getElementById("id_description");
+    const logoEl = document.getElementById("id_logo_url");
+    const orbLogoEl = document.getElementById("id_orb_logo_url");
+    const greetingEl = document.getElementById("id_greeting");
+    const suggestionsEl = document.getElementById("id_suggestions");
+    const poweredByEl = document.getElementById("id_powered_by");
+    const voiceEl = document.getElementById("id_voice");
+    const launcherLabelEl = document.getElementById("id_launcher_label");
+
+    function slugify(value) {
+      return (value || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 140);
+    }
+
+    function buildQuery(data) {
+      const params = new URLSearchParams();
+      Object.keys(data).forEach(function (key) {
+        const value = (data[key] || "").trim();
+        if (value) params.set(key, value);
+      });
+      return params.toString();
+    }
+
+    function escAttr(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function updateSnippets() {
+      const slug = (slugEl.value || slugify(nameEl.value || "assistant")).trim();
+      const data = {
+        brand: brandEl.value,
+        brand_full: brandFullEl.value,
+        description: descEl.value,
+        logo: logoEl.value,
+        orb_logo: orbLogoEl.value,
+        greeting: greetingEl.value,
+        suggestions: suggestionsEl.value,
+        powered_by: poweredByEl.value,
+        voice: voiceEl.value,
+        launcher_label: launcherLabelEl.value
+      };
+      const query = buildQuery(data);
+      const baseUrl = host + "/embed/assistant/" + encodeURIComponent(slug) + "/";
+      const widgetUrl = query ? baseUrl + "?" + query : baseUrl;
+      snippetUrl.value = widgetUrl;
+      snippetIframe.value =
+`<iframe
+  src="${escAttr(widgetUrl)}"
+  style="position:fixed;bottom:0;right:0;width:400px;height:640px;border:none;z-index:9999;"
+  allow="microphone"
+  title="AI Assistant"
+></iframe>`;
+      snippetScript.value =
+`<script
+  src="${escAttr(host + "/embed/sop-assistant.js")}"
+  data-assistant="${escAttr(slug)}"
+  data-brand="${escAttr(brandEl.value || "Assistant")}"
+  data-brand-full="${escAttr(brandFullEl.value || brandEl.value || "Assistant")}"
+  data-description="${escAttr(descEl.value || "")}"
+  data-logo="${escAttr(logoEl.value || "")}"
+  data-orb-logo="${escAttr(orbLogoEl.value || "")}"
+  data-greeting="${escAttr(greetingEl.value || "Hi there! How can I help you today?")}"
+  data-suggestions="${escAttr(suggestionsEl.value || "")}"
+  data-powered-by="${escAttr(poweredByEl.value || brandEl.value || "Assistant")}"
+  data-voice="${escAttr(voiceEl.value || "marin")}"
+  data-launcher-label="${escAttr(launcherLabelEl.value || "Need help? Ask us!")}"
+  async
+><\/script>`;
+      preview.src = widgetUrl;
+    }
+
+    document.querySelectorAll(".copy-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const target = document.getElementById(btn.getAttribute("data-copy-target"));
+        if (!target) return;
+        navigator.clipboard.writeText(target.value || "").then(function () {
+          const old = btn.textContent;
+          btn.textContent = "Copied";
+          window.setTimeout(function () { btn.textContent = old; }, 1200);
+        });
+      });
+    });
+
+    [
+      nameEl, slugEl, brandEl, brandFullEl, descEl, logoEl, orbLogoEl,
+      greetingEl, suggestionsEl, poweredByEl, voiceEl, launcherLabelEl
+    ].forEach(function (el) {
+      if (el) el.addEventListener("input", updateSnippets);
+    });
+    updateSnippets();
+  })();
+</script>
+{% endblock %}

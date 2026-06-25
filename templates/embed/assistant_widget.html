@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ config.brand_full|default:assistant.name }}</title>
+  <style>
+    :root{
+      --bg-1:#050d24;
+      --bg-2:#0b1f4f;
+      --panel:#ffffff;
+      --line:#d7def1;
+      --ink:#0f172a;
+      --muted:#64748b;
+      --brand:#3b82f6;
+      --brand-2:#1d4ed8;
+      --pink:#ec4899;
+      --warn:#ef4444;
+      --ok:#22c55e;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;height:100%;font-family:Roboto,-apple-system,Segoe UI,sans-serif;background:linear-gradient(160deg,var(--bg-1),var(--bg-2));color:var(--ink)}
+    .shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
+    .screen{display:none;height:100%}
+    .screen.active{display:flex;flex-direction:column}
+    .topbar{
+      height:60px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 14px;
+      background:#fff;
+      border-bottom:1px solid var(--line);
+    }
+    .topbar .back,
+    .topbar .close{
+      border:none;
+      background:transparent;
+      font-size:20px;
+      line-height:1;
+      color:#475569;
+      cursor:pointer;
+      width:28px;
+      height:28px;
+      border-radius:8px;
+    }
+    .topbar .back:hover,
+    .topbar .close:hover{background:#f1f5f9}
+    .brand-title{font-weight:700;font-size:14px;color:#111827}
+    .logo-sm{
+      width:26px;height:26px;border-radius:7px;background:#fff;object-fit:contain;border:1px solid #e2e8f0;
+    }
+
+    .home-wrap{
+      flex:1;
+      padding:20px;
+      background:linear-gradient(145deg,#0b1438,#172554);
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      text-align:center;
+    }
+    .orb{
+      width:96px;height:96px;border-radius:50%;
+      display:grid;place-items:center;
+      background:radial-gradient(circle at 30% 30%, #1d4ed8, #0b1024 65%);
+      border:2px solid rgba(255,255,255,.18);
+      box-shadow:0 0 0 14px rgba(236,72,153,.18), 0 0 32px rgba(236,72,153,.25);
+      margin-bottom:16px;
+      position:relative;
+    }
+    .orb img{width:58px;height:58px;object-fit:contain;border-radius:10px;background:#fff;padding:5px}
+    .orb::after{
+      content:"";
+      position:absolute;
+      right:6px;top:6px;
+      width:10px;height:10px;border-radius:50%;
+      background:var(--ok);
+      border:2px solid #0b1024;
+    }
+    .home-name{font-size:30px;font-weight:800;line-height:1.12;letter-spacing:-.02em;margin-bottom:8px}
+    .home-sub{font-size:14px;opacity:.86;max-width:290px;margin-bottom:18px}
+    .action{
+      width:100%;
+      max-width:280px;
+      border:none;
+      border-radius:12px;
+      padding:11px 14px;
+      font-size:14px;
+      font-weight:700;
+      cursor:pointer;
+      margin-bottom:10px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+    }
+    .action.call{background:linear-gradient(90deg,#3b82f6,#2563eb);color:#fff}
+    .action.chat{background:linear-gradient(90deg,#fbbf24,#f59e0b);color:#1f2937}
+    .powered{margin-top:8px;font-size:11px;opacity:.68}
+
+    .call-wrap{
+      flex:1;
+      padding:16px;
+      background:linear-gradient(155deg,#0b1436,#162d6f);
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .call-card{
+      border:1px solid rgba(255,255,255,.15);
+      border-radius:18px;
+      padding:14px;
+      background:rgba(255,255,255,.05);
+      backdrop-filter: blur(6px);
+    }
+    .call-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .call-name{font-size:21px;font-weight:800;line-height:1.2;margin:8px 0 4px}
+    .call-note{font-size:14px;opacity:.8}
+    .steps{margin:14px 0 0;padding:0;list-style:none}
+    .steps li{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:14px;opacity:.6}
+    .steps li::before{content:"";width:9px;height:9px;border-radius:50%;background:#64748b}
+    .steps li.active{opacity:1;font-weight:700}
+    .steps li.active::before{background:var(--pink)}
+    .steps li.done{opacity:.95}
+    .steps li.done::before{background:var(--brand)}
+    .call-controls{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:14px;
+    }
+    .ctl{
+      flex:1;
+      border:none;
+      border-radius:999px;
+      padding:11px 8px;
+      font-size:13px;
+      font-weight:700;
+      cursor:pointer;
+      background:rgba(255,255,255,.14);
+      color:#fff;
+    }
+    .ctl.end{background:#7f1d1d}
+    .ctl.active{background:#581c87}
+
+    .chat-wrap{height:100%;display:flex;flex-direction:column;background:#f8fafc}
+    .chat-head{
+      height:60px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:0 14px;
+      background:#fff;
+      border-bottom:1px solid var(--line);
+    }
+    .chat-head .meta{line-height:1.15}
+    .chat-head .name{font-size:18px;font-weight:800;color:#0f172a}
+    .chat-head .sub{font-size:12px;color:var(--muted)}
+    .chat-body{flex:1;overflow:auto;padding:12px}
+    .bubble{max-width:88%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.45;margin-bottom:8px;white-space:pre-wrap}
+    .bubble.bot{background:#fff;border:1px solid var(--line);color:#0f172a}
+    .bubble.user{margin-left:auto;background:#dbeafe;border:1px solid #bfdbfe}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-size:14px;color:#1e40af;cursor:pointer}
+    .composer{padding:10px;border-top:1px solid var(--line);background:#fff}
+    .row{display:flex;gap:8px}
+    .input{flex:1;border:1px solid #c7d2fe;border-radius:999px;padding:12px 14px;font-size:15px;outline:none}
+    .input:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+    .send{
+      width:48px;height:48px;border:none;border-radius:50%;
+      background:linear-gradient(140deg,#3b82f6,#9333ea);color:#fff;font-size:20px;font-weight:700;cursor:pointer;
+    }
+    .send:disabled{opacity:.55;cursor:not-allowed}
+    .chat-foot{font-size:11px;color:var(--muted);padding:7px 2px 0;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="screen home-wrap active" id="screen-home">
+      <div class="orb">
+        {% if config.orb_logo %}
+          <img src="{{ config.orb_logo }}" alt="{{ config.brand }}">
+        {% elif config.logo %}
+          <img src="{{ config.logo }}" alt="{{ config.brand }}">
+        {% else %}
+          <img src="https://placehold.co/64x64/ffffff/1e3a8a?text=AI" alt="{{ config.brand }}">
+        {% endif %}
+      </div>
+      <div class="home-name">{{ config.brand_full|default:config.brand }}</div>
+      <div class="home-sub">{{ config.description|default:"Your AI assistant is ready to help your visitors." }}</div>
+      <button id="btn-audio-call" class="action call" type="button">🎙 Audio Call</button>
+      <button id="btn-start-chat" class="action chat" type="button">💬 Start Chat</button>
+      <div class="powered">Powered by {{ config.powered_by|default:config.brand }}</div>
+    </section>
+
+    <section class="screen call-wrap" id="screen-call">
+      <div class="call-card">
+        <div class="call-head">
+          {% if config.logo %}
+            <img class="logo-sm" src="{{ config.logo }}" alt="{{ config.brand }}">
+          {% else %}
+            <img class="logo-sm" src="https://placehold.co/64x64/ffffff/1e3a8a?text=AI" alt="{{ config.brand }}">
+          {% endif %}
+          <button id="btn-close-call" class="topbar close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="orb" style="margin:0 auto 14px;"></div>
+        <div class="call-name">{{ config.brand_full|default:config.brand }}</div>
+        <div class="call-note" id="call-note">Connecting you now...</div>
+        <ul class="steps">
+          <li id="step-started">Session started</li>
+          <li id="step-connecting">Connecting to AI...</li>
+          <li id="step-ready">Ready to talk</li>
+        </ul>
+      </div>
+      <div class="call-controls">
+        <button id="btn-switch-chat" class="ctl" type="button">Chat</button>
+        <button id="btn-mute" class="ctl" type="button">Mute</button>
+        <button id="btn-end-call" class="ctl end" type="button">End</button>
+      </div>
+    </section>
+
+    <section class="screen chat-wrap" id="screen-chat">
+      <div class="chat-head">
+        <button id="btn-back-home" class="topbar back" type="button" aria-label="Back">‹</button>
+        {% if config.logo %}
+          <img class="logo-sm" src="{{ config.logo }}" alt="{{ config.brand }}">
+        {% else %}
+          <img class="logo-sm" src="https://placehold.co/64x64/ffffff/1e3a8a?text=AI" alt="{{ config.brand }}">
+        {% endif %}
+        <div class="meta">
+          <div class="name">{{ config.brand_full|default:config.brand }}</div>
+          <div class="sub">Online now</div>
+        </div>
+      </div>
+      <div class="chat-body" id="chat-body">
+        <div class="bubble bot">{{ config.greeting }}</div>
+      </div>
+      <div class="composer">
+      <div class="chips" id="suggestions"></div>
+      <div class="row" style="margin-top:8px;">
+        <input id="chat-input" class="input" placeholder="Type your message…">
+        <button id="send-btn" class="send" type="button">↑</button>
+      </div>
+      <div class="chat-foot">Powered by {{ config.powered_by|default:config.brand }}</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      const endpoint = "{{ chat_endpoint|escapejs }}";
+      const rawSuggestions = "{{ config.suggestions|escapejs }}";
+      const suggestions = rawSuggestions.split("|").map(function (s) { return s.trim(); }).filter(Boolean);
+
+      const screenHome = document.getElementById("screen-home");
+      const screenCall = document.getElementById("screen-call");
+      const screenChat = document.getElementById("screen-chat");
+      const btnAudioCall = document.getElementById("btn-audio-call");
+      const btnStartChat = document.getElementById("btn-start-chat");
+      const btnBackHome = document.getElementById("btn-back-home");
+      const btnCloseCall = document.getElementById("btn-close-call");
+      const btnSwitchChat = document.getElementById("btn-switch-chat");
+      const btnMute = document.getElementById("btn-mute");
+      const btnEndCall = document.getElementById("btn-end-call");
+
+      const stepStarted = document.getElementById("step-started");
+      const stepConnecting = document.getElementById("step-connecting");
+      const stepReady = document.getElementById("step-ready");
+      const callNote = document.getElementById("call-note");
+
+      const chatBody = document.getElementById("chat-body");
+      const chipWrap = document.getElementById("suggestions");
+      const input = document.getElementById("chat-input");
+      const sendBtn = document.getElementById("send-btn");
+      let mediaStream = null;
+      let muted = false;
+
+      function showScreen(target) {
+        [screenHome, screenCall, screenChat].forEach(function (el) {
+          el.classList.remove("active");
+        });
+        target.classList.add("active");
+      }
+
+      function resetCallSteps() {
+        [stepStarted, stepConnecting, stepReady].forEach(function (el) {
+          el.classList.remove("active", "done");
+        });
+        callNote.textContent = "Connecting you now...";
+      }
+
+      function endCall() {
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(function (t) { t.stop(); });
+          mediaStream = null;
+        }
+        muted = false;
+        btnMute.classList.remove("active");
+        btnMute.textContent = "Mute";
+        resetCallSteps();
+        showScreen(screenHome);
+      }
+
+      async function startCall() {
+        showScreen(screenCall);
+        resetCallSteps();
+        stepStarted.classList.add("active");
+        callNote.textContent = "Starting session...";
+        try {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("no-media");
+          }
+          mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
+          stepStarted.classList.remove("active");
+          stepStarted.classList.add("done");
+          stepConnecting.classList.add("active");
+          callNote.textContent = "Connecting to AI...";
+          window.setTimeout(function () {
+            stepConnecting.classList.remove("active");
+            stepConnecting.classList.add("done");
+            stepReady.classList.add("active");
+            callNote.textContent = "Ready to talk";
+          }, 900);
+        } catch (err) {
+          stepConnecting.classList.add("active");
+          callNote.textContent = "Microphone unavailable. Check browser mic permission.";
+          pushBubble("bot", "I couldn't access your microphone. You can still continue in chat.");
+        }
+      }
+
+      function pushBubble(role, text) {
+        const el = document.createElement("div");
+        el.className = "bubble " + role;
+        el.textContent = text;
+        chatBody.appendChild(el);
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+
+      function setBusy(busy) {
+        sendBtn.disabled = busy;
+        input.disabled = busy;
+      }
+
+      async function sendMessage(message) {
+        const text = (message || "").trim();
+        if (!text) return;
+        pushBubble("user", text);
+        input.value = "";
+        setBusy(true);
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: text})
+          });
+          const data = await res.json();
+          pushBubble("bot", data.reply || "Sorry, I could not generate a reply.");
+        } catch (err) {
+          pushBubble("bot", "Connection issue. Please try again in a moment.");
+        } finally {
+          setBusy(false);
+          input.focus();
+        }
+      }
+
+      suggestions.slice(0, 4).forEach(function (label) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip";
+        btn.textContent = label;
+        btn.addEventListener("click", function () { sendMessage(label); });
+        chipWrap.appendChild(btn);
+      });
+
+      btnAudioCall.addEventListener("click", startCall);
+      btnStartChat.addEventListener("click", function () { showScreen(screenChat); input.focus(); });
+      btnBackHome.addEventListener("click", function () { showScreen(screenHome); });
+      btnCloseCall.addEventListener("click", endCall);
+      btnEndCall.addEventListener("click", endCall);
+      btnSwitchChat.addEventListener("click", function () {
+        showScreen(screenChat);
+        input.focus();
+      });
+      btnMute.addEventListener("click", function () {
+        if (!mediaStream) return;
+        muted = !muted;
+        mediaStream.getAudioTracks().forEach(function (track) {
+          track.enabled = !muted;
+        });
+        btnMute.classList.toggle("active", muted);
+        btnMute.textContent = muted ? "Unmute" : "Mute";
+      });
+
+      sendBtn.addEventListener("click", function () { sendMessage(input.value); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendMessage(input.value);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -337,6 +337,15 @@ p { margin: 0 0 var(--space-4); color: var(--color-text-soft); }
   flex: 1;
   overflow-y: auto;
 }
+.sidebar-nav-label {
+  margin: var(--space-3) 0 var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
 .sidebar-nav-link {
   display: flex;
   align-items: center;
