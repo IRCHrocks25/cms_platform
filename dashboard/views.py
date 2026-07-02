@@ -1772,7 +1772,8 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
     """
     from django.db import connection
     try:
-        result = annotate_html(raw_html)
+        # annotate_html returns the annotated HTML as a STRING.
+        annotated_html = annotate_html(raw_html)
     except AnnotatorError as exc:
         logger.warning(
             "Sibling annotation failed for template=%s: %s", template_id, exc,
@@ -1787,13 +1788,14 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         return
     try:
         template = Template.objects.get(pk=template_id)
-        template.html_source = result.html
+        template.html_source = annotated_html
         # Template.save() rebuilds the schema from the new html_source, so the
         # editor immediately surfaces editable fields the next time it loads.
         template.save()
+        section_count = len((template.schema or {}).get("sections", []))
         logger.info(
             "Sibling annotation applied to template=%s (%d sections)",
-            template_id, len(result.sections or []),
+            template_id, section_count,
         )
     finally:
         connection.close()
