@@ -9,7 +9,11 @@
   position: relative;
 }
 .editor-shell.compact { grid-template-columns: 0 400px 1fr; }
-.editor-shell.compact .editor-sidebar { display: none; }
+/* Clip the sidebar to the 0-width column rather than display:none — removing it
+   from the grid makes the form reflow into the empty first (0-width) track and
+   collapse to width:0. Keep it as a grid item so form + preview hold their
+   columns (same approach as .sidebar-collapsed below). */
+.editor-shell.compact .editor-sidebar { overflow: hidden; padding: 0; border-right: 0; }
 .editor-shell.dense { grid-template-columns: 220px 336px 1fr; }
 
 /* Collapsed section-nav — frees the column for the form + preview. The sidebar
