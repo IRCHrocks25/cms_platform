@@ -319,6 +319,12 @@ OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
 # context, so they're rejected up front with an actionable error rather than
 # running for minutes and timing out. Raise it if you switch to a larger model.
 ANNOTATE_MAX_INPUT_CHARS = int(os.environ.get("ANNOTATE_MAX_INPUT_CHARS", "500000"))
+# Parallel chunked annotation: split the page into chunks of whole top-level
+# subtrees ~this many chars each, annotate them concurrently (max workers), and
+# retry any chunk that fails before failing the whole run.
+ANNOTATE_CHUNK_TARGET_CHARS = int(os.environ.get("ANNOTATE_CHUNK_TARGET_CHARS", "40000"))
+ANNOTATE_MAX_WORKERS = int(os.environ.get("ANNOTATE_MAX_WORKERS", "5"))
+ANNOTATE_CHUNK_RETRIES = int(os.environ.get("ANNOTATE_CHUNK_RETRIES", "2"))
 # Public host used in generated embed snippets/documentation so agency users
 # always copy production-ready script/iframe URLs from the dashboard.
 EMBED_ASSISTANT_PUBLIC_ORIGIN = os.environ.get(

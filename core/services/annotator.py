@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -367,6 +368,14 @@ def _backfill_missed_text_fields(soup) -> int:
 # into an instant, actionable error. Override via settings for larger models.
 _DEFAULT_MAX_INPUT_CHARS = 500_000
 
+# Parallel-chunking defaults (override via settings). The page is split into
+# chunks of whole top-level subtrees ~this many chars each, annotated
+# concurrently, and merged. Smaller chunks = more parallelism + less truncation
+# risk, at the cost of more API calls (each repeats the system prompt + example).
+_DEFAULT_CHUNK_TARGET_CHARS = 40_000
+_DEFAULT_MAX_WORKERS = 5
+_DEFAULT_CHUNK_RETRIES = 2
+
 
 def _make_openai_client(api_key: str):
     """Build the OpenAI client with retries DISABLED.
@@ -409,8 +418,177 @@ def _reject_if_too_large(slimmed_html: str) -> None:
         )
 
 
+def _find_split_root(soup):
+    """Return the node whose element children are the page's top-level blocks.
+
+    Starts at <body> (or the document root) and descends through single-element
+    wrappers — Figma Make / Vite exports bury the whole page under one
+    ``<div id="root">`` / ``<main>``, and splitting at that lone wrapper would
+    yield a single un-parallelisable chunk. Stops before descending into a leaf
+    so the caller always gets real content blocks to split on.
+    """
+    root = soup.find("body") or soup
+    while True:
+        element_children = [c for c in root.children if getattr(c, "name", None)]
+        if len(element_children) != 1:
+            break
+        only = element_children[0]
+        grandkids = [g for g in only.children if getattr(g, "name", None)]
+        if not grandkids:
+            break
+        root = only
+    return root
+
+
+def _chunk_nodes(nodes, target_chars):
+    """Group nodes into chunks whose serialized length stays near target_chars.
+
+    A chunk is always a list of WHOLE nodes — the split points fall between
+    top-level subtrees, never inside one, so no tag/attribute/word is ever cut.
+    A single node larger than the target gets its own chunk rather than being
+    split.
+    """
+    chunks: list[list] = []
+    current: list = []
+    current_len = 0
+    for node in nodes:
+        nlen = len(str(node))
+        if current and current_len + nlen > target_chars:
+            chunks.append(current)
+            current = []
+            current_len = 0
+        current.append(node)
+        current_len += nlen
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _chunk_marked_html(nodes) -> str:
+    """Serialize a chunk's nodes and collapse inter-tag whitespace for the model
+    (same transform the single-call path used, applied per chunk)."""
+    html = "".join(str(n) for n in nodes)
+    return _INTER_TAG_WS_RE.sub("><", html)
+
+
+def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) -> dict:
+    """Annotate one chunk, retrying transient failures.
+
+    Returns the parsed ``{"sections", "fields"}`` dict. Retries on API errors,
+    empty responses, and invalid JSON (each a fresh attempt on the same small
+    input). A ``length`` finish_reason is NOT retried — a truncated chunk won't
+    fix itself; it means the chunk itself is too big. Raises AnnotatorError when
+    retries are exhausted or on a non-retryable failure.
+    """
+    user_message = (
+        f"{_EXAMPLE}\n\n"
+        "=== HTML TO ANNOTATE (marked) ===\n"
+        f"{chunk_html}\n\n"
+        "Return ONLY the JSON object for the HTML above."
+    )
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.1,
+                max_tokens=16384,
+                response_format={"type": "json_object"},
+            )
+            choice = completion.choices[0]
+            finish_reason = getattr(choice, "finish_reason", "unknown")
+            content = (choice.message.content or "").strip()
+            if finish_reason == "length":
+                raise AnnotatorError(
+                    "A section of the page was too large for the model to annotate "
+                    f"in one piece (model={model}). Split that section into smaller "
+                    "blocks."
+                )
+            if not content:
+                raise ValueError("empty response")
+            return json.loads(content)
+        except AnnotatorError:
+            raise  # non-retryable (truncation)
+        except Exception as exc:  # noqa: BLE001 — retry any transient failure
+            last_exc = exc
+            logger.warning(
+                "Annotator: chunk attempt %d/%d failed: %s",
+                attempt + 1, retries + 1, exc,
+            )
+    raise AnnotatorError(
+        f"A section of the page could not be annotated after {retries + 1} "
+        f"attempts: {last_exc}"
+    )
+
+
+def _annotate_chunks_parallel(client, chunks_html, *, model, max_workers, retries):
+    """Annotate all chunks concurrently, preserving order. Any chunk that fails
+    after its retries raises AnnotatorError, failing the whole run (no
+    silently-missing sections)."""
+    if len(chunks_html) == 1:
+        return [_annotate_one_chunk(client, chunks_html[0], model=model, retries=retries)]
+
+    results: list = [None] * len(chunks_html)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(chunks_html))) as pool:
+        futures = {
+            pool.submit(_annotate_one_chunk, client, ch, model=model, retries=retries): i
+            for i, ch in enumerate(chunks_html)
+        }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()  # first failure propagates
+    return results
+
+
+def _merge_chunk_results(results) -> dict:
+    """Merge per-chunk ``{"sections", "fields"}`` dicts into one.
+
+    Refs are already global (the whole document was marked before splitting), so
+    sections/fields concatenate directly. The only conflict is a section id two
+    chunks both chose (e.g. both call a block "features"): the later one is
+    renamed and its fields' ``edit`` prefixes rewritten to match, or those
+    fields would orphan against the renamed section.
+    """
+    merged_sections: list = []
+    merged_fields: list = []
+    seen_ids: set[str] = set()
+
+    for res in results:
+        rename: dict[str, str] = {}
+        for sec in res.get("sections", []) or []:
+            sid = _slug(sec.get("id"))
+            if not sid:
+                merged_sections.append(sec)
+                continue
+            unique = sid
+            n = 2
+            while unique in seen_ids:
+                unique = f"{sid}_{n}"
+                n += 1
+            seen_ids.add(unique)
+            if unique != sid:
+                rename[sid] = unique
+            merged_sections.append({**sec, "id": unique})
+
+        for field in res.get("fields", []) or []:
+            edit = field.get("edit")
+            if edit and "." in str(edit):
+                prefix, rest = str(edit).split(".", 1)
+                if _slug(prefix) in rename:
+                    field = {**field, "edit": f"{rename[_slug(prefix)]}.{rest}"}
+            merged_fields.append(field)
+
+    return {"sections": merged_sections, "fields": merged_fields}
+
+
 def annotate_html(raw_html: str) -> str:
     """Send raw HTML through OpenAI and return annotated HTML.
+
+    The document is marked with global refs, split into chunks of whole
+    top-level subtrees, annotated concurrently, and merged.
 
     Raises AnnotatorError on missing key, oversized input, API failure,
     truncated/invalid JSON, or output the parser can't extract any sections from.
@@ -445,70 +623,39 @@ def annotate_html(raw_html: str) -> str:
         ref = str(idx)
         tag["data-cms-ref"] = ref
         ref_map[ref] = tag
-    marked_html = str(soup)
 
-    # Collapse inter-tag whitespace ONLY for the model's view of the HTML.
-    # Indented templates produce runs of newlines/spaces between elements
-    # that dilute the model's signal on which refs hold real content. The
-    # original soup is untouched, so the saved/output HTML still has the
-    # original whitespace. `>\s+<` matches only between tags — text content
-    # (including text inside <pre>) is not affected.
-    marked_for_model = _INTER_TAG_WS_RE.sub("><", marked_html)
+    # 3) Split into chunks of whole top-level subtrees. Marking happened on the
+    #    whole document first, so every chunk carries GLOBAL refs and merging is
+    #    a plain concatenation by ref. The collapse-inter-tag-whitespace
+    #    transform is applied per chunk (it only touches gaps between tags, so
+    #    text — including <pre> — is untouched).
+    split_root = _find_split_root(soup)
+    block_nodes = [c for c in split_root.children if getattr(c, "name", None)]
+    if not block_nodes:  # pathological (no element blocks) — annotate as one chunk
+        block_nodes = [t for t in soup.find_all(True, recursive=False)] or list(ref_map.values())[:1]
+    node_chunks = _chunk_nodes(
+        block_nodes,
+        getattr(settings, "ANNOTATE_CHUNK_TARGET_CHARS", _DEFAULT_CHUNK_TARGET_CHARS),
+    )
+    chunks_html = [_chunk_marked_html(nodes) for nodes in node_chunks]
 
     logger.info(
-        "Annotator: %d block(s) stripped, %d data URI(s) stripped; %d elements marked; "
-        "input %d -> %d chars (model sees %d chars).",
-        len(blocks), len(data_uris), len(ref_map), len(raw_html), len(marked_html),
-        len(marked_for_model),
+        "Annotator: %d block(s) stripped, %d data URI(s) stripped; %d elements "
+        "marked; input %d chars -> %d chunk(s) across %d top-level block(s).",
+        len(blocks), len(data_uris), len(ref_map), len(raw_html),
+        len(chunks_html), len(block_nodes),
     )
 
+    # 4) Annotate the chunks concurrently and merge their JSON back by ref.
     client = _make_openai_client(api_key)
-    user_message = (
-        f"{_EXAMPLE}\n\n"
-        "=== HTML TO ANNOTATE (marked) ===\n"
-        f"{marked_for_model}\n\n"
-        "Return ONLY the JSON object for the HTML above."
+    chunk_results = _annotate_chunks_parallel(
+        client,
+        chunks_html,
+        model=settings.OPENAI_ANNOTATE_MODEL,
+        max_workers=getattr(settings, "ANNOTATE_MAX_WORKERS", _DEFAULT_MAX_WORKERS),
+        retries=getattr(settings, "ANNOTATE_CHUNK_RETRIES", _DEFAULT_CHUNK_RETRIES),
     )
-
-    try:
-        completion = client.chat.completions.create(
-            model=settings.OPENAI_ANNOTATE_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.1,
-            max_tokens=16384,
-            response_format={"type": "json_object"},
-        )
-    except Exception as exc:
-        logger.exception("OpenAI request failed during annotation")
-        raise AnnotatorError(f"OpenAI request failed: {exc}") from exc
-
-    choice = completion.choices[0]
-    finish_reason = getattr(choice, "finish_reason", "unknown")
-    content = (choice.message.content or "").strip()
-    logger.info(
-        "Annotator: model returned %d chars (finish_reason=%s).",
-        len(content), finish_reason,
-    )
-
-    if finish_reason == "length":
-        raise AnnotatorError(
-            "The AI response was cut off — this page has an unusually large number "
-            "of editable elements. Try annotating a smaller section, or split the "
-            f"page. (model={settings.OPENAI_ANNOTATE_MODEL})"
-        )
-    if not content:
-        raise AnnotatorError("OpenAI returned an empty response.")
-
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        snippet = content[:300].replace("\n", " ")
-        raise AnnotatorError(
-            f"AI returned invalid JSON ({exc}). Starts with: {snippet!r}"
-        ) from exc
+    data = _merge_chunk_results(chunk_results)
 
     applied = _apply_annotations(ref_map, data)
 
@@ -538,7 +685,7 @@ def annotate_html(raw_html: str) -> str:
         )
         raise AnnotatorError(
             "AI produced no editable sections "
-            f"(model={settings.OPENAI_ANNOTATE_MODEL}, finish_reason={finish_reason}, "
+            f"(model={settings.OPENAI_ANNOTATE_MODEL}, chunks={len(chunks_html)}, "
             f"sections={len(data.get('sections') or [])}, fields_applied={applied}). "
             "The model may have referenced elements that don't form valid sections — "
             "check the server log."
