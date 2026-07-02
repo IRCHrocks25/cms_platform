@@ -148,6 +148,15 @@ _ROOT_TOKEN_RE = re.compile(r":root\s*\{[^}]*--[a-zA-Z0-9_-]+\s*:", re.DOTALL)
 _STYLE_OPEN_RE = re.compile(r"^<style\b", re.IGNORECASE)
 _INTER_TAG_WS_RE = re.compile(r">\s+<")
 
+# Matches a full `data:<mime>;base64,<payload>` URI. The payload uses only
+# the base64 alphabet (A-Z a-z 0-9 + / =) so the match naturally stops at
+# the surrounding `"`, `'`, `)`, or whitespace. Embedded images from
+# Figma Make / Vite exports run into the tens of MB; sending them to the
+# LLM would eat the context window even after <style>/<script> stripping.
+_DATA_URI_RE = re.compile(
+    r"data:[a-zA-Z]+/[a-zA-Z0-9+\-.]+;base64,[A-Za-z0-9+/=]+",
+)
+
 # Tags that hold body text the client would want to edit.
 _BACKFILL_RICHTEXT_TAGS = {"p", "blockquote", "figcaption", "summary", "dd"}
 _BACKFILL_TEXT_TAGS = {
@@ -176,6 +185,35 @@ def _strip_blocks(html: str) -> tuple[str, list[str]]:
 
     slimmed = _STYLE_OR_SCRIPT_RE.sub(replace, html)
     return slimmed, blocks
+
+
+def _strip_data_uris(html: str) -> tuple[str, list[str]]:
+    """Replace base64 data: URIs with `__DATAURI_n__` markers so multi-MB
+    image payloads don't reach the model. The surrounding `<img src="...">`
+    or `url(...)` stays intact so the marker still reads as an image to the
+    LLM and gets annotated."""
+    uris: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        idx = len(uris)
+        uris.append(match.group(0))
+        return f"__DATAURI_{idx}__"
+
+    return _DATA_URI_RE.sub(replace, html), uris
+
+
+def _restore_data_uris(annotated: str, uris: list[str]) -> str:
+    """Swap `__DATAURI_n__` markers back to the original data URIs."""
+    result = annotated
+    for idx, original in enumerate(uris):
+        marker = f"__DATAURI_{idx}__"
+        if marker in result:
+            result = result.replace(marker, original, 1)
+        else:
+            logger.warning(
+                "Annotator: data-uri marker %s missing from annotated output.", marker,
+            )
+    return result
 
 
 def _restore_blocks(annotated: str, blocks: list[str]) -> str:
@@ -323,11 +361,59 @@ def _backfill_missed_text_fields(soup) -> int:
     return added
 
 
+# Hard ceiling on the HTML actually sent to the model (after <style>/<script>
+# and data-URI stripping). Past this, gpt-4o-mini can't fit the page in context
+# and the request is doomed — rejecting up front turns a multi-minute timeout
+# into an instant, actionable error. Override via settings for larger models.
+_DEFAULT_MAX_INPUT_CHARS = 500_000
+
+
+def _make_openai_client(api_key: str):
+    """Build the OpenAI client with retries DISABLED.
+
+    The SDK default is ``max_retries=2``. On a large/slow page a request that
+    hits ``OPENAI_TIMEOUT`` would retry twice, so total wall-clock (~timeout x 3)
+    blows past the 300s background-job stale guard and surfaces as the confusing
+    "Annotation timed out on the server" message while the worker is still
+    retrying. One attempt keeps worst-case time at ``OPENAI_TIMEOUT`` so a real
+    timeout raises a clean error instead.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise AnnotatorError(
+            "openai package is not installed. Run: pip install openai"
+        ) from exc
+
+    return OpenAI(
+        api_key=api_key,
+        timeout=getattr(settings, "OPENAI_TIMEOUT", 120),
+        max_retries=0,
+    )
+
+
+def _reject_if_too_large(slimmed_html: str) -> None:
+    """Raise AnnotatorError if the model-bound HTML exceeds the input ceiling.
+
+    Called after stripping styles/scripts/data-URIs (so it measures the real
+    payload) but before the expensive BeautifulSoup parse and the API call, so
+    an impossible page fails instantly instead of after a doomed slow request.
+    """
+    limit = getattr(settings, "ANNOTATE_MAX_INPUT_CHARS", _DEFAULT_MAX_INPUT_CHARS)
+    if len(slimmed_html) > limit:
+        raise AnnotatorError(
+            f"This page is too large to annotate ({len(slimmed_html):,} characters "
+            f"after removing styles, scripts and embedded images; limit is "
+            f"{limit:,}). Annotate a single section at a time, or split the page "
+            "into smaller templates."
+        )
+
+
 def annotate_html(raw_html: str) -> str:
     """Send raw HTML through OpenAI and return annotated HTML.
 
-    Raises AnnotatorError on missing key, API failure, truncated/invalid JSON,
-    or output the parser can't extract any sections from.
+    Raises AnnotatorError on missing key, oversized input, API failure,
+    truncated/invalid JSON, or output the parser can't extract any sections from.
     """
     if not raw_html or not raw_html.strip():
         raise AnnotatorError("Empty HTML — nothing to annotate.")
@@ -338,13 +424,18 @@ def annotate_html(raw_html: str) -> str:
             "OPENAI_API_KEY is not set. Add it to .env and restart the server."
         )
 
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise AnnotatorError("openai package is not installed. Run: pip install openai") from exc
-
     # 1) Strip styles/scripts so they don't consume tokens.
     slimmed_input, blocks = _strip_blocks(raw_html)
+
+    # 1b) Strip base64 data: URIs (embedded images from Figma Make / Vite
+    #     exports). Each one can be multi-MB; together they dominate the
+    #     token budget on real-world pages even after style/script stripping.
+    slimmed_input, data_uris = _strip_data_uris(slimmed_input)
+
+    # 1c) Reject pages too large to ever fit the model's context BEFORE the
+    #     expensive parse + doomed API call, so the operator gets an instant,
+    #     actionable error instead of a multi-minute "timed out" failure.
+    _reject_if_too_large(slimmed_input)
 
     # 2) Tag every element with a unique data-cms-ref so the model can point at
     #    elements without reproducing the HTML.
@@ -365,12 +456,13 @@ def annotate_html(raw_html: str) -> str:
     marked_for_model = _INTER_TAG_WS_RE.sub("><", marked_html)
 
     logger.info(
-        "Annotator: %d block(s) stripped; %d elements marked; input %d -> %d chars "
-        "(model sees %d chars).",
-        len(blocks), len(ref_map), len(raw_html), len(marked_html), len(marked_for_model),
+        "Annotator: %d block(s) stripped, %d data URI(s) stripped; %d elements marked; "
+        "input %d -> %d chars (model sees %d chars).",
+        len(blocks), len(data_uris), len(ref_map), len(raw_html), len(marked_html),
+        len(marked_for_model),
     )
 
-    client = OpenAI(api_key=api_key, timeout=getattr(settings, "OPENAI_TIMEOUT", 120))
+    client = _make_openai_client(api_key)
     user_message = (
         f"{_EXAMPLE}\n\n"
         "=== HTML TO ANNOTATE (marked) ===\n"
@@ -430,7 +522,11 @@ def annotate_html(raw_html: str) -> str:
     # item in a repeating card group, or text nested deep in wrappers.
     backfilled = _backfill_missed_text_fields(soup)
 
-    annotated = _restore_blocks(str(soup), blocks)
+    # Restore data URIs first, then style/script blocks. Order matters: if a
+    # restored <style> block happened to contain a marker substring it'd be
+    # safer to handle data URIs while they're still scoped to body markup only.
+    restored_uris = _restore_data_uris(str(soup), data_uris)
+    annotated = _restore_blocks(restored_uris, blocks)
 
     schema = build_schema(annotated)
     sections = [s for s in schema.get("sections", []) if s.get("id") != "brand"]

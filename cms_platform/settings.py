@@ -314,6 +314,11 @@ OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
 # the Gunicorn worker --timeout (180s) so a slow/hung API surfaces as a clean
 # AnnotatorError (JSON 502) instead of a killed worker (HTML 502 from the proxy).
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
+# Max characters of HTML sent to the annotator model (measured after styles,
+# scripts and base64 data-URIs are stripped). Bigger pages can't fit gpt-4o-mini's
+# context, so they're rejected up front with an actionable error rather than
+# running for minutes and timing out. Raise it if you switch to a larger model.
+ANNOTATE_MAX_INPUT_CHARS = int(os.environ.get("ANNOTATE_MAX_INPUT_CHARS", "500000"))
 # Public host used in generated embed snippets/documentation so agency users
 # always copy production-ready script/iframe URLs from the dashboard.
 EMBED_ASSISTANT_PUBLIC_ORIGIN = os.environ.get(
