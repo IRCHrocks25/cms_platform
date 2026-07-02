@@ -32,7 +32,7 @@ from core.parser import build_schema
 from core.services import blog_render
 from core.services import cloudinary_media
 from core.services.annotator import annotate_html, AnnotatorError
-from core.services.sanitizer import sanitize_html, strip_to_text
+from core.services.sanitizer import sanitize_html
 from core.urls_helpers import build_tenant_url_bundle, tenant_public_url
 
 
@@ -1648,19 +1648,22 @@ def _page_nav_urls(scope, tenant):
     }
 
 
-def _page_row_urls(scope, tenant, page):
+def _page_row_urls(request, scope, tenant, page):
     if scope == "tenant":
         return {
             "edit": reverse("dashboard:page_editor_self", args=[page.pk]),
             "publish": reverse("dashboard:page_publish_self", args=[page.pk]),
             "delete": reverse("dashboard:page_delete_self", args=[page.pk]),
+            # Client is already on the tenant host — a relative slug link stays there.
             "live": f"/{page.slug}/",
         }
     return {
         "edit": reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
         "publish": reverse("dashboard:page_publish", args=[tenant.pk, page.pk]),
         "delete": reverse("dashboard:page_delete", args=[tenant.pk, page.pk]),
-        "live": f"/site/{tenant.subdomain}/{page.slug}/",
+        # Agency host: link to the client's canonical tenant host, not the apex
+        # `/site/<sub>/` fallback, so the page opens on <sub>.<base>/<slug>/.
+        "live": f"{tenant_public_url(request, tenant)}{page.slug}/",
     }
 
 
@@ -1677,7 +1680,7 @@ def _user_can_manage_pages(request):
 def _page_list(request, tenant, scope):
     can_manage = _user_can_manage_pages(request)
     pages = [
-        {"obj": p, "urls": _page_row_urls(scope, tenant, p)}
+        {"obj": p, "urls": _page_row_urls(request, scope, tenant, p)}
         for p in tenant.pages.all()
     ]
     return render(
