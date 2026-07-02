@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Edit HTML — {{ page.title }} · Locked CMS{% endblock %}
+
+{% block content %}
+  <div class="page">
+    <nav class="breadcrumb">
+      <a href="{{ back_url }}">Pages</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>{{ page.title }}</span>
+      <span class="breadcrumb-sep">/</span>
+      <span>Edit HTML</span>
+    </nav>
+
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Edit HTML — {{ page.title }}</h1>
+        <p class="page-subtitle">
+          This page lives at <code>/{{ page.slug }}/</code> on
+          <strong>{{ tenant.name }}</strong>. Paste or edit the HTML, annotate
+          with AI, then save. This page has its own template, so changes here
+          don't affect any other page.
+        </p>
+      </div>
+    </div>
+
+    <div class="card page-section">
+      <form method="post" action="{{ save_url }}" class="stack-5">
+        {% csrf_token %}
+        {% include "dashboard/_html_source_editor.html" with html_value=html_source %}
+        <div class="row-end">
+          <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Save HTML</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,470 @@
+{# Reusable HTML-source editor: paste/fetch HTML, "Annotate with AI" with the
+   side-by-side compare overlay, and a raw preview. Used by the template form
+   and the page "Edit HTML" screen. Include INSIDE a <form> that has a csrf
+   token and a submit button. Parameter: html_value (initial textarea content). #}
+<div class="field">
+  <div class="row-between" style="align-items: center; margin-bottom: 6px;">
+    <label class="field-label" for="id_html_source" style="margin: 0;">HTML source</label>
+    <div class="row" style="gap: 8px;">
+      <button type="button" id="annotate-btn" class="btn btn-ghost btn-sm"
+              data-url="{% url 'dashboard:template_annotate' %}"
+              data-status-url="{% url 'dashboard:template_annotate_status' '00000000-0000-0000-0000-000000000000' %}"
+              title="Send raw HTML to AI and get back annotated HTML with data-section / data-edit markers">
+        Annotate with AI
+      </button>
+      <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
+    </div>
+  </div>
+
+  <div class="row" style="gap: 8px; margin-bottom: 8px; align-items: stretch;">
+    <input type="url" id="fetch-url-input" class="input" style="flex: 1;"
+           placeholder="Or paste a URL — e.g. https://susan-rabbyv1.pages.dev/" />
+    <button type="button" id="fetch-url-btn" class="btn btn-ghost btn-sm"
+            data-url="{% url 'dashboard:template_fetch_url' %}"
+            title="Fetch the page's HTML and drop it into the textarea below">
+      Fetch from URL
+    </button>
+  </div>
+  <div id="fetch-url-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
+
+  <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
+  <textarea class="textarea" name="html_source" id="id_html_source" rows="22" required>{{ html_value }}</textarea>
+  <span class="field-hint">
+    Tip: every <code>data-section</code> wrapper becomes a sidebar entry.
+    Field types supported: <code>text</code>, <code>richtext</code>, <code>image</code>, <code>color</code>, <code>link</code>.
+  </span>
+
+  <div id="preview-panel" hidden style="margin-top: 12px; border: 1px solid var(--color-border, #e5e7eb); border-radius: var(--radius-md); overflow: hidden;">
+    <div class="row-between" style="padding: 8px 12px; background: var(--color-surface-2); font-size: 13px; color: var(--color-text-soft);">
+      <span>Live preview of pasted HTML (raw — no content substitution)</span>
+      <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
+    </div>
+    <iframe id="preview-iframe" style="width: 100%; height: 600px; border: 0; background: white;"></iframe>
+  </div>
+</div>
+
+{# ---- Side-by-side AI annotation compare overlay --------------- #}
+<div id="compare-overlay" hidden
+     style="position: fixed; inset: 0; background: rgba(10,10,20,0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 1000; padding: 24px;">
+  <div style="background: var(--color-surface); border-radius: var(--radius-lg); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px rgba(10,10,20,0.4);">
+
+    <div class="row-between" style="padding: 14px 20px; border-bottom: 1px solid var(--color-border); align-items: center;">
+      <div>
+        <div style="font-weight: 600; font-size: 15px;">Compare AI annotation</div>
+        <div id="compare-summary" style="font-size: 12px; color: var(--color-text-soft); margin-top: 2px;"></div>
+      </div>
+      <button type="button" id="compare-close" class="btn btn-ghost btn-sm">✕ Close</button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--color-border); overflow: hidden;">
+      <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
+        <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
+          <div style="font-size: 13px; font-weight: 500;">Your input</div>
+          <div class="row" style="gap: 4px;">
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="code">Code</button>
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="preview">Preview</button>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden;">
+          <textarea id="compare-left-code" readonly
+                    style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
+          <iframe id="compare-left-preview" hidden
+                  style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
+        </div>
+      </div>
+
+      <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
+        <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
+          <div style="font-size: 13px; font-weight: 500;">AI annotated</div>
+          <div class="row" style="gap: 4px;">
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="code">Code</button>
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="preview">Preview</button>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden;">
+          <textarea id="compare-right-code"
+                    style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
+          <iframe id="compare-right-preview" hidden
+                  style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
+          <div id="compare-loading" class="compare-loading"
+               style="position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; background: var(--color-surface);">
+            <div class="compare-loading-inner" style="text-align: center; max-width: 340px; padding: 32px;">
+              <div class="compare-loading-dots" style="display: inline-flex; gap: 7px;">
+                <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+              </div>
+              <div class="compare-loading-title" style="font-weight:500;font-size:15px;margin-top:14px;color:var(--color-text);">AI is annotating… <em style="font-style:normal;font-family:var(--font-mono);color:var(--color-purple);">beep boop</em></div>
+              <div class="compare-progress" style="height:6px;width:280px;max-width:100%;margin:16px auto 0;background:var(--color-surface-2);border-radius:999px;overflow:hidden;">
+                <div class="compare-progress-bar" id="compare-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--color-blue),var(--color-purple));border-radius:999px;transition:width .45s ease;"></div>
+              </div>
+              <div class="compare-loading-sub" id="compare-loading-sub" style="font-size:12px;color:var(--color-text-muted);margin-top:10px;">Reading your HTML…</div>
+              <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm" hidden style="margin-top: 14px;">Try again</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row-between" style="padding: 12px 20px; border-top: 1px solid var(--color-border); align-items: center; background: var(--color-surface-2);">
+      <div style="font-size: 12px; color: var(--color-text-soft);">
+        You can edit the AI output on the right before applying.
+      </div>
+      <div class="row" style="gap: 8px;">
+        <button type="button" id="compare-retry" class="btn btn-ghost btn-sm">↻ Re-run AI</button>
+        <button type="button" id="compare-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+        <button type="button" id="compare-apply" class="btn btn-primary btn-sm">Apply annotation</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var toggle = document.getElementById("preview-toggle");
+    var refresh = document.getElementById("preview-refresh");
+    var panel = document.getElementById("preview-panel");
+    var iframe = document.getElementById("preview-iframe");
+    var textarea = document.getElementById("id_html_source");
+    if (!toggle || !panel || !iframe || !textarea) return;
+
+    function render() { iframe.srcdoc = textarea.value; }
+
+    toggle.addEventListener("click", function () {
+      if (panel.hasAttribute("hidden")) {
+        panel.removeAttribute("hidden");
+        toggle.textContent = "Hide preview";
+        render();
+        panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      } else {
+        panel.setAttribute("hidden", "");
+        toggle.textContent = "Preview";
+      }
+    });
+    refresh.addEventListener("click", render);
+
+    var annotateBtn = document.getElementById("annotate-btn");
+    var statusBox = document.getElementById("annotate-status");
+    if (!annotateBtn || !statusBox) return;
+
+    function csrfToken() {
+      var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      if (m) return decodeURIComponent(m[1]);
+      var input = document.querySelector("input[name=csrfmiddlewaretoken]");
+      return input ? input.value : "";
+    }
+    function setStatus(kind, message) {
+      statusBox.removeAttribute("hidden");
+      var bg = kind === "error" ? "#fef2f2" : kind === "ok" ? "#ecfdf5" : "#eff6ff";
+      var fg = kind === "error" ? "#991b1b" : kind === "ok" ? "#065f46" : "#1e3a8a";
+      statusBox.style.background = bg;
+      statusBox.style.color = fg;
+      statusBox.textContent = message;
+    }
+
+    var overlay = document.getElementById("compare-overlay");
+    var overlaySummary = document.getElementById("compare-summary");
+    var leftCode = document.getElementById("compare-left-code");
+    var leftPreview = document.getElementById("compare-left-preview");
+    var rightCode = document.getElementById("compare-right-code");
+    var rightPreview = document.getElementById("compare-right-preview");
+    var compareApply = document.getElementById("compare-apply");
+    var compareCancel = document.getElementById("compare-cancel");
+    var compareClose = document.getElementById("compare-close");
+    var compareRetry = document.getElementById("compare-retry");
+    var compareReady = !!(overlay && overlaySummary && leftCode && rightCode && compareApply && compareCancel && compareClose && compareRetry);
+    if (!compareReady) {
+      console.warn("[annotate] compare overlay elements missing — falling back to direct replace. Hard-refresh (Ctrl+Shift+R).");
+    }
+    var savedInputForRetry = "";
+
+    var compareLoading = document.getElementById("compare-loading");
+    var progressBar = document.getElementById("compare-progress-bar");
+    var loadingSub = document.getElementById("compare-loading-sub");
+    var loadingRetry = document.getElementById("compare-loading-retry");
+    var progressTimer = null, elapsedTimer = null, loadStart = 0, progressPct = 0;
+
+    function stopProgress() {
+      clearInterval(progressTimer); clearInterval(elapsedTimer);
+      progressTimer = elapsedTimer = null;
+    }
+    function startProgress() {
+      stopProgress();
+      progressPct = 0;
+      loadStart = Date.now();
+      if (progressBar) progressBar.style.width = "0%";
+      if (loadingSub) loadingSub.textContent = "Reading your HTML…";
+      if (loadingRetry) loadingRetry.hidden = true;
+      progressTimer = setInterval(function () {
+        progressPct += (95 - progressPct) * 0.045;
+        if (progressBar) progressBar.style.width = progressPct.toFixed(1) + "%";
+      }, 200);
+      elapsedTimer = setInterval(function () {
+        var s = Math.round((Date.now() - loadStart) / 1000);
+        if (loadingSub) loadingSub.textContent = s + "s · large pages can take 1–2 min";
+      }, 1000);
+    }
+    function openCompareLoading(originalHtml) {
+      if (!compareReady) return;
+      leftCode.value = originalHtml;
+      rightCode.value = "";
+      setView("left", "code");
+      setView("right", "code");
+      overlaySummary.textContent = "Annotating your HTML…";
+      overlay.removeAttribute("hidden");
+      document.body.style.overflow = "hidden";
+      if (compareLoading) compareLoading.style.display = "flex";
+      if (compareApply) compareApply.disabled = true;
+      startProgress();
+    }
+    function fillCompareResult(annotatedHtml, sections) {
+      stopProgress();
+      if (progressBar) progressBar.style.width = "100%";
+      rightCode.value = annotatedHtml;
+      setView("left", "code");
+      setView("right", "code");
+      var summary = sections.length
+        ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
+          ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
+        : "AI returned HTML but no editable sections were detected — review the output carefully.";
+      overlaySummary.textContent = summary;
+      if (compareApply) compareApply.disabled = false;
+      setTimeout(function () { if (compareLoading) compareLoading.style.display = "none"; }, 250);
+    }
+    function showLoadingError(msg) {
+      stopProgress();
+      if (progressBar) progressBar.style.width = "100%";
+      if (loadingSub) loadingSub.textContent = msg || "Annotation failed.";
+      if (loadingRetry) loadingRetry.hidden = false;
+    }
+
+    function setView(side, view) {
+      if (!compareReady) return;
+      var codeEl = side === "left" ? leftCode : rightCode;
+      var previewEl = side === "left" ? leftPreview : rightPreview;
+      if (view === "preview") {
+        previewEl.srcdoc = codeEl.value;
+        codeEl.setAttribute("hidden", "");
+        previewEl.removeAttribute("hidden");
+      } else {
+        previewEl.setAttribute("hidden", "");
+        codeEl.removeAttribute("hidden");
+      }
+      var tabs = document.querySelectorAll('.compare-tab[data-side="' + side + '"]');
+      tabs.forEach(function (t) {
+        if (t.dataset.view === view) { t.style.background = "var(--color-surface)"; t.style.fontWeight = "600"; }
+        else { t.style.background = ""; t.style.fontWeight = ""; }
+      });
+    }
+
+    if (compareReady) {
+      document.querySelectorAll(".compare-tab").forEach(function (tab) {
+        tab.addEventListener("click", function () { setView(tab.dataset.side, tab.dataset.view); });
+      });
+    }
+
+    function openCompare(originalHtml, annotatedHtml, sections) {
+      if (!compareReady) {
+        textarea.value = annotatedHtml;
+        setStatus("ok", "Annotation applied (compare overlay unavailable).");
+        if (!panel.hasAttribute("hidden")) render();
+        return;
+      }
+      leftCode.value = originalHtml;
+      rightCode.value = annotatedHtml;
+      setView("left", "code");
+      setView("right", "code");
+      var summary = sections.length
+        ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
+          ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
+        : "AI returned HTML but no editable sections were detected — review the output carefully.";
+      overlaySummary.textContent = summary;
+      overlay.removeAttribute("hidden");
+      document.body.style.overflow = "hidden";
+    }
+    function closeCompare() {
+      if (!compareReady) return;
+      stopProgress();
+      if (compareLoading) compareLoading.style.display = "none";
+      overlay.setAttribute("hidden", "");
+      document.body.style.overflow = "";
+    }
+
+    if (compareReady) {
+      compareClose.addEventListener("click", closeCompare);
+      compareCancel.addEventListener("click", closeCompare);
+      compareApply.addEventListener("click", function () {
+        textarea.value = rightCode.value;
+        setStatus("ok", "Annotation applied. Save to persist.");
+        closeCompare();
+        if (!panel.hasAttribute("hidden")) render();
+      });
+      overlay.addEventListener("click", function (e) { if (e.target === overlay) closeCompare(); });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !overlay.hasAttribute("hidden")) closeCompare();
+      });
+    }
+
+    var JOB_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000";
+    var POLL_INTERVAL_MS = 2500;
+    var POLL_MAX_MS = 6 * 60 * 1000;
+
+    function readJsonSafe(res) {
+      return res.text().then(function (text) {
+        var body = null;
+        try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+        return { ok: res.ok, status: res.status, body: body };
+      });
+    }
+
+    function runAnnotate(sourceHtml) {
+      annotateBtn.disabled = true;
+      if (compareRetry) compareRetry.disabled = true;
+      var originalText = annotateBtn.textContent;
+      annotateBtn.textContent = "Annotating…";
+      setStatus("info", "Sending to OpenAI — large pages can take a minute or two.");
+      savedInputForRetry = sourceHtml;
+      if (compareReady) openCompareLoading(sourceHtml);
+
+      function resetButton() {
+        annotateBtn.disabled = false;
+        if (compareRetry) compareRetry.disabled = false;
+        annotateBtn.textContent = originalText;
+      }
+      function fail(msg) {
+        setStatus("error", msg);
+        if (compareReady && !overlay.hasAttribute("hidden")) showLoadingError(msg);
+        resetButton();
+      }
+      function succeed(body) {
+        setStatus("info", "AI returned — compare the two versions and choose whether to apply.");
+        if (compareReady) fillCompareResult(body.html, body.sections || []);
+        else openCompare(sourceHtml, body.html, body.sections || []);
+        resetButton();
+      }
+
+      var statusUrlTemplate = annotateBtn.dataset.statusUrl || "";
+      var pollStart = Date.now();
+
+      function poll(jobId) {
+        if (!statusUrlTemplate) {
+          return fail("Status endpoint unavailable — hard-refresh (Ctrl+Shift+R) and retry.");
+        }
+        var url = statusUrlTemplate.replace(JOB_ID_PLACEHOLDER, jobId);
+        fetch(url, { headers: { "Accept": "application/json" } })
+          .then(readJsonSafe)
+          .then(function (r) {
+            if (!r.body) {
+              if (Date.now() - pollStart > POLL_MAX_MS) {
+                return fail("The server stopped responding while annotating. Please try again.");
+              }
+              return setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+            }
+            if (r.body.status === "done") return succeed(r.body);
+            if (r.body.status === "error") { return fail((r.body && r.body.error) || "Annotation failed."); }
+            if (Date.now() - pollStart > POLL_MAX_MS) {
+              return fail("Annotation is taking too long. Try a smaller page, then retry.");
+            }
+            setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+          })
+          .catch(function (err) {
+            if (Date.now() - pollStart > POLL_MAX_MS) {
+              return fail("Network error while annotating: " + err.message);
+            }
+            setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+          });
+      }
+
+      fetch(annotateBtn.dataset.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() },
+        body: JSON.stringify({ html: sourceHtml }),
+      })
+        .then(readJsonSafe)
+        .then(function (r) {
+          if (!r.body) {
+            return fail("The server didn't return a valid response (HTTP " + r.status + "). Please try again.");
+          }
+          if (!r.ok || !r.body.job_id) {
+            return fail((r.body && r.body.error) || "Could not start annotation.");
+          }
+          poll(r.body.job_id);
+        })
+        .catch(function (err) { fail("Network error: " + err.message); });
+    }
+
+    annotateBtn.addEventListener("click", function () {
+      var raw = textarea.value.trim();
+      if (!raw) { setStatus("error", "Paste some HTML first."); return; }
+      runAnnotate(raw);
+    });
+
+    function retryAnnotate() {
+      var source = savedInputForRetry || (leftCode ? leftCode.value : "");
+      if (!source) return;
+      runAnnotate(source);
+    }
+    if (compareRetry) compareRetry.addEventListener("click", retryAnnotate);
+    if (loadingRetry) loadingRetry.addEventListener("click", retryAnnotate);
+  })();
+
+  (function () {
+    var fetchBtn = document.getElementById("fetch-url-btn");
+    var fetchInput = document.getElementById("fetch-url-input");
+    var fetchStatus = document.getElementById("fetch-url-status");
+    var textarea = document.getElementById("id_html_source");
+    if (!fetchBtn || !fetchInput || !textarea) return;
+
+    var csrf = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
+
+    function showStatus(msg, kind) {
+      fetchStatus.hidden = false;
+      fetchStatus.textContent = msg;
+      fetchStatus.style.background = kind === "error" ? "#fef2f2" : "#ecfeff";
+      fetchStatus.style.color      = kind === "error" ? "#991b1b" : "#0e7490";
+      fetchStatus.style.border     = "1px solid " + (kind === "error" ? "#fecaca" : "#a5f3fc");
+    }
+    function clearStatus() { fetchStatus.hidden = true; fetchStatus.textContent = ""; }
+
+    function doFetch() {
+      var url = (fetchInput.value || "").trim();
+      if (!url) { showStatus("Paste a URL first.", "error"); return; }
+      var existing = (textarea.value || "").trim();
+      if (existing && !confirm("Replace the current HTML with the fetched page?")) return;
+
+      var endpoint = fetchBtn.dataset.url;
+      fetchBtn.disabled = true;
+      showStatus("Fetching " + url + " …", "info");
+
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+        credentials: "same-origin",
+        body: JSON.stringify({ url: url }),
+      })
+      .then(function (r) { return r.json().then(function (data) { return [r.ok, data]; }); })
+      .then(function (pair) {
+        var ok = pair[0], data = pair[1];
+        if (ok && data.html) {
+          textarea.value = data.html;
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          var bytes = (data.bytes || data.html.length).toLocaleString();
+          var rendered = data.rendered_with_js ? " — rendered with JavaScript (SPA detected)" : "";
+          var msg = "Loaded " + bytes + " bytes" + rendered + ". Click 'Annotate with AI' to continue.";
+          if (data.warning) { msg += "\n\n" + data.warning; }
+          showStatus(msg, "info");
+        } else {
+          showStatus(data.error || "Could not fetch that URL.", "error");
+        }
+      })
+      .catch(function () { showStatus("Network error while fetching.", "error"); })
+      .then(function () { fetchBtn.disabled = false; });
+    }
+
+    fetchBtn.addEventListener("click", doFetch);
+    fetchInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); doFetch(); }
+    });
+    fetchInput.addEventListener("input", clearStatus);
+  })();
+</script>

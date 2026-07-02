@@ -32,30 +32,28 @@
 
     {% if can_manage_pages %}
     <div class="card content-block" style="margin-bottom: var(--space-5);">
-      <form method="post" action="{{ nav_urls.new }}" class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: flex-end;">
+      <h3 style="margin-bottom: var(--space-2);">New page</h3>
+      <form method="post" action="{{ nav_urls.new }}" class="stack-5">
         {% csrf_token %}
-        <div class="field" style="margin: 0; min-width: 200px;">
-          <label class="field-label" for="pf-title">Page title</label>
-          <input class="input" type="text" id="pf-title" name="title" placeholder="About us" required>
+        <div class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: flex-end;">
+          <div class="field" style="margin: 0; min-width: 200px;">
+            <label class="field-label" for="pf-title">Page title</label>
+            <input class="input" type="text" id="pf-title" name="title" placeholder="About us" required>
+          </div>
+          <div class="field" style="margin: 0; min-width: 160px;">
+            <label class="field-label" for="pf-slug">URL slug</label>
+            <input class="input" type="text" id="pf-slug" name="slug" placeholder="about">
+          </div>
         </div>
-        <div class="field" style="margin: 0; min-width: 160px;">
-          <label class="field-label" for="pf-slug">URL slug</label>
-          <input class="input" type="text" id="pf-slug" name="slug" placeholder="about">
+        <p class="field-help" style="margin: 0;">
+          Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
+          Paste the page's HTML below (annotate it with AI for the editable fields) — each page gets its own template.
+        </p>
+        {% include "dashboard/_html_source_editor.html" with html_value="" %}
+        <div class="row-end">
+          <button type="submit" class="btn btn-purple">+ Add page</button>
         </div>
-        <div class="field" style="margin: 0; min-width: 200px;">
-          <label class="field-label" for="pf-template">Template</label>
-          <select class="input" id="pf-template" name="template" required>
-            <option value="">Choose a template…</option>
-            {% for t in templates %}
-              <option value="{{ t.pk }}">{{ t.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="submit" class="btn btn-purple">+ Add page</button>
       </form>
-      <p class="field-help" style="margin-top: var(--space-2);">
-        Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
-      </p>
     </div>
 
     {% if scope == "agency" %}
@@ -175,6 +173,9 @@
                 <td class="right">
                   <div class="row-actions">
                     <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
+                    {% if row.urls.edit_html %}
+                      <a href="{{ row.urls.edit_html }}" class="btn btn-ghost btn-sm">Edit HTML</a>
+                    {% endif %}
                     {% if row.obj.is_published %}
                       <a href="{{ row.urls.live }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
                     {% endif %}
@@ -202,7 +203,7 @@
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
         {% if can_manage_pages %}
-          <p>Add one above — pick a template and give it a URL slug like <code>about</code> or <code>services</code>.</p>
+          <p>Add one above — give it a URL slug like <code>about</code> or <code>services</code> and paste its HTML.</p>
         {% else %}
           <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency — they'll set it up for you.</p>
         {% endif %}

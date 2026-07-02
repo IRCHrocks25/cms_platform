@@ -1659,6 +1659,7 @@ def _page_row_urls(request, scope, tenant, page):
         }
     return {
         "edit": reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
+        "edit_html": reverse("dashboard:page_edit_html", args=[tenant.pk, page.pk]),
         "publish": reverse("dashboard:page_publish", args=[tenant.pk, page.pk]),
         "delete": reverse("dashboard:page_delete", args=[tenant.pk, page.pk]),
         # Agency host: link to the client's canonical tenant host, not the apex
@@ -1703,7 +1704,7 @@ def _page_create(request, tenant, scope):
     nav = _page_nav_urls(scope, tenant)
     title = (request.POST.get("title") or "").strip()
     slug = slugify(request.POST.get("slug") or title)[:80]
-    template = Template.objects.filter(pk=request.POST.get("template")).first()
+    html_source = request.POST.get("html_source") or ""
 
     errors = []
     if not title:
@@ -1714,15 +1715,22 @@ def _page_create(request, tenant, scope):
         errors.append(f"'/{slug}/' is reserved — choose a different slug.")
     elif tenant.pages.filter(slug=slug).exists():
         errors.append(f"This site already has a page at /{slug}/.")
-    if template is None:
-        errors.append("Choose a template for the page.")
+    if not html_source.strip():
+        errors.append("Paste the page HTML.")
 
     if errors:
         for e in errors:
             messages.error(request, e)
         return redirect(nav["list"])
 
-    page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
+    # Each page owns its OWN template, built from the pasted HTML, so editing one
+    # page's HTML can never affect another page or the home site.
+    with transaction.atomic():
+        template = Template.objects.create(
+            name=f"{tenant.name} — {title}",
+            html_source=html_source,
+        )
+        page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
     messages.success(request, f"Page “{page.title}” created — start editing.")
     if scope == "tenant":
         return redirect("dashboard:page_editor_self", page_pk=page.pk)
@@ -1902,6 +1910,36 @@ def page_editor(request, pk, page_pk):
     tenant = get_object_or_404(Tenant, pk=pk)
     page = _get_tenant_page(tenant, page_pk)
     return _render_editor(request, tenant, scope="agency", page=page)
+
+
+@agency_operator_required
+def page_edit_html(request, pk, page_pk):
+    """Edit a page's raw HTML (agency-only, structural). Each page owns its own
+    template, so this edits in place safely. GET shows the current HTML in the
+    same paste + annotate editor as templates; POST saves it and rebuilds the
+    schema so new fields appear in the content editor immediately."""
+    tenant = get_object_or_404(Tenant, pk=pk)
+    page = _get_tenant_page(tenant, page_pk)
+    if request.method == "POST":
+        new_html = request.POST.get("html_source") or ""
+        if not new_html.strip():
+            messages.error(request, "Page HTML cannot be empty.")
+        else:
+            page.template.html_source = new_html
+            page.template.save()  # Template.save() rebuilds the schema.
+            messages.success(request, f"HTML updated for “{page.title}”.")
+            return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
+    return render(
+        request,
+        "dashboard/page_edit_html.html",
+        {
+            "tenant": tenant,
+            "page": page,
+            "html_source": page.template.html_source,
+            "save_url": reverse("dashboard:page_edit_html", args=[tenant.pk, page.pk]),
+            "back_url": reverse("dashboard:page_list", args=[tenant.pk]),
+        },
+    )
 
 
 @agency_operator_required
