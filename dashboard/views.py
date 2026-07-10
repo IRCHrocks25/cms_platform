@@ -33,6 +33,7 @@ from core.services import blog_render
 from core.services import cloudinary_media
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
+from core import ghl_crypto
 from core import ghl_oauth
 from core.models import GhlAgencyInstall, GhlInstall
 from core.services import ghl_connect
@@ -3173,7 +3174,7 @@ def integrations_bind(request):
         return redirect("dashboard:integrations")
     try:
         ghl_connect.bind_location(agency=agency, location_id=location_id, tenant=tenant)
-        messages.success(request, f"Connected \u201c{tenant.name}\u201d to sub-account {location_id}.")
+        messages.success(request, f"Connected '{tenant.name}' to sub-account {location_id}.")
     except ghl_oauth.TokenExchangeFailed as exc:
         messages.error(request, f"Could not connect: {exc}")
     except IntegrityError:
@@ -3188,7 +3189,7 @@ def integrations_reconnect(request):
     try:
         ghl_connect.reconnect_install(install)
         messages.success(request, f"Reconnected {install.location_id}.")
-    except (ghl_oauth.TokenExchangeFailed, ValueError) as exc:
+    except (ghl_oauth.TokenExchangeFailed, ValueError, ghl_crypto.TokenCryptoError) as exc:
         messages.error(request, f"Reconnect failed: {exc}")
     return redirect("dashboard:integrations")
 
@@ -3199,6 +3200,9 @@ def integrations_disconnect(request):
     install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
     install.status = GhlInstall.STATUS_DISCONNECTED
     install.save(update_fields=["status", "updated_at"])
+    if install.tenant and install.tenant.ghl_location_id == install.location_id:
+        install.tenant.ghl_location_id = ""
+        install.tenant.save(update_fields=["ghl_location_id", "updated_at"])
     messages.success(request, f"Disconnected {install.location_id}.")
     return redirect("dashboard:integrations")
 
@@ -3215,7 +3219,7 @@ def integrations_refresh_locations(request):
         )
         agency.save(update_fields=["available_locations", "updated_at"])
         messages.success(request, "Sub-account list refreshed.")
-    except ghl_oauth.TokenExchangeFailed as exc:
+    except (ghl_oauth.TokenExchangeFailed, ghl_crypto.TokenCryptoError) as exc:
         messages.error(request, f"Refresh failed: {exc}")
     return redirect("dashboard:integrations")
 

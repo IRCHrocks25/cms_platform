@@ -77,12 +77,15 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(install.status, GhlInstall.STATUS_CONNECTED)
 
     def test_reconnect_orphan_install_shows_error_not_500(self):
+        from django.contrib.messages import get_messages
         orphan = GhlInstall.objects.create(
             location_id="loc_orphan", access_token=encrypt_token("x")
         )
         resp = self.client.post(reverse("dashboard:integrations_reconnect"),
                                 {"install_id": orphan.pk})
-        self.assertEqual(resp.status_code, 302)  # ValueError caught, graceful redirect
+        self.assertEqual(resp.status_code, 302)
+        msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+        self.assertTrue(any("Reconnect failed" in m for m in msgs))
 
     def test_disconnect_marks_disconnected(self):
         install = GhlInstall.objects.create(
@@ -94,6 +97,17 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         install.refresh_from_db()
         self.assertEqual(install.status, GhlInstall.STATUS_DISCONNECTED)
+
+    def test_disconnect_clears_tenant_location(self):
+        self.tenant.ghl_location_id = "loc_a"
+        self.tenant.save(update_fields=["ghl_location_id"])
+        install = GhlInstall.objects.create(
+            location_id="loc_a", agency=self.agency, tenant=self.tenant,
+            access_token=encrypt_token("x"), status=GhlInstall.STATUS_CONNECTED,
+        )
+        self.client.post(reverse("dashboard:integrations_disconnect"), {"install_id": install.pk})
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.ghl_location_id, "")
 
     def test_refresh_locations_updates_list(self):
         new_locs = [{"id": "loc_a", "name": "Acme HQ"}, {"id": "loc_c", "name": "Gamma"}]
