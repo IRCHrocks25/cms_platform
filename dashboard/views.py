@@ -3161,6 +3161,9 @@ def integrations_bind(request):
     agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
     location_id = (request.POST.get("location_id") or "").strip()
     tenant = get_object_or_404(Tenant, pk=request.POST.get("tenant_id"))
+    if not any(loc.get("id") == location_id for loc in agency.available_locations):
+        messages.error(request, "Unknown sub-account for that agency.")
+        return redirect("dashboard:integrations")
     clash = (
         GhlInstall.objects.filter(location_id=location_id).exclude(tenant=tenant).exists()
         or Tenant.objects.filter(ghl_location_id=location_id).exclude(pk=tenant.pk).exists()

@@ -55,3 +55,10 @@ class IntegrationsViewTests(TestCase):
         })
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(GhlInstall.objects.filter(location_id="loc_a", tenant=self.tenant).exists())
+
+    def test_bind_rejects_unknown_location(self):
+        resp = self.client.post(reverse("dashboard:integrations_bind"), {
+            "agency_id": self.agency.pk, "location_id": "loc_UNKNOWN", "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(GhlInstall.objects.filter(location_id="loc_UNKNOWN").exists())

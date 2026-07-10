@@ -2,7 +2,10 @@
 {% block content %}
 <div class="page">
   <h1>Integrations</h1>
-  <a class="btn btn-purple" href="/connect/install/">Connect GHL agency</a>
+  {% if just_connected %}
+    <p class="field-hint">✓ Agency connected — choose sub-accounts to bind below.</p>
+  {% endif %}
+  <a class="btn btn-purple" href="{% url 'ghl_oauth_install' %}">Connect GHL agency</a>
 
   {% for agency in agencies %}
     <section class="stat-card">
