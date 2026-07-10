@@ -17,7 +17,7 @@ KEY = Fernet.generate_key().decode()
                    GHL_CLIENT_SECRET="s", ALLOWED_HOSTS=["testserver"], TENANT_BASE_DOMAIN="localhost")
 class IntegrationsViewTests(TestCase):
     def setUp(self):
-        self.staff = User.objects.create_user("op", password="pw", is_staff=True)
+        self.staff = User.objects.create_user("op", password="pw", is_staff=True, is_superuser=True)
         self.client.force_login(self.staff)
         self.owner = User.objects.create_user("client", password="pw")
         self.template = Template.objects.create(name="T", html_source="<div></div>")
@@ -198,3 +198,16 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.agency.refresh_from_db()
         self.assertEqual(self.agency.company_name, "Fetched Co")
+
+    def test_integrations_denied_for_non_superuser_staff(self):
+        op = User.objects.create_user("plainop", password="pw", is_staff=True)
+        self.client.force_login(op)
+        resp = self.client.get(reverse("dashboard:integrations"))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_rename_agency_sets_name(self):
+        self.client.post(reverse("dashboard:integrations_rename_agency"), {
+            "agency_id": self.agency.pk, "company_name": "Robyn Agency",
+        })
+        self.agency.refresh_from_db()
+        self.assertEqual(self.agency.company_name, "Robyn Agency")

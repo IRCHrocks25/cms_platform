@@ -27,7 +27,7 @@ from core.models import (
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
     Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
 )
-from core.permissions import agency_operator_required, tenant_member_required
+from core.permissions import agency_operator_required, agency_admin_required, tenant_member_required
 from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
 from core.services import blog_render
@@ -3149,7 +3149,7 @@ def blog_strip_preview(request, pk):
 # --------------------------------------------------------------------------- #
 
 
-@agency_operator_required
+@agency_admin_required
 def integrations(request):
     from collections import defaultdict
     agencies = list(GhlAgencyInstall.objects.all())
@@ -3178,7 +3178,7 @@ def integrations(request):
     })
 
 
-@agency_operator_required
+@agency_admin_required
 @require_POST
 def integrations_bind(request):
     agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
@@ -3207,7 +3207,7 @@ def integrations_bind(request):
     return redirect(dest)
 
 
-@agency_operator_required
+@agency_admin_required
 @require_POST
 def integrations_reconnect(request):
     install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
@@ -3219,7 +3219,7 @@ def integrations_reconnect(request):
     return redirect("dashboard:integrations")
 
 
-@agency_operator_required
+@agency_admin_required
 @require_POST
 def integrations_disconnect(request):
     install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
@@ -3232,7 +3232,7 @@ def integrations_disconnect(request):
     return redirect("dashboard:integrations")
 
 
-@agency_operator_required
+@agency_admin_required
 @require_POST
 def integrations_refresh_locations(request):
     agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
@@ -3252,7 +3252,7 @@ def integrations_refresh_locations(request):
     return redirect("dashboard:integrations")
 
 
-@agency_operator_required
+@agency_admin_required
 @require_POST
 def integrations_disconnect_agency(request):
     agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
@@ -3264,6 +3264,16 @@ def integrations_disconnect_agency(request):
     label = agency.company_name or agency.company_id
     agency.delete()
     messages.success(request, f"Disconnected agency {label}.")
+    return redirect("dashboard:integrations")
+
+
+@agency_admin_required
+@require_POST
+def integrations_rename_agency(request):
+    agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
+    agency.company_name = (request.POST.get("company_name") or "").strip()
+    agency.save(update_fields=["company_name", "updated_at"])
+    messages.success(request, "Agency name updated.")
     return redirect("dashboard:integrations")
 
 

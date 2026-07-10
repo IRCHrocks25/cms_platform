@@ -39,3 +39,21 @@ def agency_operator_required(view):
         return view(request, *args, **kwargs)
 
     return wrapped
+
+
+def agency_admin_required(view):
+    """Sensitive agency-admin actions (e.g. GHL integrations). Requires a
+    superuser (admin) and no tenant on the host. Stricter than
+    agency_operator_required, which allows any staff operator."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if request.tenant is not None:
+            return redirect("dashboard:tenant_home")
+        if not request.user.is_authenticated:
+            return redirect(f"{reverse('login')}?next={request.path}")
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Admin access required.")
+        return view(request, *args, **kwargs)
+
+    return wrapped

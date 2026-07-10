@@ -24,8 +24,8 @@
     <div class="card" style="padding: 0; overflow: hidden;">
 
       {# Card header row #}
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--color-border);">
-        <div>
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--color-border);">
+        <div style="min-width: 0;">
           <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: var(--color-text);">
             {{ card.agency.company_name|default:card.agency.company_id }}
           </h2>
@@ -34,6 +34,15 @@
               ID: <code style="font-family: var(--font-mono); font-size: 11px; background: var(--color-surface-2); padding: 1px 5px; border-radius: 4px;">{{ card.agency.company_id }}</code>
             </p>
           {% endif %}
+          <details class="agency-rename">
+            <summary class="btn btn-ghost btn-sm">Rename</summary>
+            <form method="post" action="{% url 'dashboard:integrations_rename_agency' %}" class="agency-rename-form">
+              {% csrf_token %}
+              <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
+              <input class="input" type="text" name="company_name" value="{{ card.agency.company_name }}" placeholder="Agency name" maxlength="200">
+              <button class="btn btn-secondary btn-sm" type="submit">Save</button>
+            </form>
+          </details>
         </div>
         <div style="display: flex; gap: var(--space-2); align-items: center; flex-shrink: 0;">
           <a class="btn btn-secondary btn-sm" href="{% url 'ghl_oauth_install' %}">+ Add sub-accounts</a>

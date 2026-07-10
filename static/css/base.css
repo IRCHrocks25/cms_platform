@@ -889,6 +889,27 @@ a.activity-row:hover { background: var(--color-surface-2); }
 .danger-zone summary { list-style: none; }
 .danger-zone summary::-webkit-details-marker { display: none; }
 
+/* ==========================================================================
+   Inline agency rename (integrations card header)
+   ========================================================================== */
+.agency-rename { margin-top: var(--space-2); }
+.agency-rename > summary {
+  list-style: none;
+  cursor: pointer;
+  padding-left: 0;
+  padding-right: 0;
+}
+.agency-rename > summary::-webkit-details-marker { display: none; }
+.agency-rename[open] > summary { color: var(--color-blue); }
+.agency-rename-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+  max-width: 380px;
+}
+.agency-rename-form .input { padding: 6px 12px; font-size: 13px; }
+
 /* Warning card (no-sections-detected, validation warnings) */
 .warn-card {
   background: var(--color-warn-soft);

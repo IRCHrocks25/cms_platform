@@ -81,6 +81,8 @@ urlpatterns = [
          name="integrations_refresh_locations"),
     path("integrations/disconnect-agency/", views.integrations_disconnect_agency,
          name="integrations_disconnect_agency"),
+    path("integrations/rename-agency/", views.integrations_rename_agency,
+         name="integrations_rename_agency"),
 
     path("custom-domains/", views.custom_domain_list, name="custom_domain_list"),
     path("custom-domains/<int:pk>/force-verify/", views.custom_domain_force_verify, name="custom_domain_force_verify"),
