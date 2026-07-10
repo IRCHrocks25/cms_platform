@@ -504,6 +504,15 @@ class GhlInstall(models.Model):
         (USER_TYPE_COMPANY, "Company"),
     ]
 
+    STATUS_CONNECTED = "connected"
+    STATUS_EXPIRED = "expired"
+    STATUS_DISCONNECTED = "disconnected"
+    STATUS_CHOICES = [
+        (STATUS_CONNECTED, "Connected"),
+        (STATUS_EXPIRED, "Expired"),
+        (STATUS_DISCONNECTED, "Disconnected"),
+    ]
+
     # GHL identifiers.
     location_id = models.CharField(max_length=64, unique=True)
     company_id = models.CharField(max_length=64, blank=True, default="")
@@ -516,6 +525,18 @@ class GhlInstall(models.Model):
     refresh_token = models.TextField(blank=True, default="")
     expires_at = models.DateTimeField(null=True, blank=True)
     scopes = models.JSONField(default=list, blank=True)
+
+    agency = models.ForeignKey(
+        "core.GhlAgencyInstall",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="location_installs",
+    )
+    location_name = models.CharField(max_length=200, blank=True, default="")
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_CONNECTED
+    )
 
     # Optional link to a Tenant so we know which CMS site this install drives.
     # Nullable so the install row exists even before someone maps a tenant.
@@ -536,3 +557,27 @@ class GhlInstall(models.Model):
     def __str__(self):
         return f"GhlInstall(location={self.location_id})"
 
+
+class GhlAgencyInstall(models.Model):
+    """A GHL agency (Company) install. Holds the agency-level refresh token
+    used to mint per-sub-account (location) tokens on demand, plus the list
+    of sub-accounts the app is installed on. One row per GHL company; this
+    is the multi-agency anchor. Tokens are stored encrypted (see ghl_crypto).
+    """
+
+    company_id = models.CharField(max_length=64, unique=True)
+    company_name = models.CharField(max_length=200, blank=True, default="")
+    access_token = models.TextField(blank=True, default="")   # encrypted
+    refresh_token = models.TextField(blank=True, default="")  # encrypted
+    expires_at = models.DateTimeField(null=True, blank=True)
+    scopes = models.JSONField(default=list, blank=True)
+    # [{"id": "loc_x", "name": "Acme Inc"}, ...] from installedLocations
+    available_locations = models.JSONField(default=list, blank=True)
+    installed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-installed_at"]
+
+    def __str__(self):
+        return f"GhlAgencyInstall(company={self.company_id})"
