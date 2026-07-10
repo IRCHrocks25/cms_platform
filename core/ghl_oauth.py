@@ -145,17 +145,20 @@ def mint_location_token(
 ) -> dict[str, Any]:
     """When the install path returned a Company token (agency owner case),
     convert it into a Location-scoped token via /oauth/locationToken."""
-    resp = httpx.post(
-        LOCATION_TOKEN_URL,
-        data={"companyId": company_id, "locationId": location_id},
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Bearer {agency_access_token}",
-            "Version": GHL_API_VERSION,
-            "Accept": "application/json",
-        },
-        timeout=15,
-    )
+    try:
+        resp = httpx.post(
+            LOCATION_TOKEN_URL,
+            data={"companyId": company_id, "locationId": location_id},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": f"Bearer {agency_access_token}",
+                "Version": GHL_API_VERSION,
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise TokenExchangeFailed(f"network error: {exc}") from exc
     if resp.status_code >= 400:
         raise TokenExchangeFailed(
             f"GHL /oauth/locationToken {resp.status_code}: {resp.text[:200]}"

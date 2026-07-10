@@ -58,3 +58,18 @@ class BindLocationTests(TestCase):
         self.assertEqual(token, "fresh-access")
         self.agency.refresh_from_db()
         self.assertEqual(decrypt_token(self.agency.access_token), "fresh-access")
+
+    def test_ensure_fresh_agency_token_skips_refresh_when_valid(self):
+        from core.services import ghl_connect
+
+        with mock.patch("core.ghl_oauth.refresh_access_token") as r:
+            token = ghl_connect.ensure_fresh_agency_token(self.agency)
+        r.assert_not_called()
+        self.assertEqual(token, "agency-access")
+
+    def test_reconnect_install_raises_on_orphaned_install(self):
+        from core.services import ghl_connect
+
+        orphan = GhlInstall.objects.create(location_id="loc_x", access_token=encrypt_token("x"))
+        with self.assertRaises(ValueError):
+            ghl_connect.reconnect_install(orphan)

@@ -35,7 +35,7 @@ def ensure_fresh_agency_token(agency: GhlAgencyInstall) -> str:
         agency.refresh_token = encrypt_token(data["refresh_token"])
     agency.expires_at = _expires_at(data.get("expires_in"))
     agency.save(update_fields=["access_token", "refresh_token", "expires_at", "updated_at"])
-    return decrypt_token(agency.access_token)
+    return data.get("access_token", "")
 
 
 def bind_location(*, agency: GhlAgencyInstall, location_id: str, tenant: Tenant) -> GhlInstall:
@@ -75,7 +75,7 @@ def bind_location(*, agency: GhlAgencyInstall, location_id: str, tenant: Tenant)
 def reconnect_install(install: GhlInstall) -> GhlInstall:
     """Re-mint a location token for an existing install from its agency."""
     if install.agency is None or install.tenant is None:
-        raise ghl_oauth.TokenExchangeFailed("Install has no agency/tenant to reconnect.")
+        raise ValueError("Install has no agency/tenant to reconnect.")
     return bind_location(
         agency=install.agency, location_id=install.location_id, tenant=install.tenant
     )

@@ -78,3 +78,13 @@ class RefreshTokenTests(TestCase):
     def test_missing_credentials_raises_runtimeerror(self):
         with self.assertRaises(RuntimeError):
             ghl_oauth.refresh_access_token(refresh_token="r1")
+
+
+@override_settings(GHL_CLIENT_ID="app123-ver", GHL_CLIENT_SECRET="secret")
+class MintLocationTokenTests(TestCase):
+    def test_raises_on_network_error(self):
+        with mock.patch.object(httpx, "post", side_effect=httpx.ConnectError("down")):
+            with self.assertRaises(ghl_oauth.TokenExchangeFailed):
+                ghl_oauth.mint_location_token(
+                    agency_access_token="tok", company_id="co", location_id="loc"
+                )
