@@ -161,3 +161,67 @@ def mint_location_token(
             f"GHL /oauth/locationToken {resp.status_code}: {resp.text[:200]}"
         )
     return resp.json()
+
+
+def list_installed_locations(
+    *, agency_access_token: str, company_id: str, app_id: str
+) -> list[dict]:
+    """Return sub-accounts the app is installed on for this agency.
+
+    Uses the agency (Company) access token. ``app_id`` is the client-id
+    prefix (before the ``-``). Returns ``[{"id", "name"}, ...]``.
+    """
+    resp = httpx.get(
+        INSTALLED_LOCATIONS_URL,
+        params={"companyId": company_id, "appId": app_id},
+        headers={
+            "Authorization": f"Bearer {agency_access_token}",
+            "Version": GHL_API_VERSION,
+            "Accept": "application/json",
+        },
+        timeout=15,
+    )
+    if resp.status_code >= 400:
+        raise TokenExchangeFailed(
+            f"GHL /oauth/installedLocations {resp.status_code}: {resp.text[:200]}"
+        )
+    out: list[dict] = []
+    for loc in (resp.json().get("locations") or []):
+        loc_id = loc.get("_id") or loc.get("id")
+        if not loc_id:
+            continue
+        out.append({"id": loc_id, "name": (loc.get("name") or "").strip()})
+    return out
+
+
+def refresh_access_token(*, refresh_token: str, user_type: str = "Location") -> dict[str, Any]:
+    """Exchange a refresh token for a new access token. ``user_type`` is
+    'Company' for agency tokens, 'Location' for sub-account tokens."""
+    client_id = settings.GHL_CLIENT_ID
+    client_secret = settings.GHL_CLIENT_SECRET
+    if not client_id or not client_secret:
+        raise RuntimeError("GHL_CLIENT_ID and GHL_CLIENT_SECRET must be set.")
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "user_type": user_type,
+    }
+    try:
+        resp = httpx.post(
+            TOKEN_URL,
+            data=payload,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise TokenExchangeFailed(f"network error: {exc}") from exc
+    if resp.status_code >= 400:
+        raise TokenExchangeFailed(
+            f"GHL /oauth/token refresh {resp.status_code}: {resp.text[:200]}"
+        )
+    return resp.json()
