@@ -73,6 +73,9 @@ urlpatterns = [
     path("sites/<int:pk>/versions/restore/", views.tenant_version_restore, name="tenant_version_restore"),
     path("sites/<int:pk>/versions/<int:version_id>/preview/", views.tenant_version_preview, name="tenant_version_preview"),
 
+    path("integrations/", views.integrations, name="integrations"),
+    path("integrations/bind/", views.integrations_bind, name="integrations_bind"),
+
     path("custom-domains/", views.custom_domain_list, name="custom_domain_list"),
     path("custom-domains/<int:pk>/force-verify/", views.custom_domain_force_verify, name="custom_domain_force_verify"),
     path("custom-domains/<int:pk>/force-delete/", views.custom_domain_force_delete_local, name="custom_domain_force_delete_local"),

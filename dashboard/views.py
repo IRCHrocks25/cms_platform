@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Q
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -33,6 +33,9 @@ from core.services import blog_render
 from core.services import cloudinary_media
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
+from core import ghl_oauth
+from core.models import GhlAgencyInstall, GhlInstall
+from core.services import ghl_connect
 from core.urls_helpers import build_tenant_url_bundle, tenant_public_url
 
 
@@ -3126,6 +3129,53 @@ def blog_sanitize(request, pk):
 def blog_strip_preview(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
     return _blog_strip_preview(request, tenant, "agency")
+
+
+# --------------------------------------------------------------------------- #
+# GHL Integrations                                                              #
+# --------------------------------------------------------------------------- #
+
+
+@agency_operator_required
+def integrations(request):
+    agencies = GhlAgencyInstall.objects.all()
+    installs = (
+        GhlInstall.objects.select_related("agency", "tenant").order_by("-installed_at")
+    )
+    bound_location_ids = set(
+        GhlInstall.objects.exclude(tenant__isnull=True).values_list("location_id", flat=True)
+    )
+    tenants = Tenant.objects.order_by("name")
+    return render(request, "dashboard/integrations.html", {
+        "agencies": agencies,
+        "installs": installs,
+        "bound_location_ids": bound_location_ids,
+        "tenants": tenants,
+        "just_connected": request.GET.get("connected") == "1",
+    })
+
+
+@agency_operator_required
+@require_POST
+def integrations_bind(request):
+    agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
+    location_id = (request.POST.get("location_id") or "").strip()
+    tenant = get_object_or_404(Tenant, pk=request.POST.get("tenant_id"))
+    clash = (
+        GhlInstall.objects.filter(location_id=location_id).exclude(tenant=tenant).exists()
+        or Tenant.objects.filter(ghl_location_id=location_id).exclude(pk=tenant.pk).exists()
+    )
+    if clash:
+        messages.error(request, "That sub-account is already linked to another site.")
+        return redirect("dashboard:integrations")
+    try:
+        ghl_connect.bind_location(agency=agency, location_id=location_id, tenant=tenant)
+        messages.success(request, f"Connected “{tenant.name}” to sub-account {location_id}.")
+    except ghl_oauth.TokenExchangeFailed as exc:
+        messages.error(request, f"Could not connect: {exc}")
+    except IntegrityError:
+        messages.error(request, "That sub-account is already linked to another site.")
+    return redirect("dashboard:integrations")
 
 
 # --------------------------------------------------------------------------- #

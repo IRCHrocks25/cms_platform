@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>Integrations</h1>
+  <a class="btn btn-purple" href="/connect/install/">Connect GHL agency</a>
+
+  {% for agency in agencies %}
+    <section class="stat-card">
+      <h2>Agency {{ agency.company_id }}{% if agency.company_name %} — {{ agency.company_name }}{% endif %}</h2>
+      <table class="data-table">
+        <thead><tr><th>Sub-account</th><th>ID</th><th>Bind to site</th></tr></thead>
+        <tbody>
+          {% for loc in agency.available_locations %}
+          <tr>
+            <td>{{ loc.name|default:"(unnamed)" }}</td>
+            <td><code>{{ loc.id }}</code></td>
+            <td>
+              {% if loc.id in bound_location_ids %}
+                <span class="badge badge-purple">bound</span>
+              {% else %}
+                <form method="post" action="{% url 'dashboard:integrations_bind' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="agency_id" value="{{ agency.pk }}">
+                  <input type="hidden" name="location_id" value="{{ loc.id }}">
+                  <select name="tenant_id" required>
+                    <option value="">Choose site…</option>
+                    {% for t in tenants %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}
+                  </select>
+                  <button class="btn" type="submit">Bind</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% empty %}
+    <p>No GHL agency connected yet. Click "Connect GHL agency" to start.</p>
+  {% endfor %}
+
+  <h2>Connected sub-accounts</h2>
+  <table class="data-table">
+    <thead><tr><th>Location</th><th>Site</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for i in installs %}
+      <tr>
+        <td>{{ i.location_name|default:i.location_id }}</td>
+        <td>{{ i.tenant.name|default:"—" }}</td>
+        <td>{{ i.get_status_display }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
