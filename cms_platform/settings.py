@@ -349,6 +349,13 @@ GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
 GHL_TOKEN_ENCRYPTION_KEY = os.environ.get("GHL_TOKEN_ENCRYPTION_KEY", "")
 # Optional explicit app version id; falls back to GHL_CLIENT_ID prefix.
 GHL_APP_VERSION_ID = os.environ.get("GHL_APP_VERSION_ID", "")
+# GHL's install/consent (chooselocation) endpoint. GHL keeps flipping which
+# host/path renders the consent screen vs. bouncing to the agency home; the
+# /v2/ path is current. Override via env if it flips again (no code change).
+GHL_CHOOSELOCATION_URL = os.environ.get(
+    "GHL_CHOOSELOCATION_URL",
+    "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation",
+)
 # Comma-separated list of origins allowed to embed us in a frame
 # (e.g. "https://app.industryrockstars.ch,https://app.daltoleadsystem.com").
 # Pass "*" to allow any parent — only safe once /embed/ verifies signed

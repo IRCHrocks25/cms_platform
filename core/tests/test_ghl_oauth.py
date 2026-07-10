@@ -55,14 +55,33 @@ class InstallRedirectTests(TestCase):
         u = urlparse(r["Location"])
         self.assertEqual(u.scheme, "https")
         self.assertIn("leadconnectorhq.com", u.netloc)
+        # Must be the /v2/ chooselocation path — the non-v2 path bounces GHL to
+        # the agency home instead of rendering the consent screen.
+        self.assertEqual(u.path, "/v2/oauth/chooselocation")
         q = parse_qs(u.query)
         self.assertEqual(q["client_id"], [CLIENT_ID])
         self.assertEqual(q["response_type"], ["code"])
         self.assertIn("state", q)
         # version_id must be the app-id prefix (everything before the first "-")
         self.assertEqual(q["version_id"], [CLIENT_ID.split("-")[0]])
+        # redirect_uri must have NO trailing slash (matches GHL registration).
+        self.assertTrue(q["redirect_uri"][0].endswith("/connect/callback"))
+        self.assertFalse(q["redirect_uri"][0].endswith("/connect/callback/"))
         # State must verify
         ghl_oauth.verify_state(q["state"][0])
+
+    @override_settings(GHL_CHOOSELOCATION_URL="https://example.com/custom/chooselocation")
+    def test_install_honors_configurable_chooselocation_url(self):
+        r = Client().get("/connect/install/")
+        u = urlparse(r["Location"])
+        self.assertEqual(u.netloc, "example.com")
+        self.assertEqual(u.path, "/custom/chooselocation")
+
+    def test_callback_reachable_without_trailing_slash(self):
+        # GHL redirects to the no-slash /connect/callback; it must hit the
+        # handler directly (200/302/400/502), not an APPEND_SLASH 301.
+        r = Client().get("/connect/callback")
+        self.assertNotEqual(r.status_code, 301)
 
     @override_settings(GHL_CLIENT_ID="")
     def test_install_503_when_client_id_missing(self):

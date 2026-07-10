@@ -90,9 +90,11 @@ def embed_view(request):
 
 
 def _build_redirect_uri(request) -> str:
-    """Absolute https URL of /connect/callback/, used as the OAuth redirect_uri.
-    Must match what's registered in the GHL marketplace app exactly."""
-    return request.build_absolute_uri(reverse("ghl_oauth_callback"))
+    """Absolute https URL of /connect/callback (NO trailing slash), used as the
+    OAuth redirect_uri. GHL registers it without the trailing slash; a mismatch
+    can bounce the user to the agency home. The no-slash route is served
+    directly (see cms_platform/urls.py)."""
+    return request.build_absolute_uri(reverse("ghl_oauth_callback")).rstrip("/")
 
 
 @require_http_methods(["GET"])

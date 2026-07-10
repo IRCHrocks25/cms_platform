@@ -24,7 +24,10 @@ from django.core import signing
 logger = logging.getLogger(__name__)
 
 # --- GHL endpoints --------------------------------------------------------- #
-AUTH_BASE = "https://marketplace.leadconnectorhq.com/oauth/chooselocation"
+# Default install/consent endpoint. GHL flips which path renders it vs.
+# bouncing to the agency home; /v2/ is current. Override via
+# settings.GHL_CHOOSELOCATION_URL (env GHL_CHOOSELOCATION_URL).
+AUTH_BASE = "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation"
 TOKEN_URL = "https://services.leadconnectorhq.com/oauth/token"
 LOCATION_TOKEN_URL = "https://services.leadconnectorhq.com/oauth/locationToken"
 INSTALLED_LOCATIONS_URL = (
@@ -97,7 +100,8 @@ def build_install_url(*, state: str, redirect_uri: str, scopes: list[str] | None
         "state": state,
         "version_id": app_version_id,
     }
-    return f"{AUTH_BASE}?{urlencode(params)}"
+    base = getattr(settings, "GHL_CHOOSELOCATION_URL", "") or AUTH_BASE
+    return f"{base}?{urlencode(params)}"
 
 
 def exchange_code(*, code: str, redirect_uri: str, user_type: str = "Location") -> dict[str, Any]:

@@ -68,6 +68,9 @@ urlpatterns = [
     path("api/embed/chat/<slug:slug>/", core_views.embed_assistant_chat, name="embed_assistant_chat"),
     path("connect/install/", ghl_views.oauth_install, name="ghl_oauth_install"),
     path("connect/callback/", ghl_views.oauth_callback, name="ghl_oauth_callback"),
+    # No-slash variant: GHL's registered redirect_uri has no trailing slash, so
+    # serve it directly rather than relying on an APPEND_SLASH 301 mid-OAuth.
+    path("connect/callback", ghl_views.oauth_callback),
     path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),
     path("privacy/", ghl_views.privacy, name="privacy"),
     path("terms/", ghl_views.terms, name="terms"),
