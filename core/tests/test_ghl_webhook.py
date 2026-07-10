@@ -83,3 +83,42 @@ class WebhookUnconfiguredTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(ALLOWED_HOSTS=["testserver"])
+class WebhookKeyTests(TestCase):
+    def test_escaped_newline_key_still_verifies(self):
+        # The env holds the PEM as a single line with literal \n; must normalize.
+        escaped = _PUB_PEM.replace("\n", "\\n")
+        body = b'{"type":"INSTALL"}'
+        with override_settings(GHL_WEBHOOK_PUBLIC_KEY=escaped):
+            self.assertTrue(
+                ghl_webhook.verify_signature(body=body, signature_b64=_sign(body))
+            )
+
+    def test_bare_base64_key_verifies(self):
+        # Env may hold just the base64 SPKI (no PEM header); code wraps it.
+        bare = (
+            _PUB_PEM.replace("-----BEGIN PUBLIC KEY-----", "")
+            .replace("-----END PUBLIC KEY-----", "")
+            .replace("\n", "")
+            .strip()
+        )
+        body = b'{"type":"INSTALL"}'
+        with override_settings(GHL_WEBHOOK_PUBLIC_KEY=bare):
+            self.assertTrue(
+                ghl_webhook.verify_signature(body=body, signature_b64=_sign(body))
+            )
+
+    def test_real_ghl_key_is_valid_ed25519(self):
+        # GHL's published global webhook Ed25519 key (from the marketplace docs).
+        # Locks the value in so a future typo fails CI.
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+        real = (
+            "-----BEGIN PUBLIC KEY-----\n"
+            "MCowBQYDK2VwAyEAi2HR1srL4o18O8BRa7gVJY7G7bupbN3H9AwJrHCDiOg=\n"
+            "-----END PUBLIC KEY-----"
+        )
+        self.assertIsInstance(load_pem_public_key(real.encode()), Ed25519PublicKey)

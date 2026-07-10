@@ -34,9 +34,14 @@ def verify_signature(*, body: bytes, signature_b64: str) -> bool:
     Returns False on a missing key/signature, a non-Ed25519 key, a bad base64
     signature, or a signature mismatch. Never raises.
     """
-    key_pem = (getattr(settings, "GHL_WEBHOOK_PUBLIC_KEY", "") or "").strip()
+    # Accept the PEM with real newlines OR "\n"-escaped (single-line env var).
+    key_pem = (getattr(settings, "GHL_WEBHOOK_PUBLIC_KEY", "") or "").strip().replace("\\n", "\n")
     if not key_pem or not signature_b64:
         return False
+    if "BEGIN PUBLIC KEY" not in key_pem:
+        # Env holds just the base64 SPKI (no PEM header) -> wrap it. Cleanest
+        # way to carry the key in an env var without newline escaping.
+        key_pem = f"-----BEGIN PUBLIC KEY-----\n{key_pem}\n-----END PUBLIC KEY-----"
     try:
         pub = load_pem_public_key(key_pem.encode())
     except (ValueError, TypeError) as exc:

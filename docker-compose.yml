@@ -25,6 +25,9 @@ services:
       # Fernet key for encrypting GHL OAuth tokens at rest. Without it the
       # connect/callback/bind flows fail closed (503). See settings.py.
       GHL_TOKEN_ENCRYPTION_KEY: ${GHL_TOKEN_ENCRYPTION_KEY:-}
+      # GHL global Ed25519 webhook public key (PEM, \n-escaped one-liner ok).
+      # When set, /connect/webhook/ enforces X-GHL-Signature verification.
+      GHL_WEBHOOK_PUBLIC_KEY: ${GHL_WEBHOOK_PUBLIC_KEY:-}
       # When the embed flow redirects to a tenant subdomain, the session
       # cookie needs to span the parent domain. Set to ".sites.katek.app".
       COOKIE_PARENT_DOMAIN: ${COOKIE_PARENT_DOMAIN:-}
