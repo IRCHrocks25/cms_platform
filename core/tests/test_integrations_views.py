@@ -107,7 +107,7 @@ class IntegrationsViewTests(TestCase):
         )
         self.client.post(reverse("dashboard:integrations_disconnect"), {"install_id": install.pk})
         self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.ghl_location_id, "")
+        self.assertIsNone(self.tenant.ghl_location_id)
 
     def test_refresh_locations_updates_list(self):
         new_locs = [{"id": "loc_a", "name": "Acme HQ"}, {"id": "loc_c", "name": "Gamma"}]

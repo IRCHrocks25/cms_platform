@@ -3201,7 +3201,7 @@ def integrations_disconnect(request):
     install.status = GhlInstall.STATUS_DISCONNECTED
     install.save(update_fields=["status", "updated_at"])
     if install.tenant and install.tenant.ghl_location_id == install.location_id:
-        install.tenant.ghl_location_id = ""
+        install.tenant.ghl_location_id = None
         install.tenant.save(update_fields=["ghl_location_id", "updated_at"])
     messages.success(request, f"Disconnected {install.location_id}.")
     return redirect("dashboard:integrations")
