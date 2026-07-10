@@ -13,14 +13,17 @@ import time
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
+from cryptography.fernet import Fernet
 from django.test import Client, TestCase, override_settings
 
 from core import ghl_oauth
+from core.ghl_crypto import decrypt_token
 from core.models import GhlInstall
 
 
 CLIENT_ID = "appid-versionsuffix"
 CLIENT_SECRET = "shhhh"
+_ENC_KEY = Fernet.generate_key().decode()
 
 
 @override_settings(GHL_CLIENT_ID=CLIENT_ID, GHL_CLIENT_SECRET=CLIENT_SECRET)
@@ -68,7 +71,7 @@ class InstallRedirectTests(TestCase):
         self.assertEqual(r.status_code, 503)
 
 
-@override_settings(GHL_CLIENT_ID=CLIENT_ID, GHL_CLIENT_SECRET=CLIENT_SECRET)
+@override_settings(GHL_CLIENT_ID=CLIENT_ID, GHL_CLIENT_SECRET=CLIENT_SECRET, GHL_TOKEN_ENCRYPTION_KEY=_ENC_KEY)
 class CallbackTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -94,7 +97,7 @@ class CallbackTests(TestCase):
             "companyId": "C1",
         }):
             r = self.client.get("/connect/callback/?code=abc")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 302)
         self.assertTrue(GhlInstall.objects.filter(location_id="LOC_MARKETPLACE").exists())
 
     def test_callback_expired_state_friendly_message(self):
@@ -115,10 +118,10 @@ class CallbackTests(TestCase):
             "companyId": "C1",
         }):
             r = self.client.get(f"/connect/callback/?code=abc&state={self.state}")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 302)
         install = GhlInstall.objects.get(location_id="LOC_INSTALLED")
-        self.assertEqual(install.access_token, "AT")
-        self.assertEqual(install.refresh_token, "RT")
+        self.assertEqual(decrypt_token(install.access_token), "AT")
+        self.assertEqual(decrypt_token(install.refresh_token), "RT")
         self.assertEqual(install.user_type, "Location")
         self.assertIn("locations.readonly", install.scopes)
 
@@ -132,8 +135,8 @@ class CallbackTests(TestCase):
             "locationId": "LOC_INSTALLED",
         }):
             r = self.client.get(f"/connect/callback/?code=abc&state={self.state}")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 302)
         self.assertEqual(GhlInstall.objects.count(), 1)
         self.assertEqual(
-            GhlInstall.objects.get(location_id="LOC_INSTALLED").access_token, "NEW"
+            decrypt_token(GhlInstall.objects.get(location_id="LOC_INSTALLED").access_token), "NEW"
         )
