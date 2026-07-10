@@ -24,3 +24,7 @@ class TokenCryptoMissingKeyTests(TestCase):
     def test_encrypt_fails_closed_without_key(self):
         with self.assertRaises(TokenCryptoError):
             encrypt_token("x")
+
+    def test_decrypt_fails_closed_without_key(self):
+        with self.assertRaises(TokenCryptoError):
+            decrypt_token("any-ciphertext")
