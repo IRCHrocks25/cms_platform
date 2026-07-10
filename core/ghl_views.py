@@ -155,9 +155,9 @@ def oauth_callback(request):
         token_resp = ghl_oauth.exchange_code(
             code=code, redirect_uri=_build_redirect_uri(request),
         )
-    except ghl_oauth.TokenExchangeFailed as exc:
+    except ghl_oauth.TokenExchangeFailed:
         logger.exception("GHL callback: token exchange failed")
-        return HttpResponse(f"Token exchange failed: {exc}", status=502)
+        return HttpResponse("Token exchange with GHL failed. Check server logs.", status=502)
 
     user_type = token_resp.get("userType", GhlInstall.USER_TYPE_LOCATION)
     company_id = token_resp.get("companyId", "")
@@ -182,12 +182,15 @@ def oauth_callback(request):
             locations = ghl_oauth.list_installed_locations(
                 agency_access_token=access_token, company_id=company_id, app_id=app_id
             )
-        except ghl_oauth.TokenExchangeFailed as exc:
+        except ghl_oauth.TokenExchangeFailed:
             logger.exception("GHL callback: installedLocations failed")
-            return HttpResponse(f"Could not list sub-accounts: {exc}", status=502)
+            return HttpResponse("Could not list sub-accounts from GHL. Check server logs.", status=502)
+        if not locations:
+            logger.warning("GHL agency install: company=%s has 0 installed locations", company_id)
         GhlAgencyInstall.objects.update_or_create(
             company_id=company_id,
             defaults={
+                "company_name": token_resp.get("companyName", ""),
                 "access_token": encrypt_token(access_token),
                 "refresh_token": encrypt_token(refresh_token),
                 "expires_at": expires_at,

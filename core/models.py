@@ -491,10 +491,10 @@ class AnnotationJob(models.Model):
 class GhlInstall(models.Model):
     """A GHL marketplace app installation, scoped to a sub-account location.
 
-    Stores the OAuth access + refresh tokens GHL hands us on install. The
-    tokens are sensitive — for a production-hardened build we'd wrap them in
-    application-level encryption (cryptography.fernet) keyed by an env-var
-    secret; for now they live as plain text and rotation handles compromise.
+    Stores the OAuth access + refresh tokens GHL hands us on install,
+    Fernet-encrypted at the application layer (see core/ghl_crypto.py), keyed
+    by GHL_TOKEN_ENCRYPTION_KEY. Always write via encrypt_token and read via
+    decrypt_token; never store or return plaintext.
     """
 
     USER_TYPE_LOCATION = "Location"
