@@ -35,6 +35,28 @@ class InstalledLocationsTests(TestCase):
                     agency_access_token="tok", company_id="co", app_id="app123"
                 )
 
+    def test_asserts_request_shape(self):
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured["params"] = params
+            captured["headers"] = headers
+            return _resp(200, {"locations": []})
+
+        with mock.patch.object(httpx, "get", side_effect=fake_get):
+            ghl_oauth.list_installed_locations(
+                agency_access_token="tok", company_id="co", app_id="app123"
+            )
+        self.assertEqual(captured["params"], {"companyId": "co", "appId": "app123"})
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer tok")
+
+    def test_raises_on_network_error(self):
+        with mock.patch.object(httpx, "get", side_effect=httpx.ConnectError("down")):
+            with self.assertRaises(ghl_oauth.TokenExchangeFailed):
+                ghl_oauth.list_installed_locations(
+                    agency_access_token="tok", company_id="co", app_id="app123"
+                )
+
 
 @override_settings(GHL_CLIENT_ID="app123-ver", GHL_CLIENT_SECRET="secret")
 class RefreshTokenTests(TestCase):
@@ -51,3 +73,8 @@ class RefreshTokenTests(TestCase):
         self.assertEqual(out["access_token"], "new")
         self.assertEqual(captured["data"]["grant_type"], "refresh_token")
         self.assertEqual(captured["data"]["user_type"], "Company")
+
+    @override_settings(GHL_CLIENT_ID="", GHL_CLIENT_SECRET="")
+    def test_missing_credentials_raises_runtimeerror(self):
+        with self.assertRaises(RuntimeError):
+            ghl_oauth.refresh_access_token(refresh_token="r1")
