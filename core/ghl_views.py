@@ -240,6 +240,12 @@ def webhook(request):
     Verifies the X-GHL-Signature (Ed25519) over the raw body when
     GHL_WEBHOOK_PUBLIC_KEY is configured, then dispatches the event.
     See core/ghl_webhook.py.
+
+    RECOMMENDED (not done; GHL-side, one-time): for events to actually arrive,
+    add this endpoint's URL (https://sites.katek.app/connect/webhook/) under the
+    marketplace app's Advanced > Webhooks and subscribe to install/uninstall.
+    Signature verification is already armed (GHL_WEBHOOK_PUBLIC_KEY is set); no
+    events reach here until that URL is configured in the GHL app dashboard.
     """
     from . import ghl_webhook
 
