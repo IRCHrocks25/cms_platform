@@ -22,7 +22,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
 
 from . import ghl_oauth
-from .models import GhlInstall, Tenant
+from .ghl_crypto import encrypt_token
+from .models import GhlAgencyInstall, GhlInstall, Tenant
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -166,20 +167,6 @@ def oauth_callback(request):
     expires_in = token_resp.get("expires_in")
     scope_str = token_resp.get("scope", "")
 
-    # Agency owner installs come back as Company tokens with no locationId.
-    # Mint a Location-token for at least one installed sub-account so the
-    # GhlInstall row has a concrete location_id to key on.
-    if user_type == GhlInstall.USER_TYPE_COMPANY:
-        if not company_id:
-            return HttpResponse("Company token missing companyId.", status=502)
-        # TODO: enumerate installed locations and mint one Location token per.
-        # For now record the Company-level install so the user sees a success.
-        logger.info("GHL install: Company-level (companyId=%s)", company_id)
-        location_id = location_id or f"company:{company_id}"
-
-    if not location_id:
-        return HttpResponse("Token response missing locationId.", status=502)
-
     expires_at = None
     if expires_in:
         try:
@@ -187,33 +174,51 @@ def oauth_callback(request):
         except (TypeError, ValueError):
             pass
 
+    if user_type == GhlInstall.USER_TYPE_COMPANY:
+        if not company_id:
+            return HttpResponse("Company token missing companyId.", status=502)
+        app_id = (settings.GHL_CLIENT_ID or "").split("-")[0]
+        try:
+            locations = ghl_oauth.list_installed_locations(
+                agency_access_token=access_token, company_id=company_id, app_id=app_id
+            )
+        except ghl_oauth.TokenExchangeFailed as exc:
+            logger.exception("GHL callback: installedLocations failed")
+            return HttpResponse(f"Could not list sub-accounts: {exc}", status=502)
+        GhlAgencyInstall.objects.update_or_create(
+            company_id=company_id,
+            defaults={
+                "access_token": encrypt_token(access_token),
+                "refresh_token": encrypt_token(refresh_token),
+                "expires_at": expires_at,
+                "scopes": scope_str.split() if scope_str else [],
+                "available_locations": locations,
+            },
+        )
+        logger.info("GHL agency install: company=%s locations=%d", company_id, len(locations))
+        return redirect(f"{reverse('dashboard:integrations')}?connected=1")
+
+    if not location_id:
+        return HttpResponse("Token response missing locationId.", status=502)
+
     install, created = GhlInstall.objects.update_or_create(
         location_id=location_id,
         defaults={
             "company_id": company_id,
             "user_type": user_type,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": encrypt_token(access_token),
+            "refresh_token": encrypt_token(refresh_token),
             "expires_at": expires_at,
             "scopes": scope_str.split() if scope_str else [],
+            "status": GhlInstall.STATUS_CONNECTED,
         },
     )
-    logger.info(
-        "GHL install %s: location=%s userType=%s",
-        "created" if created else "refreshed", location_id, user_type,
-    )
-
-    # If a tenant has already been mapped to this location_id, link it.
     tenant = Tenant.objects.filter(ghl_location_id=location_id).first()
     if tenant and install.tenant_id != tenant.id:
         install.tenant = tenant
         install.save(update_fields=["tenant", "updated_at"])
-
-    return render(
-        request,
-        "ghl/install_success.html",
-        {"location_id": location_id, "tenant": tenant},
-    )
+    logger.info("GHL install %s: location=%s", "created" if created else "refreshed", location_id)
+    return redirect(f"{reverse('dashboard:integrations')}?connected=1")
 
 
 @csrf_exempt
