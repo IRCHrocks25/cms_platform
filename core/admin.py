@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
-    Page, AnnotationJob, EmbeddableAssistant,
+    Page, AnnotationJob, EmbeddableAssistant, GhlAgencyInstall, GhlInstall,
 )
 
 
@@ -71,3 +71,19 @@ class EmbeddableAssistantAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "brand", "is_active", "updated_at")
     list_filter = ("is_active",)
     search_fields = ("name", "slug", "brand", "brand_full")
+
+
+@admin.register(GhlAgencyInstall)
+class GhlAgencyInstallAdmin(admin.ModelAdmin):
+    list_display = ("company_id", "company_name", "expires_at", "updated_at")
+    search_fields = ("company_id", "company_name")
+    readonly_fields = ("access_token", "refresh_token", "available_locations",
+                       "installed_at", "updated_at")
+
+
+@admin.register(GhlInstall)
+class GhlInstallAdmin(admin.ModelAdmin):
+    list_display = ("location_id", "location_name", "tenant", "agency", "status", "updated_at")
+    search_fields = ("location_id", "location_name")
+    list_filter = ("status",)
+    readonly_fields = ("access_token", "refresh_token", "installed_at", "updated_at")
