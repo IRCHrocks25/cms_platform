@@ -3191,7 +3191,7 @@ def integrations_bind(request):
     try:
         ghl_connect.bind_location(agency=agency, location_id=location_id, tenant=tenant)
         messages.success(request, f"Connected '{tenant.name}' to sub-account {location_id}.")
-    except ghl_oauth.TokenExchangeFailed as exc:
+    except (ghl_oauth.TokenExchangeFailed, ValueError, ghl_crypto.TokenCryptoError, RuntimeError) as exc:
         messages.error(request, f"Could not connect: {exc}")
     except IntegrityError:
         messages.error(request, "That sub-account is already linked to another site.")
@@ -3205,7 +3205,7 @@ def integrations_reconnect(request):
     try:
         ghl_connect.reconnect_install(install)
         messages.success(request, f"Reconnected {install.location_id}.")
-    except (ghl_oauth.TokenExchangeFailed, ValueError, ghl_crypto.TokenCryptoError) as exc:
+    except (ghl_oauth.TokenExchangeFailed, ValueError, ghl_crypto.TokenCryptoError, RuntimeError) as exc:
         messages.error(request, f"Reconnect failed: {exc}")
     return redirect("dashboard:integrations")
 
@@ -3235,7 +3235,7 @@ def integrations_refresh_locations(request):
         )
         agency.save(update_fields=["available_locations", "updated_at"])
         messages.success(request, "Sub-account list refreshed.")
-    except (ghl_oauth.TokenExchangeFailed, ghl_crypto.TokenCryptoError) as exc:
+    except (ghl_oauth.TokenExchangeFailed, ghl_crypto.TokenCryptoError, RuntimeError) as exc:
         messages.error(request, f"Refresh failed: {exc}")
     return redirect("dashboard:integrations")
 

@@ -144,3 +144,12 @@ class IntegrationsViewTests(TestCase):
                                   status=GhlInstall.STATUS_CONNECTED)
         resp = self.client.get(reverse("dashboard:tenant_detail", args=[self.tenant.pk]))
         self.assertNotContains(resp, "loc_a")
+
+    def test_bind_handles_crypto_error_gracefully(self):
+        from core.ghl_crypto import TokenCryptoError
+        with mock.patch("core.services.ghl_connect.bind_location",
+                        side_effect=TokenCryptoError("no key")):
+            resp = self.client.post(reverse("dashboard:integrations_bind"), {
+                "agency_id": self.agency.pk, "location_id": "loc_a", "tenant_id": self.tenant.pk,
+            })
+        self.assertEqual(resp.status_code, 302)

@@ -1,13 +1,11 @@
 """GHL (GoHighLevel) marketplace integration endpoints.
 
-Phase 1 (current): /embed/ auto-logs in a CMS user when the GHL Custom Menu
-Link delivers ?location_id=&email= via template substitution. We trust the
-URL params — Phase 2 will replace this with verified signed context once
-the OAuth marketplace install flow is built.
-
-The other endpoints (callback, webhook, privacy, terms) are stubs so the
-GHL marketplace app form can validate them; install/uninstall handling and
-real OAuth come next."""
+/embed/ auto-logs a CMS user in from a GHL Custom Menu Link. /connect/install/
+starts the marketplace OAuth flow; /connect/callback/ exchanges the code and
+persists encrypted credentials: an agency (Company) install enumerates its
+sub-accounts into a GhlAgencyInstall, a single-location install into a
+GhlInstall. The webhook is still a stub (signature verification is a
+fast-follow)."""
 import json
 import logging
 from datetime import timedelta
@@ -22,7 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
 
 from . import ghl_oauth
-from .ghl_crypto import encrypt_token
+from .ghl_crypto import TokenCryptoError, encrypt_token
 from .models import GhlAgencyInstall, GhlInstall, Tenant
 
 logger = logging.getLogger(__name__)
@@ -123,8 +121,9 @@ def oauth_callback(request):
     """OAuth callback. GHL redirects here after the user authorizes.
 
     Receives ?code= and ?state=. Verifies our state, exchanges the code for
-    an access token, normalizes Company tokens to Location tokens, and
-    persists a GhlInstall row keyed by location_id.
+    an access token, then branches on userType: Company installs enumerate
+    sub-accounts and persist a GhlAgencyInstall; Location installs persist an
+    encrypted GhlInstall. Both redirect to the Integrations dashboard.
     """
     error = request.GET.get("error")
     if error:
@@ -174,6 +173,13 @@ def oauth_callback(request):
         except (TypeError, ValueError):
             pass
 
+    try:
+        enc_access = encrypt_token(access_token)
+        enc_refresh = encrypt_token(refresh_token)
+    except TokenCryptoError:
+        logger.exception("GHL callback: token encryption not configured")
+        return HttpResponse("Server encryption is not configured. Check server logs.", status=503)
+
     if user_type == GhlInstall.USER_TYPE_COMPANY:
         if not company_id:
             return HttpResponse("Company token missing companyId.", status=502)
@@ -191,8 +197,8 @@ def oauth_callback(request):
             company_id=company_id,
             defaults={
                 "company_name": token_resp.get("companyName", ""),
-                "access_token": encrypt_token(access_token),
-                "refresh_token": encrypt_token(refresh_token),
+                "access_token": enc_access,
+                "refresh_token": enc_refresh,
                 "expires_at": expires_at,
                 "scopes": scope_str.split() if scope_str else [],
                 "available_locations": locations,
@@ -209,8 +215,8 @@ def oauth_callback(request):
         defaults={
             "company_id": company_id,
             "user_type": user_type,
-            "access_token": encrypt_token(access_token),
-            "refresh_token": encrypt_token(refresh_token),
+            "access_token": enc_access,
+            "refresh_token": enc_refresh,
             "expires_at": expires_at,
             "scopes": scope_str.split() if scope_str else [],
             "status": GhlInstall.STATUS_CONNECTED,
