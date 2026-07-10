@@ -16,6 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_datetime
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST, require_GET
 
@@ -1044,11 +1045,16 @@ def tenant_detail(request, pk):
         tenant.versions.select_related("saved_by").order_by("-saved_at")[:20]
     )
     available_templates = Template.objects.order_by("name")
+    bound = set(
+        GhlInstall.objects.exclude(tenant__isnull=True).values_list("location_id", flat=True)
+    )
     connectable = []
     for agency in GhlAgencyInstall.objects.all():
         for loc in agency.available_locations:
-            connectable.append({"agency_id": agency.pk, "id": loc.get("id"),
-                                "name": loc.get("name", "")})
+            loc_id = loc.get("id")
+            if not loc_id or loc_id in bound:
+                continue
+            connectable.append({"agency_id": agency.pk, "id": loc_id, "name": loc.get("name", "")})
     return render(
         request,
         "dashboard/tenant_detail.html",
@@ -3159,6 +3165,7 @@ def integrations(request):
         "bound_location_ids": bound_location_ids,
         "tenants": tenants,
         "just_connected": request.GET.get("connected") == "1",
+        "nav_section": "integrations",
     })
 
 
@@ -3168,16 +3175,19 @@ def integrations_bind(request):
     agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
     location_id = (request.POST.get("location_id") or "").strip()
     tenant = get_object_or_404(Tenant, pk=request.POST.get("tenant_id"))
+    next_url = request.POST.get("next", "")
+    dest = next_url if (next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()})) else reverse("dashboard:integrations")
     if not any(loc.get("id") == location_id for loc in agency.available_locations):
         messages.error(request, "Unknown sub-account for that agency.")
-        return redirect("dashboard:integrations")
+        return redirect(dest)
     clash = (
         GhlInstall.objects.filter(location_id=location_id).exclude(tenant=tenant).exists()
         or Tenant.objects.filter(ghl_location_id=location_id).exclude(pk=tenant.pk).exists()
     )
     if clash:
         messages.error(request, "That sub-account is already linked to another site.")
-        return redirect("dashboard:integrations")
+        return redirect(dest)
     try:
         ghl_connect.bind_location(agency=agency, location_id=location_id, tenant=tenant)
         messages.success(request, f"Connected '{tenant.name}' to sub-account {location_id}.")
@@ -3185,7 +3195,7 @@ def integrations_bind(request):
         messages.error(request, f"Could not connect: {exc}")
     except IntegrityError:
         messages.error(request, "That sub-account is already linked to another site.")
-    return redirect("dashboard:integrations")
+    return redirect(dest)
 
 
 @agency_operator_required

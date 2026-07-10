@@ -124,3 +124,23 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Link a connected sub-account")
         self.assertContains(resp, "loc_a")
+
+    def test_bind_honors_next_param(self):
+        mint = {"access_token": "la", "refresh_token": "lr", "expires_in": 86400, "scope": ""}
+        next_url = reverse("dashboard:tenant_detail", args=[self.tenant.pk])
+        with mock.patch("core.ghl_oauth.mint_location_token", return_value=mint):
+            resp = self.client.post(reverse("dashboard:integrations_bind"), {
+                "agency_id": self.agency.pk, "location_id": "loc_a",
+                "tenant_id": self.tenant.pk, "next": next_url,
+            })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], next_url)
+
+    def test_site_detail_dropdown_excludes_bound_location(self):
+        other = Tenant.objects.create(name="Beta", subdomain="beta",
+                                      template=self.template, owner=self.owner)
+        GhlInstall.objects.create(location_id="loc_a", agency=self.agency, tenant=other,
+                                  access_token=encrypt_token("x"),
+                                  status=GhlInstall.STATUS_CONNECTED)
+        resp = self.client.get(reverse("dashboard:tenant_detail", args=[self.tenant.pk]))
+        self.assertNotContains(resp, "loc_a")

@@ -260,6 +260,7 @@
             <div class="field" style="margin-bottom: 0;">
               <details style="margin-top:8px">
                 <summary class="field-hint">Advanced: set GHL location ID manually</summary>
+                <label class="field-hint" for="settings_ghl_location_id">GHL location ID</label>
                 <input class="input" type="text" name="ghl_location_id" id="settings_ghl_location_id"
                        value="{{ tenant.ghl_location_id|default:'' }}">
                 <span class="field-hint">When set, this client can auto-log in from their GHL sub-account via the embedded menu link.</span>
@@ -278,6 +279,7 @@
             {% if connectable_subaccounts %}
             <form method="post" action="{% url 'dashboard:integrations_bind' %}">
               {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
               <input type="hidden" name="tenant_id" value="{{ tenant.pk }}">
               <input type="hidden" name="agency_id" value="">
               <input type="hidden" name="location_id" value="">
