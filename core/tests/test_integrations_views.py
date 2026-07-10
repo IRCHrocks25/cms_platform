@@ -118,3 +118,9 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.agency.refresh_from_db()
         self.assertEqual(self.agency.available_locations, new_locs)
+
+    def test_site_detail_shows_connected_subaccount_dropdown(self):
+        resp = self.client.get(reverse("dashboard:tenant_detail", args=[self.tenant.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Link a connected sub-account")
+        self.assertContains(resp, "loc_a")

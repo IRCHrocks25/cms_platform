@@ -258,16 +258,42 @@
               <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
             </div>
             <div class="field" style="margin-bottom: 0;">
-              <label class="field-label" for="settings_ghl_location_id">GHL location ID</label>
-              <input class="input" type="text" name="ghl_location_id" id="settings_ghl_location_id"
-                     value="{{ tenant.ghl_location_id|default:'' }}"
-                     placeholder="e.g. MhMPP7jZBQevTgkq7DDk">
-              <span class="field-hint">When set, this client can auto-log in from their GHL sub-account via the embedded menu link.</span>
+              <details style="margin-top:8px">
+                <summary class="field-hint">Advanced: set GHL location ID manually</summary>
+                <input class="input" type="text" name="ghl_location_id" id="settings_ghl_location_id"
+                       value="{{ tenant.ghl_location_id|default:'' }}">
+                <span class="field-hint">When set, this client can auto-log in from their GHL sub-account via the embedded menu link.</span>
+              </details>
             </div>
             <div class="row-end">
               <button type="submit" class="btn btn-primary btn-sm">Save settings</button>
             </div>
           </form>
+        </section>
+
+        <section class="card stack-4">
+          <h2 class="card-title">GHL Sub-account</h2>
+          <div class="field">
+            <label class="field-label">Link a connected sub-account</label>
+            {% if connectable_subaccounts %}
+            <form method="post" action="{% url 'dashboard:integrations_bind' %}">
+              {% csrf_token %}
+              <input type="hidden" name="tenant_id" value="{{ tenant.pk }}">
+              <input type="hidden" name="agency_id" value="">
+              <input type="hidden" name="location_id" value="">
+              <select name="__combo" required
+                      onchange="const o=this.selectedOptions[0]; this.form.agency_id.value=o.dataset.agency||''; this.form.location_id.value=o.value;">
+                <option value="">Choose sub-account...</option>
+                {% for s in connectable_subaccounts %}
+                  <option value="{{ s.id }}" data-agency="{{ s.agency_id }}">{{ s.name|default:s.id }} ({{ s.id }})</option>
+                {% endfor %}
+              </select>
+              <button class="btn" type="submit">Link</button>
+            </form>
+            {% else %}
+            <p class="field-hint">No connected agency yet. <a href="{% url 'dashboard:integrations' %}">Connect one</a>.</p>
+            {% endif %}
+          </div>
         </section>
       </aside>
     </div>{# /.detail-grid #}

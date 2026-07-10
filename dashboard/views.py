@@ -1044,6 +1044,11 @@ def tenant_detail(request, pk):
         tenant.versions.select_related("saved_by").order_by("-saved_at")[:20]
     )
     available_templates = Template.objects.order_by("name")
+    connectable = []
+    for agency in GhlAgencyInstall.objects.all():
+        for loc in agency.available_locations:
+            connectable.append({"agency_id": agency.pk, "id": loc.get("id"),
+                                "name": loc.get("name", "")})
     return render(
         request,
         "dashboard/tenant_detail.html",
@@ -1065,6 +1070,7 @@ def tenant_detail(request, pk):
             # URLs for visiting the client's live site (subdomain host) and a
             # fallback that always works on the current host (/site/<sub>/).
             "site_urls": build_tenant_url_bundle(request, tenant),
+            "connectable_subaccounts": connectable,
         },
     )
 
