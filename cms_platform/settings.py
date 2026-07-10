@@ -345,6 +345,11 @@ GHL_CLIENT_SECRET = os.environ.get("GHL_CLIENT_SECRET", "")
 # Shared/SSO secret used to decrypt the iframe context GHL sends via
 # postMessage. Required only for the signed-context path (Phase 2).
 GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
+# GHL marketplace webhook signature verification. GHL's GLOBAL Ed25519 public
+# key (PEM), published by GHL. When set, /connect/webhook/ verifies the
+# X-GHL-Signature over the raw body; when unset, webhooks are accepted
+# unverified (logged) so an unconfigured deploy does not drop events.
+GHL_WEBHOOK_PUBLIC_KEY = os.environ.get("GHL_WEBHOOK_PUBLIC_KEY", "")
 # Fernet key (urlsafe base64, 32 bytes) for encrypting GHL tokens at rest.
 GHL_TOKEN_ENCRYPTION_KEY = os.environ.get("GHL_TOKEN_ENCRYPTION_KEY", "")
 # Optional explicit app version id; falls back to GHL_CLIENT_ID prefix.

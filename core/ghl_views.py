@@ -235,16 +235,33 @@ def oauth_callback(request):
 @csrf_exempt
 @require_POST
 def webhook(request):
-    """Receives event notifications from GHL (install, uninstall, etc.).
+    """Receive GHL marketplace event notifications (install, uninstall, ...).
 
-    Stub: accepts and logs; no signature verification yet. Real impl will
-    verify a shared-secret header before acting.
+    Verifies the X-GHL-Signature (Ed25519) over the raw body when
+    GHL_WEBHOOK_PUBLIC_KEY is configured, then dispatches the event.
+    See core/ghl_webhook.py.
     """
+    from . import ghl_webhook
+
+    body = request.body or b""
+    if ghl_webhook.signature_configured():
+        if not ghl_webhook.verify_signature(
+            body=body, signature_b64=request.headers.get("X-GHL-Signature", "")
+        ):
+            logger.warning("GHL webhook: signature verification failed")
+            return HttpResponse("invalid signature", status=401)
+    else:
+        logger.warning(
+            "GHL webhook: GHL_WEBHOOK_PUBLIC_KEY not set; accepting unverified"
+        )
     try:
-        payload = json.loads(request.body or "{}")
+        payload = json.loads(body or b"{}")
     except json.JSONDecodeError:
         return HttpResponseBadRequest("invalid JSON")
-    logger.info("GHL webhook: %s", payload.get("type", "unknown"))
+    ghl_webhook.handle_event(payload)
+    logger.info(
+        "GHL webhook: %s", payload.get("type") or payload.get("event") or "unknown"
+    )
     return JsonResponse({"ok": True})
 
 
