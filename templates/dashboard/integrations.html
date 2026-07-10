@@ -10,6 +10,10 @@
   {% for agency in agencies %}
     <section class="stat-card">
       <h2>Agency {{ agency.company_id }}{% if agency.company_name %} — {{ agency.company_name }}{% endif %}</h2>
+      <form method="post" action="{% url 'dashboard:integrations_refresh_locations' %}" style="display:inline">
+        {% csrf_token %}<input type="hidden" name="agency_id" value="{{ agency.pk }}">
+        <button class="btn" type="submit">Refresh sub-account list</button>
+      </form>
       <table class="data-table">
         <thead><tr><th>Sub-account</th><th>ID</th><th>Bind to site</th></tr></thead>
         <tbody>
@@ -44,13 +48,23 @@
 
   <h2>Connected sub-accounts</h2>
   <table class="data-table">
-    <thead><tr><th>Location</th><th>Site</th><th>Status</th></tr></thead>
+    <thead><tr><th>Location</th><th>Site</th><th>Status</th><th></th></tr></thead>
     <tbody>
       {% for i in installs %}
       <tr>
         <td>{{ i.location_name|default:i.location_id }}</td>
         <td>{{ i.tenant.name|default:"—" }}</td>
         <td>{{ i.get_status_display }}</td>
+        <td>
+          <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" style="display:inline">
+            {% csrf_token %}<input type="hidden" name="install_id" value="{{ i.pk }}">
+            <button class="btn" type="submit">Reconnect</button>
+          </form>
+          <form method="post" action="{% url 'dashboard:integrations_disconnect' %}" style="display:inline">
+            {% csrf_token %}<input type="hidden" name="install_id" value="{{ i.pk }}">
+            <button class="btn btn-danger" type="submit">Disconnect</button>
+          </form>
+        </td>
       </tr>
       {% endfor %}
     </tbody>

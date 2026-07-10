@@ -62,3 +62,45 @@ class IntegrationsViewTests(TestCase):
         })
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(GhlInstall.objects.filter(location_id="loc_UNKNOWN").exists())
+
+    def test_reconnect_remints(self):
+        install = GhlInstall.objects.create(
+            location_id="loc_a", agency=self.agency, tenant=self.tenant,
+            access_token=encrypt_token("old"), status=GhlInstall.STATUS_DISCONNECTED,
+        )
+        mint = {"access_token": "new", "refresh_token": "nr", "expires_in": 86400, "scope": ""}
+        with mock.patch("core.ghl_oauth.mint_location_token", return_value=mint):
+            resp = self.client.post(reverse("dashboard:integrations_reconnect"),
+                                    {"install_id": install.pk})
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.assertEqual(install.status, GhlInstall.STATUS_CONNECTED)
+
+    def test_reconnect_orphan_install_shows_error_not_500(self):
+        orphan = GhlInstall.objects.create(
+            location_id="loc_orphan", access_token=encrypt_token("x")
+        )
+        resp = self.client.post(reverse("dashboard:integrations_reconnect"),
+                                {"install_id": orphan.pk})
+        self.assertEqual(resp.status_code, 302)  # ValueError caught, graceful redirect
+
+    def test_disconnect_marks_disconnected(self):
+        install = GhlInstall.objects.create(
+            location_id="loc_a", agency=self.agency, tenant=self.tenant,
+            access_token=encrypt_token("x"), status=GhlInstall.STATUS_CONNECTED,
+        )
+        resp = self.client.post(reverse("dashboard:integrations_disconnect"),
+                                {"install_id": install.pk})
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.assertEqual(install.status, GhlInstall.STATUS_DISCONNECTED)
+
+    def test_refresh_locations_updates_list(self):
+        new_locs = [{"id": "loc_a", "name": "Acme HQ"}, {"id": "loc_c", "name": "Gamma"}]
+        with mock.patch("core.services.ghl_connect.ensure_fresh_agency_token", return_value="tok"), \
+             mock.patch("core.ghl_oauth.list_installed_locations", return_value=new_locs):
+            resp = self.client.post(reverse("dashboard:integrations_refresh_locations"),
+                                    {"agency_id": self.agency.pk})
+        self.assertEqual(resp.status_code, 302)
+        self.agency.refresh_from_db()
+        self.assertEqual(self.agency.available_locations, new_locs)
