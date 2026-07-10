@@ -79,6 +79,8 @@ urlpatterns = [
     path("integrations/disconnect/", views.integrations_disconnect, name="integrations_disconnect"),
     path("integrations/refresh-locations/", views.integrations_refresh_locations,
          name="integrations_refresh_locations"),
+    path("integrations/disconnect-agency/", views.integrations_disconnect_agency,
+         name="integrations_disconnect_agency"),
 
     path("custom-domains/", views.custom_domain_list, name="custom_domain_list"),
     path("custom-domains/<int:pk>/force-verify/", views.custom_domain_force_verify, name="custom_domain_force_verify"),

@@ -3151,17 +3151,26 @@ def blog_strip_preview(request, pk):
 
 @agency_operator_required
 def integrations(request):
-    agencies = GhlAgencyInstall.objects.all()
-    installs = (
-        GhlInstall.objects.select_related("agency", "tenant").order_by("-installed_at")
-    )
-    bound_location_ids = set(
-        GhlInstall.objects.exclude(tenant__isnull=True).values_list("location_id", flat=True)
-    )
+    from collections import defaultdict
+    agencies = list(GhlAgencyInstall.objects.all())
+    installs = GhlInstall.objects.select_related("agency", "tenant").order_by("-installed_at")
+    by_agency = defaultdict(list)
+    orphan_installs = []
+    for i in installs:
+        if i.location_id.startswith("company:"):
+            continue  # legacy placeholder, not a real sub-account
+        if i.agency_id:
+            by_agency[i.agency_id].append(i)
+        else:
+            orphan_installs.append(i)
+    bound_location_ids = {
+        i.location_id for lst in by_agency.values() for i in lst if i.tenant_id
+    }
+    agency_cards = [{"agency": a, "installs": by_agency.get(a.pk, [])} for a in agencies]
     tenants = Tenant.objects.order_by("name")
     return render(request, "dashboard/integrations.html", {
-        "agencies": agencies,
-        "installs": installs,
+        "agency_cards": agency_cards,
+        "orphan_installs": orphan_installs,
         "bound_location_ids": bound_location_ids,
         "tenants": tenants,
         "just_connected": request.GET.get("connected") == "1",
@@ -3233,10 +3242,28 @@ def integrations_refresh_locations(request):
         agency.available_locations = ghl_oauth.list_installed_locations(
             agency_access_token=token, company_id=agency.company_id, app_id=app_id
         )
-        agency.save(update_fields=["available_locations", "updated_at"])
+        agency.company_name = ghl_oauth.fetch_company_name(
+            agency_access_token=token, company_id=agency.company_id
+        ) or agency.company_name
+        agency.save(update_fields=["available_locations", "company_name", "updated_at"])
         messages.success(request, "Sub-account list refreshed.")
     except (ghl_oauth.TokenExchangeFailed, ghl_crypto.TokenCryptoError, RuntimeError) as exc:
         messages.error(request, f"Refresh failed: {exc}")
+    return redirect("dashboard:integrations")
+
+
+@agency_operator_required
+@require_POST
+def integrations_disconnect_agency(request):
+    agency = get_object_or_404(GhlAgencyInstall, pk=request.POST.get("agency_id"))
+    for inst in agency.location_installs.all():
+        if inst.tenant and inst.tenant.ghl_location_id == inst.location_id:
+            inst.tenant.ghl_location_id = None
+            inst.tenant.save(update_fields=["ghl_location_id", "updated_at"])
+    agency.location_installs.all().delete()
+    label = agency.company_name or agency.company_id
+    agency.delete()
+    messages.success(request, f"Disconnected agency {label}.")
     return redirect("dashboard:integrations")
 
 

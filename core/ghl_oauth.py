@@ -204,6 +204,31 @@ def list_installed_locations(
     return out
 
 
+COMPANY_URL = "https://services.leadconnectorhq.com/companies/"
+
+
+def fetch_company_name(*, agency_access_token: str, company_id: str) -> str:
+    """Best-effort agency (company) display name. Returns "" on any failure
+    (e.g. the token scope does not permit companies read)."""
+    try:
+        resp = httpx.get(
+            f"{COMPANY_URL}{company_id}",
+            headers={
+                "Authorization": f"Bearer {agency_access_token}",
+                "Version": GHL_API_VERSION,
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+        if resp.status_code >= 400:
+            return ""
+        data = resp.json()
+        company = data.get("company") or data
+        return (company.get("name") or "").strip()
+    except (httpx.HTTPError, ValueError):
+        return ""
+
+
 def refresh_access_token(*, refresh_token: str, user_type: str = "Location") -> dict[str, Any]:
     """Exchange a refresh token for a new access token. ``user_type`` is
     'Company' for agency tokens, 'Location' for sub-account tokens."""

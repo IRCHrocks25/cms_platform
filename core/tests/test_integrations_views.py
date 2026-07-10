@@ -153,3 +153,48 @@ class IntegrationsViewTests(TestCase):
                 "agency_id": self.agency.pk, "location_id": "loc_a", "tenant_id": self.tenant.pk,
             })
         self.assertEqual(resp.status_code, 302)
+
+    def test_integrations_page_shows_agency_name_when_set(self):
+        self.agency.company_name = "Acme Agency"
+        self.agency.save()
+        resp = self.client.get(reverse("dashboard:integrations"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Acme Agency")
+
+    def test_integrations_page_hides_legacy_company_install(self):
+        GhlInstall.objects.create(
+            location_id="company:co_1",
+            agency=self.agency,
+            access_token=encrypt_token("x"),
+        )
+        resp = self.client.get(reverse("dashboard:integrations"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "company:co_1")
+
+    def test_disconnect_agency_removes_it_and_unlinks(self):
+        mint = {"access_token": "la", "refresh_token": "lr", "expires_in": 86400, "scope": ""}
+        with mock.patch("core.ghl_oauth.mint_location_token", return_value=mint):
+            self.client.post(reverse("dashboard:integrations_bind"), {
+                "agency_id": self.agency.pk, "location_id": "loc_a", "tenant_id": self.tenant.pk,
+            })
+        self.tenant.refresh_from_db()
+        # tenant should now have a ghl_location_id
+        agency_pk = self.agency.pk
+        resp = self.client.post(reverse("dashboard:integrations_disconnect_agency"),
+                                {"agency_id": agency_pk})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(GhlAgencyInstall.objects.filter(pk=agency_pk).exists())
+        self.assertFalse(GhlInstall.objects.filter(location_id="loc_a").exists())
+        self.tenant.refresh_from_db()
+        self.assertIsNone(self.tenant.ghl_location_id)
+
+    def test_refresh_locations_backfills_company_name(self):
+        new_locs = [{"id": "loc_a", "name": "Acme HQ"}]
+        with mock.patch("core.services.ghl_connect.ensure_fresh_agency_token", return_value="tok"), \
+             mock.patch("core.ghl_oauth.list_installed_locations", return_value=new_locs), \
+             mock.patch("core.ghl_oauth.fetch_company_name", return_value="Fetched Co"):
+            resp = self.client.post(reverse("dashboard:integrations_refresh_locations"),
+                                    {"agency_id": self.agency.pk})
+        self.assertEqual(resp.status_code, 302)
+        self.agency.refresh_from_db()
+        self.assertEqual(self.agency.company_name, "Fetched Co")
