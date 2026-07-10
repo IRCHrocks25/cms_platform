@@ -345,6 +345,10 @@ GHL_CLIENT_SECRET = os.environ.get("GHL_CLIENT_SECRET", "")
 # Shared/SSO secret used to decrypt the iframe context GHL sends via
 # postMessage. Required only for the signed-context path (Phase 2).
 GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
+# Fernet key (urlsafe base64, 32 bytes) for encrypting GHL tokens at rest.
+GHL_TOKEN_ENCRYPTION_KEY = os.environ.get("GHL_TOKEN_ENCRYPTION_KEY", "")
+# Optional explicit app version id; falls back to GHL_CLIENT_ID prefix.
+GHL_APP_VERSION_ID = os.environ.get("GHL_APP_VERSION_ID", "")
 # Comma-separated list of origins allowed to embed us in a frame
 # (e.g. "https://app.industryrockstars.ch,https://app.daltoleadsystem.com").
 # Pass "*" to allow any parent — only safe once /embed/ verifies signed
