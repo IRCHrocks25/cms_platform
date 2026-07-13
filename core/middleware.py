@@ -88,6 +88,7 @@ class PartitionedCookieMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
+        self._scope_cookie_domain(request, response)
         if not self.enabled:
             return response
         for name in self._COOKIE_NAMES:
@@ -95,6 +96,25 @@ class PartitionedCookieMiddleware:
             if morsel is not None:
                 morsel["partitioned"] = True
         return response
+
+    def _scope_cookie_domain(self, request, response) -> None:
+        """Host-aware cookie Domain. SESSION/CSRF_COOKIE_DOMAIN is pinned to the
+        parent (.sites.katek.app) so the embed flow can span subdomains, but a
+        browser REJECTS a Domain=.sites.katek.app cookie set from a custom client
+        domain (e.g. robyncoaching.com) -> the CSRF/session cookie never lands
+        there and login 403s. On any non-parent host, drop the Domain so the
+        cookie is host-only and valid there. Independent of IFRAME_EMBED (the
+        domain pin is set by COOKIE_PARENT_DOMAIN, not the embed flag)."""
+        parent = (getattr(settings, "SESSION_COOKIE_DOMAIN", "") or "").lstrip(".")
+        if not parent:
+            return
+        host = request.get_host().split(":")[0].lower().rstrip(".")
+        if host == parent or host.endswith("." + parent):
+            return  # keep Domain=.parent so cookies span subdomains (embed flow)
+        for name in self._COOKIE_NAMES:
+            morsel = response.cookies.get(name)
+            if morsel is not None:
+                morsel["domain"] = ""
 
 
 class FrameAncestorsCspMiddleware:
