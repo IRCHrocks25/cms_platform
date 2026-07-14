@@ -219,13 +219,14 @@
               <span class="overview-val"><a href="#members">{{ members|length }}</a></span>
             </div>
             <div class="overview-row">
-              <span class="overview-key">Custom domain</span>
+              <span class="overview-key">Custom domains</span>
               <span class="overview-val">
-                {% if custom_domain %}
-                  {% if custom_domain.is_verified %}
-                    <span class="badge badge-success">Active</span>
-                  {% else %}
-                    <span class="badge badge-soft">Pending</span>
+                {% if custom_domains %}
+                  {% if custom_domains_verified %}
+                    <span class="badge badge-success">{{ custom_domains_verified }} active</span>
+                  {% endif %}
+                  {% if custom_domains_pending %}
+                    <span class="badge badge-soft">{{ custom_domains_pending }} pending</span>
                   {% endif %}
                 {% else %}<span class="cell-muted">None</span>{% endif %}
               </span>

@@ -1034,7 +1034,6 @@ def tenant_detail(request, pk):
         .select_related("user")
         .order_by("user__username")
     )
-    custom_domain = tenant.custom_domains.order_by("-created_at").first()
     member_user_ids = list(members.values_list("user_id", flat=True))
     add_member_candidates = (
         User.objects.exclude(pk__in=member_user_ids)
@@ -1063,13 +1062,11 @@ def tenant_detail(request, pk):
             "members": members,
             "add_member_candidates": add_member_candidates,
             "activity": activity,
-            "custom_domain": custom_domain,
-            # The custom-domain partial is included on initial load here and
-            # re-rendered via fetch-swap by _render_custom_domain_partial.
-            # Both paths need target_ip + dns_name, or the copy button and
-            # DNS rows come back blank until the first interaction.
-            "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
-            "dns_name": _dns_name_for_domain(custom_domain.domain) if custom_domain else None,
+            # The custom-domain panel is rendered here on initial page load and
+            # re-rendered via fetch-swap by _render_custom_domain_partial. Both
+            # paths go through _custom_domain_context so the domain list, DNS
+            # record names, and target_ip stay identical (no first-load blanks).
+            **_custom_domain_context(tenant),
             "nav_section": "sites",
             "role_choices": TenantMembership.ROLE_CHOICES,
             "available_templates": available_templates,
@@ -2538,21 +2535,28 @@ def _resolve_a_records(domain: str) -> list:
     return sorted({info[4][0] for info in infos})
 
 
+def _custom_domain_context(tenant):
+    """Shared context for the custom-domain panel. Returns every one of the
+    tenant's domains (oldest first, stable order) with its DNS record name, plus
+    the origin IP. Used by both the initial tenant_detail render and the
+    fetch-swap partial so the two never drift out of sync."""
+    domains = [
+        {"obj": cd, "dns_name": _dns_name_for_domain(cd.domain)}
+        for cd in tenant.custom_domains.order_by("created_at")
+    ]
+    verified = sum(1 for d in domains if d["obj"].is_verified)
+    return {
+        "custom_domains": domains,
+        "custom_domains_verified": verified,
+        "custom_domains_pending": len(domains) - verified,
+        "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
+    }
+
+
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
-    custom_domain = tenant.custom_domains.order_by("-created_at").first()
-    dns_name = _dns_name_for_domain(custom_domain.domain) if custom_domain else None
-    return render(
-        request,
-        "dashboard/partials/custom_domain.html",
-        {
-            "tenant": tenant,
-            "custom_domain": custom_domain,
-            "dns_name": dns_name,
-            "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
-            "error": error,
-            "info": info,
-        },
-    )
+    context = _custom_domain_context(tenant)
+    context.update({"tenant": tenant, "error": error, "info": info})
+    return render(request, "dashboard/partials/custom_domain.html", context)
 
 
 @agency_operator_required
@@ -2592,13 +2596,11 @@ def tenant_custom_domain_add(request, pk):
 
 @agency_operator_required
 @require_POST
-def tenant_custom_domain_verify(request, pk):
+def tenant_custom_domain_verify(request, pk, domain_pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    custom_domain = tenant.custom_domains.order_by("-created_at").first()
-    if custom_domain is None:
-        return _render_custom_domain_partial(
-            request, tenant, error="No domain to verify."
-        )
+    # Tenant-scoped lookup: a domain_pk belonging to another tenant 404s rather
+    # than letting one tenant's page act on another tenant's domain.
+    custom_domain = get_object_or_404(CustomDomain, pk=domain_pk, tenant=tenant)
 
     target_ip = settings.CUSTOM_DOMAIN_TARGET_IP
     resolved = _resolve_a_records(custom_domain.domain)
@@ -2629,11 +2631,9 @@ def tenant_custom_domain_verify(request, pk):
 
 @agency_operator_required
 @require_POST
-def tenant_custom_domain_delete(request, pk):
+def tenant_custom_domain_delete(request, pk, domain_pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    custom_domain = tenant.custom_domains.order_by("-created_at").first()
-    if custom_domain is None:
-        return _render_custom_domain_partial(request, tenant)
+    custom_domain = get_object_or_404(CustomDomain, pk=domain_pk, tenant=tenant)
 
     # Deleting the row drops the host from the next route-syncer pass (≤20s), so
     # Traefik stops routing it. No external (Cloudflare/Railway) cleanup needed.

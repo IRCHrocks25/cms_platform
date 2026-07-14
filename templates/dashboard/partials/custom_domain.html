@@ -3,19 +3,14 @@
   add/verify/delete. The wrapping #custom-domain-section element is the swap
   target — see static/js/section-fetch.js.
 
-  Direct-to-origin + Let's Encrypt model: the client points an A record at our
-  origin IP ({{ target_ip }}); Traefik then auto-issues a real Let's Encrypt
-  cert per domain. No Cloudflare for SaaS, no _acme-challenge record.
+  Multiple domains per tenant: each verified CustomDomain becomes its own
+  Traefik Host() router + Let's Encrypt cert (direct-to-origin — the client
+  points an A record at our origin IP ({{ target_ip }}); no Cloudflare for SaaS,
+  no _acme-challenge record). This panel lists every domain and manages each
+  one independently.
 {% endcomment %}
 <div class="row-between">
-  <h2 style="margin: 0;">Custom Domain</h2>
-  {% if custom_domain %}
-    {% if custom_domain.is_verified %}
-      <span class="badge badge-success">Active</span>
-    {% else %}
-      <span class="badge badge-soft" style="color: var(--color-warning, #b45309);">Pending</span>
-    {% endif %}
-  {% endif %}
+  <h2 style="margin: 0;">Custom Domains</h2>
 </div>
 
 {% if error %}
@@ -25,138 +20,127 @@
   <div class="flash flash-info" style="margin: 0;">{{ info }}</div>
 {% endif %}
 
-{% if not custom_domain %}
-  {# State A — no domain configured: how to point a domain at the site + add it #}
-  <p class="field-hint" style="margin: 0;">
+{% for d in custom_domains %}
+  <div class="card-tight"
+       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+    <div class="row-between" style="align-items: flex-start;">
+      <p style="margin: 0; font-weight: 600; word-break: break-all;">{{ d.obj.domain }}</p>
+      {% if d.obj.is_verified %}
+        <span class="badge badge-success">Active</span>
+      {% else %}
+        <span class="badge badge-soft" style="color: var(--color-warning, #b45309);">Pending</span>
+      {% endif %}
+    </div>
+
+    {% if d.obj.is_verified %}
+      {# Verified and live #}
+      <p class="cell-muted" style="margin: 8px 0 0;">
+        Live over HTTPS — visitors to <code>{{ d.obj.domain }}</code> see this site
+        with a valid SSL certificate.
+      </p>
+      <div class="row" style="gap: 8px; margin-top: 10px;">
+        <a href="https://{{ d.obj.domain }}/" target="_blank" rel="noopener"
+           class="btn btn-secondary">Visit site ↗</a>
+        <form data-fetch-form
+              data-target="#custom-domain-section"
+              data-confirm="Remove {{ d.obj.domain }}?"
+              method="post"
+              action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk d.obj.pk %}"
+              class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost">Remove</button>
+        </form>
+      </div>
+    {% else %}
+      {# Added, awaiting DNS verification #}
+      <p style="margin: 8px 0 0;">Added, not verified yet. Confirm this DNS record exists at the registrar:</p>
+      <table class="data-table data-table-flush" style="margin: 8px 0 0;">
+        <thead>
+          <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>A</code></td>
+            <td><code>{{ d.dns_name }}</code></td>
+            <td>
+              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+                <code>{{ target_ip }}</code>
+                {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="field-hint" style="margin: 12px 0 0;">
+        DNS can take a few minutes to propagate. Once <code>{{ d.obj.domain }}</code>
+        resolves to <code>{{ target_ip }}</code>, the SSL certificate is issued
+        automatically — nothing else to do.
+      </p>
+      <div class="row" style="gap: 8px; margin-top: 10px;">
+        <form data-fetch-form
+              data-target="#custom-domain-section"
+              method="post"
+              action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk d.obj.pk %}"
+              class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary">Check verification</button>
+        </form>
+        <form data-fetch-form
+              data-target="#custom-domain-section"
+              data-confirm="Remove {{ d.obj.domain }}?"
+              method="post"
+              action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk d.obj.pk %}"
+              class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost">Remove</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+
+{# Add-a-domain form + how-to. Always visible; doubles as the empty state. #}
+<div class="card-tight"
+     style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
+  <p style="margin: 0 0 8px; font-weight: 600;">Add a domain</p>
+  <p class="field-hint" style="margin: 0 0 10px;">
     Point a domain the client owns (e.g. <code>acme.com</code> or
-    <code>www.acme.com</code>) at this site. Three quick steps:
+    <code>www.acme.com</code>) at this site with one DNS <code>A</code> record:
   </p>
-
-  <div class="card-tight"
-       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 8px; font-weight: 600;">Step 1 — Add one DNS record at the domain's registrar</p>
-    <table class="data-table data-table-flush" style="margin: 0;">
-      <thead>
-        <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>A</code></td>
-          <td><code>@</code> for the root domain, or the subdomain (e.g. <code>www</code>)</td>
-          <td>
-            <span class="row" style="gap: 8px; align-items: center; margin: 0;">
-              <code>{{ target_ip }}</code>
-              {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p class="field-hint" style="margin: 12px 0 0;">
-      <strong>Root domain</strong> (<code>acme.com</code>)? Put the <code>A</code> record on
-      <code>@</code>, then point <code>www</code> at it with a <code>CNAME</code> →
-      <code>acme.com</code> (or a second <code>A</code> → <code>{{ target_ip }}</code>).
-      That's the only record needed — no Cloudflare, and HTTPS is issued for you.
-    </p>
-  </div>
-
-  <div class="card-tight"
-       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 10px; font-weight: 600;">Step 2 — Enter the domain and add it</p>
-    <form data-fetch-form
-          data-target="#custom-domain-section"
-          method="post"
-          action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
-          class="row" style="gap: 8px; flex-wrap: wrap; margin: 0;">
-      {% csrf_token %}
-      <input class="input" type="text" name="domain" required
-             placeholder="acme.com   or   www.acme.com"
-             pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
-             style="flex: 1; min-width: 240px;">
-      <button type="submit" class="btn btn-primary">Add Domain</button>
-    </form>
-    <p class="field-hint" style="margin: 10px 0 0;">
-      <strong>Step 3</strong> — once it's added, click <strong>Check verification</strong>.
-      We confirm the domain points here, then switch on HTTPS automatically (about a minute).
-    </p>
-  </div>
-
-{% elif not custom_domain.is_verified %}
-  {# State B — added, awaiting DNS verification #}
-  <p style="margin: 0;"><strong>{{ custom_domain.domain }}</strong> — added, not verified yet.</p>
-
-  <div class="card-tight"
-       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <p style="margin: 0 0 8px; font-weight: 600;">1. Confirm this DNS record exists at the registrar</p>
-    <table class="data-table data-table-flush" style="margin: 0;">
-      <thead>
-        <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>A</code></td>
-          <td><code>{{ dns_name }}</code></td>
-          <td>
-            <span class="row" style="gap: 8px; align-items: center; margin: 0;">
-              <code>{{ target_ip }}</code>
-              {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
-            </span>
-          </td>
-        </tr>
-        {% if dns_name == "@" %}
-        <tr>
-          <td><code>CNAME</code></td>
-          <td><code>www</code> <span class="cell-muted">(optional)</span></td>
-          <td><code style="word-break: break-all;">{{ custom_domain.domain }}</code></td>
-        </tr>
-        {% endif %}
-      </tbody>
-    </table>
-    <p class="field-hint" style="margin: 12px 0 0;">
-      DNS can take a few minutes to propagate. Once <code>{{ custom_domain.domain }}</code>
-      resolves to <code>{{ target_ip }}</code>, the SSL certificate is issued
-      automatically — nothing else to do.
-    </p>
-  </div>
-
-  <div class="row" style="gap: 8px;">
-    <form data-fetch-form
-          data-target="#custom-domain-section"
-          method="post"
-          action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk %}"
-          class="inline-form">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-primary">2. Check verification</button>
-    </form>
-    <form data-fetch-form
-          data-target="#custom-domain-section"
-          data-confirm="Remove {{ custom_domain.domain }}?"
-          method="post"
-          action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk %}"
-          class="inline-form">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-ghost">Remove</button>
-    </form>
-  </div>
-
-{% else %}
-  {# State C — verified and live #}
-  <p style="margin: 0;"><strong>{{ custom_domain.domain }}</strong></p>
-  <p class="cell-muted" style="margin: 0;">
-    Live over HTTPS — visitors to <code>{{ custom_domain.domain }}</code> see this site
-    with a valid SSL certificate.
+  <table class="data-table data-table-flush" style="margin: 0 0 12px;">
+    <thead>
+      <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>A</code></td>
+        <td><code>@</code> for the root domain, or the subdomain (e.g. <code>www</code>)</td>
+        <td>
+          <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+            <code>{{ target_ip }}</code>
+            {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
+          </span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <form data-fetch-form
+        data-target="#custom-domain-section"
+        method="post"
+        action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
+        class="row" style="gap: 8px; flex-wrap: wrap; margin: 0;">
+    {% csrf_token %}
+    <input class="input" type="text" name="domain" required
+           placeholder="acme.com   or   www.acme.com"
+           pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+           style="flex: 1; min-width: 240px;">
+    <button type="submit" class="btn btn-primary">Add Domain</button>
+  </form>
+  <p class="field-hint" style="margin: 10px 0 0;">
+    Serving both the root and <code>www</code>? Add each as its own domain here
+    (e.g. <code>acme.com</code> and <code>www.acme.com</code>) — or point
+    <code>www</code> at the root with a <code>CNAME</code> → <code>acme.com</code>
+    and add it here too. Once a domain resolves to <code>{{ target_ip }}</code>,
+    HTTPS is issued automatically in about a minute. No Cloudflare, no extra records.
   </p>
-  <div class="row" style="gap: 8px;">
-    <a href="https://{{ custom_domain.domain }}/" target="_blank" rel="noopener"
-       class="btn btn-secondary">Visit site ↗</a>
-    <form data-fetch-form
-          data-target="#custom-domain-section"
-          data-confirm="Remove {{ custom_domain.domain }}?"
-          method="post"
-          action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk %}"
-          class="inline-form">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-ghost">Remove</button>
-    </form>
-  </div>
-{% endif %}
+</div>
