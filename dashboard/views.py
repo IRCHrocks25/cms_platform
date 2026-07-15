@@ -2056,6 +2056,12 @@ def _render_editor(request, tenant, *, scope, page=None):
     editable = page or tenant
     schema = editable.template.schema or {"sections": []}
     content = merge_with_defaults(schema, editable.content)
+    # Theme tokens are a newer schema field; derive them fresh from the template
+    # HTML when an older stored schema predates the feature, so the Theme colors
+    # panel appears without needing every template re-saved first.
+    theme_tokens = schema.get("theme_tokens")
+    if theme_tokens is None:
+        theme_tokens = build_schema(editable.template.html_source).get("theme_tokens", [])
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
@@ -2180,7 +2186,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "header_sections": header_sections,
             "footer_sections": footer_sections,
             "brand_section": brand_section,
-            "theme_tokens": schema.get("theme_tokens", []),
+            "theme_tokens": theme_tokens,
             "link_targets": link_targets,
             "grouped_sections": grouped,
             "content_json": json.dumps(content),
