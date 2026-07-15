@@ -87,6 +87,11 @@ class ApplyGlobalStylesTests(SimpleTestCase):
         self.assertIn("color: #123456", css)
         self.assertNotIn("font-size", css)
 
+    def test_page_background_sets_body_background(self):
+        soup = self._render({"pageBg": "#fef3c7"})
+        css = soup.find("style", attrs={"data-cms-global": True}).string
+        self.assertIn("background-color: #fef3c7", css)
+
 
 _TEMPLATE = (
     "<html><head></head><body>"

@@ -82,20 +82,17 @@
     <details class="cms-style-panel" data-style-panel="{{ field.id }}">
       <summary class="cms-style-summary">Style</summary>
       <div class="cms-style-grid">
-        <label class="cms-style-row">
+        <div class="cms-style-row">
           <span>Color</span>
-          <input type="color" data-style-color-picker value="#000000">
-          <input class="input" type="text" data-style-bind="colorText" placeholder="#000000">
-        </label>
+          <div class="cms-swatches" data-style-swatches="color"></div>
+        </div>
         <label class="cms-style-row">
           <span>Size</span>
-          <input class="input" type="number" min="8" max="200" step="1"
-                 data-style-bind="fontSize" placeholder="px">
+          <select class="select" data-style-bind="fontSize" data-style-sizeselect></select>
         </label>
         <label class="cms-style-row">
           <span>Font</span>
-          <input class="input" type="text" data-style-bind="fontFamily"
-                 placeholder="e.g. Poppins">
+          <select class="select" data-style-bind="fontFamily" data-style-fontselect></select>
         </label>
         <label class="cms-style-row">
           <span>Weight</span>

@@ -30,10 +30,11 @@ class NormalizeStylesTests(SimpleTestCase):
     def test_normalizes_global(self):
         content = {"_global": {
             "fontFamily": "Inter", "baseSize": "16px",
-            "headingFamily": "Poppins", "textColor": "#1f2937", "junk": "no"}}
+            "headingFamily": "Poppins", "textColor": "#1f2937",
+            "pageBg": "#ffffff", "junk": "no"}}
         _normalize_styles(content)
         self.assertEqual(set(content["_global"]), {
-            "fontFamily", "baseSize", "headingFamily", "textColor"})
+            "fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"})
 
     def test_missing_namespaces_are_untouched(self):
         content = {"hero": {"title": "x"}}

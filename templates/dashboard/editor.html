@@ -177,16 +177,18 @@
           <p>Site-wide colors and fonts. These apply across every section — individual headings and text can still be styled on their own from the Content tab.</p>
         </div>
         <div class="editor-form-section" data-section-id="_global">
-          <div class="editor-form-section-head"><h2>Typography</h2></div>
+          <div class="editor-form-section-head"><h2>Colors &amp; fonts</h2></div>
           <div class="stack-5">
             <label class="field"><span class="field-label">Body font</span>
-              <input class="input" type="text" data-global-bind="fontFamily" placeholder="e.g. Inter"></label>
-            <label class="field"><span class="field-label">Base text size</span>
-              <input class="input" type="number" min="10" max="32" data-global-bind="baseSize" placeholder="16"></label>
+              <select class="select" data-global-bind="fontFamily" data-global-fontselect></select></label>
             <label class="field"><span class="field-label">Heading font</span>
-              <input class="input" type="text" data-global-bind="headingFamily" placeholder="e.g. Poppins"></label>
-            <label class="field"><span class="field-label">Default text color</span>
-              <input class="input" type="text" data-global-bind="textColor" placeholder="#1f2937"></label>
+              <select class="select" data-global-bind="headingFamily" data-global-fontselect></select></label>
+            <label class="field"><span class="field-label">Base text size</span>
+              <select class="select" data-global-bind="baseSize" data-global-sizeselect></select></label>
+            <div class="field"><span class="field-label">Page background color</span>
+              <div class="cms-swatches" data-global-swatches="pageBg"></div></div>
+            <div class="field"><span class="field-label">Default text color</span>
+              <div class="cms-swatches" data-global-swatches="textColor"></div></div>
           </div>
         </div>
         {% if brand_section %}

@@ -152,6 +152,105 @@
       { source: "cms-editor", type: "apply-global", payload: content._global }, "*");
   }
 
+  // ---- curated choice lists (pre-made fonts / sizes / colors) ----------
+  var CMS_FONTS = [
+    "Inter", "Poppins", "Roboto", "Open Sans", "Lato", "Montserrat",
+    "Raleway", "Nunito", "Work Sans", "Rubik", "DM Sans", "Source Sans 3",
+    "Playfair Display", "Merriweather", "Lora", "Oswald", "Bebas Neue",
+    "Dancing Script",
+  ];
+  var CMS_SIZES = [
+    { label: "Small", value: "14px" }, { label: "Normal", value: "16px" },
+    { label: "Medium", value: "20px" }, { label: "Large", value: "28px" },
+    { label: "X-Large", value: "40px" }, { label: "Huge", value: "56px" },
+    { label: "Display", value: "72px" },
+  ];
+  var CMS_BASE_SIZES = [
+    { label: "14px", value: "14px" }, { label: "15px", value: "15px" },
+    { label: "16px (default)", value: "16px" }, { label: "17px", value: "17px" },
+    { label: "18px", value: "18px" }, { label: "20px", value: "20px" },
+  ];
+  var CMS_COLORS = [
+    "#000000", "#1f2937", "#374151", "#6b7280", "#9ca3af", "#ffffff",
+    "#b91c1c", "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16",
+    "#22c55e", "#10b981", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1",
+    "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#7c3aed",
+  ];
+
+  // Load the curated fonts into the dashboard document so dropdown option
+  // labels render in their own typeface (data-cookieconsent ignore for parity).
+  function cmsLoadEditorFonts() {
+    if (document.getElementById("cms-editor-fonts")) return;
+    var fam = CMS_FONTS.map(function (f) {
+      return "family=" + f.replace(/ /g, "+") + ":wght@400;700";
+    }).join("&");
+    var link = document.createElement("link");
+    link.id = "cms-editor-fonts";
+    link.rel = "stylesheet";
+    link.setAttribute("data-cookieconsent", "ignore");
+    link.href = "https://fonts.googleapis.com/css2?" + fam + "&display=swap";
+    document.head.appendChild(link);
+  }
+
+  function buildFontSelect(sel, current) {
+    sel.innerHTML = "";
+    var def = document.createElement("option");
+    def.value = ""; def.textContent = "Default";
+    sel.appendChild(def);
+    CMS_FONTS.forEach(function (f) {
+      var o = document.createElement("option");
+      o.value = f; o.textContent = f; o.style.fontFamily = "'" + f + "'";
+      if (f === current) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (!current) sel.value = "";
+  }
+
+  function buildSizeSelect(sel, list, current) {
+    sel.innerHTML = "";
+    var def = document.createElement("option");
+    def.value = ""; def.textContent = "Default";
+    sel.appendChild(def);
+    list.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.value; o.textContent = s.label;
+      if (s.value === current) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (!current) sel.value = "";
+  }
+
+  // Build a palette of preset color chips + a "none/default" chip.
+  function buildSwatches(container, current, onPick) {
+    container.innerHTML = "";
+    function mark(el) {
+      container.querySelectorAll(".cms-swatch").forEach(function (x) {
+        x.classList.remove("active");
+      });
+      if (el) el.classList.add("active");
+    }
+    var none = document.createElement("button");
+    none.type = "button";
+    none.className = "cms-swatch cms-swatch-none";
+    none.title = "Default (no override)";
+    none.textContent = "×";
+    none.addEventListener("click", function () { mark(none); onPick(""); });
+    container.appendChild(none);
+    var activeSet = false;
+    CMS_COLORS.forEach(function (c) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "cms-swatch";
+      b.style.background = c;
+      b.title = c;
+      b.setAttribute("data-color", c);
+      if (c.toLowerCase() === (current || "").toLowerCase()) { b.classList.add("active"); activeSet = true; }
+      b.addEventListener("click", function () { mark(b); onPick(c); });
+      container.appendChild(b);
+    });
+    if (!activeSet && !current) none.classList.add("active");
+  }
+
   var EYE_ON =
     '<svg class="cms-eye cms-eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
     'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
@@ -605,33 +704,19 @@
         scheduleSave();
       }
 
-      var colorPicker = panel.querySelector("[data-style-color-picker]");
-      var colorText = panel.querySelector('[data-style-bind="colorText"]');
-      if (current.color) {
-        if (colorText) colorText.value = current.color;
-        if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(current.color)) colorPicker.value = current.color;
-      }
-      if (colorPicker) colorPicker.addEventListener("input", function () {
-        if (colorText) colorText.value = colorPicker.value;
-        commit("color", colorPicker.value);
-      });
-      if (colorText) colorText.addEventListener("input", function () {
-        if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(colorText.value)) colorPicker.value = colorText.value;
-        commit("color", colorText.value);
-      });
+      var swatches = panel.querySelector('[data-style-swatches="color"]');
+      if (swatches) buildSwatches(swatches, current.color, function (c) { commit("color", c); });
 
-      var size = panel.querySelector('[data-style-bind="fontSize"]');
+      var size = panel.querySelector("[data-style-sizeselect]");
       if (size) {
-        if (current.fontSize) size.value = parseInt(current.fontSize, 10) || "";
-        size.addEventListener("input", function () {
-          commit("fontSize", size.value ? size.value + "px" : "");
-        });
+        buildSizeSelect(size, CMS_SIZES, current.fontSize);
+        size.addEventListener("change", function () { commit("fontSize", size.value); });
       }
 
-      var fam = panel.querySelector('[data-style-bind="fontFamily"]');
+      var fam = panel.querySelector("[data-style-fontselect]");
       if (fam) {
-        if (current.fontFamily) fam.value = current.fontFamily;
-        fam.addEventListener("input", function () { commit("fontFamily", fam.value.trim()); });
+        buildFontSelect(fam, current.fontFamily);
+        fam.addEventListener("change", function () { commit("fontFamily", fam.value); });
       }
 
       var weight = panel.querySelector('[data-style-bind="fontWeight"]');
@@ -663,18 +748,28 @@
       });
     });
 
-    // Bind global typography controls (Design tab).
-    document.querySelectorAll("[data-global-bind]").forEach(function (input) {
-      var key = input.getAttribute("data-global-bind");
-      var cur = content._global[key];
-      if (cur) input.value = key === "baseSize" ? parseInt(cur, 10) || "" : cur;
-      input.addEventListener("input", function () {
-        var v = input.value.trim();
-        if (key === "baseSize" && v) v = v + "px";
-        if (v) content._global[key] = v; else delete content._global[key];
-        pushGlobalToPreview();
-        scheduleSave();
-      });
+    // Bind global Design controls (fonts / size dropdowns + color swatches).
+    cmsLoadEditorFonts();
+
+    function commitGlobal(key, value) {
+      if (value) content._global[key] = value; else delete content._global[key];
+      pushGlobalToPreview();
+      scheduleSave();
+    }
+
+    document.querySelectorAll("[data-global-fontselect]").forEach(function (sel) {
+      var key = sel.getAttribute("data-global-bind");
+      buildFontSelect(sel, content._global[key]);
+      sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
+    });
+    document.querySelectorAll("[data-global-sizeselect]").forEach(function (sel) {
+      var key = sel.getAttribute("data-global-bind");
+      buildSizeSelect(sel, CMS_BASE_SIZES, content._global[key]);
+      sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
+    });
+    document.querySelectorAll("[data-global-swatches]").forEach(function (container) {
+      var key = container.getAttribute("data-global-swatches");
+      buildSwatches(container, content._global[key], function (c) { commitGlobal(key, c); });
     });
 
     // Inject hide/show eye-toggles onto every section head and field.

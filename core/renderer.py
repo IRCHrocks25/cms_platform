@@ -166,6 +166,7 @@ PREVIEW_BRIDGE_SCRIPT = """
       if (g.fontFamily) { bodyDecls += 'font-family:' + g.fontFamily + ';'; cmsEnsureFont(g.fontFamily); }
       if (g.baseSize) bodyDecls += 'font-size:' + g.baseSize + ';';
       if (g.textColor) bodyDecls += 'color:' + g.textColor + ';';
+      if (g.pageBg) bodyDecls += 'background-color:' + g.pageBg + ';';
       if (bodyDecls) css += 'body{' + bodyDecls + '}';
       if (g.headingFamily) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + g.headingFamily + ';}'; cmsEnsureFont(g.headingFamily); }
       var gtag = document.getElementById('cms-global-style');
@@ -429,12 +430,15 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     base_size = global_styles.get("baseSize")
     text_color = global_styles.get("textColor")
     heading_family = global_styles.get("headingFamily")
+    page_bg = global_styles.get("pageBg")
     if font_family:
         body_decls.append(f"font-family: {font_family};")
     if base_size:
         body_decls.append(f"font-size: {base_size};")
     if text_color:
         body_decls.append(f"color: {text_color};")
+    if page_bg:
+        body_decls.append(f"background-color: {page_bg};")
 
     rules = []
     if body_decls:

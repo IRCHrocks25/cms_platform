@@ -2209,7 +2209,7 @@ def _render_preview(editable):
 
 
 _ALLOWED_STYLE_KEYS = {"color", "fontSize", "fontFamily", "fontWeight", "align"}
-_ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor"}
+_ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"}
 
 
 def _clean_style_value(value):
