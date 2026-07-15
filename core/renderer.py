@@ -50,6 +50,13 @@ PREVIEW_BRIDGE_SCRIPT = """
     });
     el.style.fontStyle = style.italic ? 'italic' : '';
     if (style.fontFamily) cmsEnsureFont(style.fontFamily);
+    // Text color must also override styled descendants (<em>/<span>/<strong>/
+    // <cite> with their own color rule), which a parent color can't do.
+    var kids = el.querySelectorAll('*');
+    for (var i = 0; i < kids.length; i++) {
+      if (style.color) { kids[i].style.setProperty('color', style.color, 'important'); }
+      else { kids[i].style.removeProperty('color'); }
+    }
   }
   // Minimal in-browser HTML scrub for live richtext apply (same-origin preview).
   // <template> content is inert, so onerror/onload don't fire while we clean.
@@ -404,20 +411,58 @@ def _apply_element_styles(el, style: dict) -> None:
         value = style.get(key)
         if value is None or value == "":
             continue
+        # Color values are validated so a malformed value can't smuggle extra
+        # declarations into the inline style attribute.
+        if key in ("color", "bgColor"):
+            value = _safe_css_value(value)
+            if not value:
+                continue
         _set_css_prop(el, css_prop, str(value))
     if style.get("italic"):
         _set_css_prop(el, "font-style", "italic")
 
 
+# A CSS color/value safe enough to interpolate into a stylesheet rule: hex,
+# rgb()/rgba()/hsl(), or a plain keyword. Anything with braces/semicolons that
+# could break out of the rule is rejected.
+_SAFE_CSS_VALUE_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)$")
+
+
+def _safe_css_value(value: str) -> str | None:
+    v = str(value or "").strip()
+    return v if _SAFE_CSS_VALUE_RE.match(v) else None
+
+
 def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
-    """Apply every per-element style override to its `data-edit` element(s)."""
+    """Apply every per-element style override to its `data-edit` element(s).
+
+    Inline styles on the element win over the template's class rules for that
+    element. But a text *color* must also reach styled descendants (an <em> or
+    <span> with its own color rule), which inline-on-the-parent can't do — the
+    child's own rule wins. So for color we additionally emit a scoped
+    ``[data-edit="id"] * { color: ... !important }`` stylesheet rule.
+    """
     if not isinstance(styles, dict):
         return
+    descendant_rules = []
     for element_id, style in styles.items():
         if not isinstance(element_id, str) or "." not in element_id:
             continue
+        if not isinstance(style, dict):
+            continue
         for el in soup.find_all(attrs={"data-edit": element_id}):
             _apply_element_styles(el, style)
+        color = _safe_css_value(style.get("color", ""))
+        if color:
+            sel_id = element_id.replace('"', "").replace("\\", "")
+            descendant_rules.append(
+                f'[data-edit="{sel_id}"] * {{ color: {color} !important; }}'
+            )
+    if descendant_rules:
+        tag = soup.new_tag("style")
+        tag["data-cms-elem"] = "true"
+        tag.string = "".join(descendant_rules)
+        (soup.find("head") or soup.find("body") or soup).append(tag)
 
 
 def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:

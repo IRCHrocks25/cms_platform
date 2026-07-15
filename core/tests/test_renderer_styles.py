@@ -125,6 +125,30 @@ class RenderSiteStylesTests(SimpleTestCase):
         self.assertIsNone(soup.find("style", attrs={"data-cms-global": True}))
         self.assertFalse(soup.find_all("link", href=lambda h: h and "fonts.googleapis.com" in h))
 
+    def test_color_reaches_styled_descendants(self):
+        template = (
+            "<html><head></head><body>"
+            '<section data-section="hero">'
+            '<h1 data-edit="hero.title" data-type="richtext">Hi <em>there</em></h1>'
+            "</section></body></html>"
+        )
+        content = {"hero": {"title": "Hi <em>there</em>"},
+                   "_styles": {"hero.title": {"color": "#b91c1c"}}}
+        html = render_site(template, content)
+        # element itself gets inline color, AND a scoped rule recolors descendants
+        self.assertIn('[data-edit="hero.title"] * { color: #b91c1c !important; }', html)
+
+    def test_unsafe_color_does_not_inject_css(self):
+        template = (
+            "<html><head></head><body>"
+            '<section data-section="hero"><h1 data-edit="hero.title">x</h1></section>'
+            "</body></html>"
+        )
+        content = {"hero": {"title": "x"},
+                   "_styles": {"hero.title": {"color": "red;} body{display:none"}}}
+        html = render_site(template, content)
+        self.assertNotIn("display:none", html)
+
 
 class PreviewBridgeStyleTests(SimpleTestCase):
     def test_bridge_has_style_handlers(self):
