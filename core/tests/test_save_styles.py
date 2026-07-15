@@ -7,14 +7,14 @@ from dashboard.views import _normalize_styles
 class NormalizeStylesTests(SimpleTestCase):
     def test_keeps_allowed_style_keys_and_drops_others(self):
         content = {"_styles": {"hero.title": {
-            "color": "#b91c1c", "fontSize": "56px", "fontFamily": "Poppins",
-            "fontWeight": "700", "italic": True, "align": "center",
-            "evil": "x", "onclick": "alert(1)",
+            "color": "#b91c1c", "bgColor": "#ffffff", "fontSize": "56px",
+            "fontFamily": "Poppins", "fontWeight": "700", "italic": True,
+            "align": "center", "evil": "x", "onclick": "alert(1)",
         }}}
         _normalize_styles(content)
         style = content["_styles"]["hero.title"]
         self.assertEqual(set(style), {
-            "color", "fontSize", "fontFamily", "fontWeight", "italic", "align"})
+            "color", "bgColor", "fontSize", "fontFamily", "fontWeight", "italic", "align"})
         self.assertTrue(style["italic"])
 
     def test_drops_non_dotted_and_non_dict_entries(self):

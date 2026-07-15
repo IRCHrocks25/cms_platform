@@ -2208,7 +2208,7 @@ def _render_preview(editable):
     return HttpResponse(html)
 
 
-_ALLOWED_STYLE_KEYS = {"color", "fontSize", "fontFamily", "fontWeight", "align"}
+_ALLOWED_STYLE_KEYS = {"color", "bgColor", "fontSize", "fontFamily", "fontWeight", "align"}
 _ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"}
 
 

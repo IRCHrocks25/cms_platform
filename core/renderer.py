@@ -24,7 +24,7 @@ PREVIEW_BRIDGE_SCRIPT = """
   function send(type, payload) {
     parent.postMessage({ source: 'cms-preview', type: type, payload: payload }, '*');
   }
-  var CMS_STYLE_PROP = { color: 'color', fontSize: 'fontSize',
+  var CMS_STYLE_PROP = { color: 'color', bgColor: 'backgroundColor', fontSize: 'fontSize',
     fontFamily: 'fontFamily', fontWeight: 'fontWeight', align: 'textAlign' };
   function cmsEnsureFont(family) {
     if (!family) return;
@@ -380,6 +380,7 @@ def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> N
 # is handled separately (boolean -> font-style: italic).
 _STYLE_PROPERTIES = {
     "color": "color",
+    "bgColor": "background-color",
     "fontSize": "font-size",
     "fontFamily": "font-family",
     "fontWeight": "font-weight",

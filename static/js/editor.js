@@ -394,6 +394,10 @@
     var sub = node.closest && node.closest(".nav-subpanel");
     if (sub && window.cmsSwitchSub) window.cmsSwitchSub(sub.getAttribute("data-subpanel"));
     node.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Reveal the Style panel so clicking an element in the preview lets you
+    // restyle it (font / color / background) right away.
+    var stylePanel = node.querySelector(".cms-style-panel");
+    if (stylePanel && stylePanel.tagName.toLowerCase() === "details") stylePanel.open = true;
     var input = node.querySelector("[data-bind]");
     if (input) {
       if (input.contentEditable === "true") {
@@ -704,8 +708,10 @@
         scheduleSave();
       }
 
-      var swatches = panel.querySelector('[data-style-swatches="color"]');
-      if (swatches) buildSwatches(swatches, current.color, function (c) { commit("color", c); });
+      panel.querySelectorAll("[data-style-swatches]").forEach(function (container) {
+        var key = container.getAttribute("data-style-swatches"); // "color" | "bgColor"
+        buildSwatches(container, current[key], function (c) { commit(key, c); });
+      });
 
       var size = panel.querySelector("[data-style-sizeselect]");
       if (size) {

@@ -129,7 +129,7 @@ def build_schema(html: str) -> dict[str, Any]:
             default = _extract_default(field_el, ftype)
 
             style_editable = (
-                ftype in ("text", "richtext")
+                ftype in ("text", "richtext", "link")
                 and field_el.get("data-style", "").strip().lower() != "off"
             )
 

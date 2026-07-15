@@ -18,11 +18,13 @@ class ApplyElementStylesTests(SimpleTestCase):
     def test_maps_each_property_to_css(self):
         el = _el('<h1 data-edit="hero.title">Hi</h1>')
         _apply_element_styles(el, {
-            "color": "#b91c1c", "fontSize": "56px", "fontFamily": "Poppins",
-            "fontWeight": "700", "italic": True, "align": "center",
+            "color": "#b91c1c", "bgColor": "#0a0a14", "fontSize": "56px",
+            "fontFamily": "Poppins", "fontWeight": "700", "italic": True,
+            "align": "center",
         })
         style = el.get("style", "")
         self.assertIn("color: #b91c1c;", style)
+        self.assertIn("background-color: #0a0a14;", style)
         self.assertIn("font-size: 56px;", style)
         self.assertIn("font-family: Poppins;", style)
         self.assertIn("font-weight: 700;", style)
