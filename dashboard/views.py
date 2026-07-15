@@ -2054,14 +2054,18 @@ def _render_editor(request, tenant, *, scope, page=None):
     # Both expose the same template / content / is_published shape, so the only
     # differences are the action URLs and the bar labels.
     editable = page or tenant
-    schema = editable.template.schema or {"sections": []}
+    # Build the schema fresh from the template HTML so the editor always reflects
+    # the CURRENT parser — per-element style flags, theme tokens, etc. — even for
+    # templates whose stored schema predates those features (avoids a stale
+    # schema hiding the Style panels / Design tab until every template is
+    # re-saved). Public rendering still uses the stored schema for defaults.
+    tpl = editable.template
+    if tpl and tpl.html_source:
+        schema = build_schema(tpl.html_source)
+    else:
+        schema = (tpl.schema if tpl else None) or {"sections": []}
     content = merge_with_defaults(schema, editable.content)
-    # Theme tokens are a newer schema field; derive them fresh from the template
-    # HTML when an older stored schema predates the feature, so the Theme colors
-    # panel appears without needing every template re-saved first.
-    theme_tokens = schema.get("theme_tokens")
-    if theme_tokens is None:
-        theme_tokens = build_schema(editable.template.html_source).get("theme_tokens", [])
+    theme_tokens = schema.get("theme_tokens", [])
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
