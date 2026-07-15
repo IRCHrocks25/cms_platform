@@ -65,6 +65,67 @@ def _parse_brand_tokens(soup: BeautifulSoup) -> dict[str, Any] | None:
     }
 
 
+# Framework/utility custom properties we never want to expose as editable theme
+# colors (Tailwind internals, shadcn semantic slots, chart/sidebar palettes).
+_TOKEN_NOISE_PREFIXES = (
+    "tw-", "radix-", "bits-", "reka-", "kb-", "ngp-", "chart-", "color-", "sidebar",
+)
+_TOKEN_NOISE_NAMES = {
+    "background", "foreground", "card", "card-foreground", "popover",
+    "popover-foreground", "primary", "primary-foreground", "secondary",
+    "secondary-foreground", "muted", "muted-foreground", "accent",
+    "accent-foreground", "destructive", "destructive-foreground", "input",
+    "input-background", "ring", "switch-background",
+}
+_ROOT_BLOCK_RE = re.compile(r":root[^{]*\{([^}]*)\}", re.IGNORECASE)
+_DECL_RE = re.compile(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+)")
+
+
+def _is_color_value(value: str) -> bool:
+    v = (value or "").strip().lower()
+    if v.startswith("#"):
+        return True
+    return bool(re.match(r"^(rgb|rgba|hsl|hsla|oklch|oklab)\(", v))
+
+
+def _detect_theme_tokens(soup: BeautifulSoup) -> list[dict[str, str]]:
+    """Find the template's real, editable color tokens: CSS custom properties
+    declared in a ``:root`` block that (a) hold a color, (b) aren't framework
+    noise, and (c) are actually referenced via ``var(--name)`` elsewhere. These
+    become a site-wide "Theme colors" palette; editing one recolors everything
+    that uses it. Returns [] for templates with no such tokens (most)."""
+    css_parts = [s.text or "" for s in soup.find_all("style")]
+    css = "\n".join(css_parts)
+    if not css:
+        return []
+
+    values: dict[str, str] = {}
+    order: list[str] = []
+    for block in _ROOT_BLOCK_RE.finditer(css):
+        for name, raw in _DECL_RE.findall(block.group(1)):
+            name = name.strip()
+            if name not in values:
+                order.append(name)
+            values[name] = raw.strip()  # last declaration wins
+
+    tokens: list[dict[str, str]] = []
+    for name in order:
+        value = values[name]
+        low = name.lower()
+        if low in _TOKEN_NOISE_NAMES:
+            continue
+        if any(low.startswith(p) for p in _TOKEN_NOISE_PREFIXES):
+            continue
+        if not _is_color_value(value):
+            continue
+        if f"var(--{name}" not in css:  # only expose tokens the design uses
+            continue
+        tokens.append({"name": name, "label": _humanize(name), "value": value})
+        if len(tokens) >= 16:
+            break
+    return tokens
+
+
 def _extract_default(el, ftype: str) -> str:
     if ftype == "image":
         return el.get("src", "")
@@ -164,4 +225,11 @@ def build_schema(html: str) -> dict[str, Any]:
         label = section_labels.get(anchor_id) or _humanize(anchor_id)
         link_targets.append({"value": href, "label": label})
 
-    return {"sections": sections, "defaults": defaults, "link_targets": link_targets}
+    theme_tokens = _detect_theme_tokens(soup)
+
+    return {
+        "sections": sections,
+        "defaults": defaults,
+        "link_targets": link_targets,
+        "theme_tokens": theme_tokens,
+    }

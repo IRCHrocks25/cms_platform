@@ -180,6 +180,17 @@ PREVIEW_BRIDGE_SCRIPT = """
       if (!gtag) { gtag = document.createElement('style'); gtag.id = 'cms-global-style'; document.head.appendChild(gtag); }
       gtag.textContent = css;
     }
+    if (data.type === 'apply-tokens') {
+      var tk = data.payload || {};
+      var tcss = '';
+      Object.keys(tk).forEach(function (n) {
+        var sn = String(n).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (sn && tk[n]) { tcss += '--' + sn + ':' + tk[n] + ';'; }
+      });
+      var toktag = document.getElementById('cms-tokens');
+      if (!toktag) { toktag = document.createElement('style'); toktag.id = 'cms-tokens'; document.head.appendChild(toktag); }
+      toktag.textContent = ':root{' + tcss + '}';
+    }
     if (data.type === 'highlight-field') {
       document.querySelectorAll('.cms-highlight').forEach(function (el) {
         el.classList.remove('cms-highlight');
@@ -500,6 +511,31 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     (soup.find("head") or soup.find("body") or soup).append(style)
 
 
+def _apply_tokens(soup: BeautifulSoup, tokens: dict) -> None:
+    """Override template design tokens (CSS custom properties) site-wide.
+
+    Appends a ``<style>:root{ --name: value; }</style>`` block after the
+    template's own styles, so ``var(--name)`` everywhere resolves to the
+    client's chosen value — buttons, headings, accents all recolor together
+    with no per-element overrides."""
+    if not isinstance(tokens, dict):
+        return
+    decls = []
+    for name, value in tokens.items():
+        if not isinstance(name, str):
+            continue
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", name)
+        safe_val = _safe_css_value(value)
+        if safe_name and safe_val:
+            decls.append(f"--{safe_name}: {safe_val};")
+    if not decls:
+        return
+    tag = soup.new_tag("style")
+    tag["data-cms-tokens"] = "true"
+    tag.string = ":root{" + "".join(decls) + "}"
+    (soup.find("head") or soup.find("body") or soup).append(tag)
+
+
 _FONT_NAME_RE = re.compile(r"[^A-Za-z0-9 \-]")
 # Weights we request so the per-element weight control (300-800) always has glyphs.
 _FONT_WEIGHTS = "300;400;500;600;700;800"
@@ -711,6 +747,8 @@ def render_site(
         _apply_styles(soup, content["_styles"])
     if isinstance(content, dict) and isinstance(content.get("_global"), dict):
         _apply_global_styles(soup, content["_global"])
+    if isinstance(content, dict) and isinstance(content.get("_tokens"), dict):
+        _apply_tokens(soup, content["_tokens"])
     _inject_font_links(soup, _collect_font_families(content if isinstance(content, dict) else {}))
 
     if isinstance(content, dict) and content.get("_hidden"):

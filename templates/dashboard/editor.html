@@ -192,6 +192,18 @@
               <div class="cms-swatches" data-global-swatches="textColor"></div></div>
           </div>
         </div>
+        {% if theme_tokens %}
+          <div class="editor-form-section" data-section-id="_tokens">
+            <div class="editor-form-section-head"><h2>Theme colors</h2></div>
+            <p class="field-hint" style="margin: 0 0 8px;">These recolor your whole site — buttons, headings and accents update together.</p>
+            <div class="stack-5">
+              {% for tk in theme_tokens %}
+                <div class="field"><span class="field-label">{{ tk.label }}</span>
+                  <div class="cms-swatches" data-token-bind="{{ tk.name }}" data-token-default="{{ tk.value }}"></div></div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
         {% if brand_section %}
           <div class="editor-form-section" id="section-{{ brand_section.id }}" data-section-id="{{ brand_section.id }}">
             <div class="editor-form-section-head"><h2>Brand colors</h2></div>

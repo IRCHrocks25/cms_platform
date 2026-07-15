@@ -2180,6 +2180,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "header_sections": header_sections,
             "footer_sections": footer_sections,
             "brand_section": brand_section,
+            "theme_tokens": schema.get("theme_tokens", []),
             "link_targets": link_targets,
             "grouped_sections": grouped,
             "content_json": json.dumps(content),
@@ -2251,6 +2252,20 @@ def _normalize_styles(content: dict) -> None:
             }
         else:
             content.pop("_global", None)
+
+    # Theme-token overrides: {css-var-name: color}. Names restricted to safe
+    # CSS identifier chars; the renderer additionally validates the color value.
+    raw_tokens = content.get("_tokens")
+    if raw_tokens is not None:
+        clean_tokens = {}
+        if isinstance(raw_tokens, dict):
+            for name, value in raw_tokens.items():
+                if not isinstance(name, str) or value in (None, ""):
+                    continue
+                safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", name)[:64]
+                if safe_name:
+                    clean_tokens[safe_name] = str(value)[:120]
+        content["_tokens"] = clean_tokens
 
 
 def _save_content(request, editable):

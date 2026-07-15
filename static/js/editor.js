@@ -128,6 +128,7 @@
   // rides the normal autosave. Empty style objects are pruned.
   if (typeof content._styles !== "object" || content._styles === null) content._styles = {};
   if (typeof content._global !== "object" || content._global === null) content._global = {};
+  if (typeof content._tokens !== "object" || content._tokens === null) content._tokens = {};
 
   function getStyle(fieldId) { return content._styles[fieldId] || {}; }
   function setStyleProp(fieldId, prop, value) {
@@ -150,6 +151,11 @@
     if (!previewReady) return;
     previewFrame.contentWindow.postMessage(
       { source: "cms-editor", type: "apply-global", payload: content._global }, "*");
+  }
+  function pushTokensToPreview() {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-tokens", payload: content._tokens }, "*");
   }
 
   // ---- curated choice lists (pre-made fonts / sizes / colors) ----------
@@ -237,6 +243,22 @@
     none.addEventListener("click", function () { mark(none); onPick(""); });
     container.appendChild(none);
     var activeSet = false;
+    // Surface the current colour as its own chip when it isn't one of the
+    // presets (e.g. a theme token's existing value like #6b47b8) so it stays
+    // visible and selectable.
+    var curLc = (current || "").toLowerCase();
+    var inPresets = CMS_COLORS.some(function (c) { return c.toLowerCase() === curLc; });
+    if (current && curLc.charAt(0) === "#" && !inPresets) {
+      var cur = document.createElement("button");
+      cur.type = "button";
+      cur.className = "cms-swatch active";
+      cur.style.background = current;
+      cur.title = current + " (current)";
+      cur.setAttribute("data-color", current);
+      cur.addEventListener("click", function () { mark(cur); onPick(current); });
+      container.appendChild(cur);
+      activeSet = true;
+    }
     CMS_COLORS.forEach(function (c) {
       var b = document.createElement("button");
       b.type = "button";
@@ -367,6 +389,7 @@
       // Same for per-element and global styles.
       Object.keys(content._styles).forEach(function (fid) { pushStyleToPreview(fid); });
       if (content._global && Object.keys(content._global).length) pushGlobalToPreview();
+      if (content._tokens && Object.keys(content._tokens).length) pushTokensToPreview();
     } else if (data.type === "focus-field") {
       focusFieldInForm(data.payload.id);
     }
@@ -776,6 +799,18 @@
     document.querySelectorAll("[data-global-swatches]").forEach(function (container) {
       var key = container.getAttribute("data-global-swatches");
       buildSwatches(container, content._global[key], function (c) { commitGlobal(key, c); });
+    });
+
+    // Theme colors — override the template's design tokens site-wide.
+    document.querySelectorAll("[data-token-bind]").forEach(function (container) {
+      var name = container.getAttribute("data-token-bind");
+      var def = container.getAttribute("data-token-default") || "";
+      var current = content._tokens[name] || def;
+      buildSwatches(container, current, function (c) {
+        if (c) content._tokens[name] = c; else delete content._tokens[name];
+        pushTokensToPreview();
+        scheduleSave();
+      });
     });
 
     // Inject hide/show eye-toggles onto every section head and field.
