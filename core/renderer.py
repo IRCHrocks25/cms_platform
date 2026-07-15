@@ -24,6 +24,33 @@ PREVIEW_BRIDGE_SCRIPT = """
   function send(type, payload) {
     parent.postMessage({ source: 'cms-preview', type: type, payload: payload }, '*');
   }
+  var CMS_STYLE_PROP = { color: 'color', fontSize: 'fontSize',
+    fontFamily: 'fontFamily', fontWeight: 'fontWeight', align: 'textAlign' };
+  function cmsEnsureFont(family) {
+    if (!family) return;
+    var safe = String(family).replace(/[^A-Za-z0-9 \\-]/g, '').trim();
+    if (!safe) return;
+    var id = 'cms-font-' + safe.replace(/ /g, '-');
+    if (document.getElementById(id)) return;
+    var link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.setAttribute('data-cookieconsent', 'ignore');
+    link.href = 'https://fonts.googleapis.com/css2?family=' +
+      safe.replace(/ /g, '+') + ':wght@300;400;500;600;700;800&display=swap';
+    document.head.appendChild(link);
+  }
+  function cmsApplyStyle(el, style) {
+    Object.keys(CMS_STYLE_PROP).forEach(function (k) {
+      if (style[k] !== undefined && style[k] !== null && style[k] !== '') {
+        el.style[CMS_STYLE_PROP[k]] = style[k];
+      } else {
+        el.style[CMS_STYLE_PROP[k]] = '';
+      }
+    });
+    el.style.fontStyle = style.italic ? 'italic' : '';
+    if (style.fontFamily) cmsEnsureFont(style.fontFamily);
+  }
   // Minimal in-browser HTML scrub for live richtext apply (same-origin preview).
   // <template> content is inert, so onerror/onload don't fire while we clean.
   function cmsScrub(html) {
@@ -122,6 +149,28 @@ PREVIEW_BRIDGE_SCRIPT = """
           else { el.textContent = value; }
         });
       });
+    }
+    if (data.type === 'apply-styles') {
+      Object.entries(data.payload || {}).forEach(function (entry) {
+        var fid = entry[0];
+        var style = entry[1] || {};
+        document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
+          cmsApplyStyle(el, style);
+        });
+      });
+    }
+    if (data.type === 'apply-global') {
+      var g = data.payload || {};
+      var css = '';
+      var bodyDecls = '';
+      if (g.fontFamily) { bodyDecls += 'font-family:' + g.fontFamily + ';'; cmsEnsureFont(g.fontFamily); }
+      if (g.baseSize) bodyDecls += 'font-size:' + g.baseSize + ';';
+      if (g.textColor) bodyDecls += 'color:' + g.textColor + ';';
+      if (bodyDecls) css += 'body{' + bodyDecls + '}';
+      if (g.headingFamily) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + g.headingFamily + ';}'; cmsEnsureFont(g.headingFamily); }
+      var gtag = document.getElementById('cms-global-style');
+      if (!gtag) { gtag = document.createElement('style'); gtag.id = 'cms-global-style'; document.head.appendChild(gtag); }
+      gtag.textContent = css;
     }
     if (data.type === 'highlight-field') {
       document.querySelectorAll('.cms-highlight').forEach(function (el) {
@@ -325,6 +374,141 @@ def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> N
     style.string = re.sub(r"--([a-zA-Z0-9_-]+)\s*:\s*[^;]+;", replace, css)
 
 
+# Per-element editable styles. Keys are the client-facing style names stored in
+# content["_styles"][<data-edit id>]; values map to CSS declarations. `italic`
+# is handled separately (boolean -> font-style: italic).
+_STYLE_PROPERTIES = {
+    "color": "color",
+    "fontSize": "font-size",
+    "fontFamily": "font-family",
+    "fontWeight": "font-weight",
+    "align": "text-align",
+}
+
+
+def _set_css_prop(el, prop: str, value: str) -> None:
+    """Set one CSS declaration on an element's inline style, replacing any
+    existing declaration of the same property (mirrors the `color` field type
+    in _apply_field so re-renders don't stack duplicates)."""
+    existing = el.get("style", "")
+    cleaned = re.sub(rf"{re.escape(prop)}\s*:[^;]*;?", "", existing).strip()
+    el["style"] = (cleaned + f" {prop}: {value};").strip()
+
+
+def _apply_element_styles(el, style: dict) -> None:
+    if not isinstance(style, dict):
+        return
+    for key, css_prop in _STYLE_PROPERTIES.items():
+        value = style.get(key)
+        if value is None or value == "":
+            continue
+        _set_css_prop(el, css_prop, str(value))
+    if style.get("italic"):
+        _set_css_prop(el, "font-style", "italic")
+
+
+def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
+    """Apply every per-element style override to its `data-edit` element(s)."""
+    if not isinstance(styles, dict):
+        return
+    for element_id, style in styles.items():
+        if not isinstance(element_id, str) or "." not in element_id:
+            continue
+        for el in soup.find_all(attrs={"data-edit": element_id}):
+            _apply_element_styles(el, style)
+
+
+def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
+    """Write site-wide typography defaults as a low-specificity <style> block.
+    Per-element inline styles always win over these; the template's own
+    element-specific CSS may still override the body-level defaults."""
+    if not isinstance(global_styles, dict):
+        return
+    body_decls = []
+    font_family = global_styles.get("fontFamily")
+    base_size = global_styles.get("baseSize")
+    text_color = global_styles.get("textColor")
+    heading_family = global_styles.get("headingFamily")
+    if font_family:
+        body_decls.append(f"font-family: {font_family};")
+    if base_size:
+        body_decls.append(f"font-size: {base_size};")
+    if text_color:
+        body_decls.append(f"color: {text_color};")
+
+    rules = []
+    if body_decls:
+        rules.append("body{" + " ".join(body_decls) + "}")
+    if heading_family:
+        rules.append("h1,h2,h3,h4,h5,h6{font-family: " + str(heading_family) + ";}")
+    if not rules:
+        return
+
+    style = soup.new_tag("style")
+    style["data-cms-global"] = "true"
+    style.string = "".join(rules)
+    (soup.find("head") or soup.find("body") or soup).append(style)
+
+
+_FONT_NAME_RE = re.compile(r"[^A-Za-z0-9 \-]")
+# Weights we request so the per-element weight control (300-800) always has glyphs.
+_FONT_WEIGHTS = "300;400;500;600;700;800"
+
+
+def _sanitize_font_family(name: str) -> str:
+    """Reduce a family name to a Google-Fonts-safe token (letters, digits,
+    spaces, hyphens). Prevents URL/HTML injection from free-text font input."""
+    return _FONT_NAME_RE.sub("", (name or "")).strip()
+
+
+def _collect_font_families(content: dict) -> list[str]:
+    """Every distinct family used across per-element _styles and _global,
+    sanitized and de-duplicated in first-seen order."""
+    if not isinstance(content, dict):
+        return []
+    seen: dict[str, None] = {}
+    styles = content.get("_styles")
+    if isinstance(styles, dict):
+        for style in styles.values():
+            if isinstance(style, dict):
+                fam = _sanitize_font_family(style.get("fontFamily", ""))
+                if fam:
+                    seen.setdefault(fam, None)
+    glob = content.get("_global")
+    if isinstance(glob, dict):
+        for key in ("fontFamily", "headingFamily"):
+            fam = _sanitize_font_family(glob.get(key, ""))
+            if fam:
+                seen.setdefault(fam, None)
+    return list(seen.keys())
+
+
+def _inject_font_links(soup: BeautifulSoup, families: list[str]) -> None:
+    """Inject one Google Fonts stylesheet <link> (+ preconnects) for the given
+    families. All carry data-cookieconsent="ignore" so Cookiebot auto-blocking
+    doesn't strip the font CDN."""
+    if not families:
+        return
+    head = soup.find("head") or soup.find("body")
+    if head is None:
+        return
+    params = "&".join(
+        f"family={fam.replace(' ', '+')}:wght@{_FONT_WEIGHTS}" for fam in families
+    )
+    href = f"https://fonts.googleapis.com/css2?{params}&display=swap"
+
+    pre1 = soup.new_tag("link", rel="preconnect", href="https://fonts.googleapis.com")
+    pre1["data-cookieconsent"] = "ignore"
+    pre2 = soup.new_tag("link", rel="preconnect", href="https://fonts.gstatic.com")
+    pre2["crossorigin"] = ""
+    pre2["data-cookieconsent"] = "ignore"
+    link = soup.new_tag("link", rel="stylesheet", href=href)
+    link["data-cookieconsent"] = "ignore"
+    head.append(pre1)
+    head.append(pre2)
+    head.append(link)
+
+
 GA_SCRIPT_TEMPLATE = """<script async src="https://www.googletagmanager.com/gtag/js?id={mid}"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}gtag('js',new Date());gtag('config','{mid}');</script>"""
 
@@ -472,6 +656,12 @@ def render_site(
 
         ftype = el.get("data-type", "text").strip() or "text"
         _apply_field(el, section_data[field], ftype)
+
+    if isinstance(content, dict) and isinstance(content.get("_styles"), dict):
+        _apply_styles(soup, content["_styles"])
+    if isinstance(content, dict) and isinstance(content.get("_global"), dict):
+        _apply_global_styles(soup, content["_global"])
+    _inject_font_links(soup, _collect_font_families(content if isinstance(content, dict) else {}))
 
     if isinstance(content, dict) and content.get("_hidden"):
         _apply_hidden(soup, content["_hidden"], preview=preview)

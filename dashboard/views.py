@@ -2208,6 +2208,51 @@ def _render_preview(editable):
     return HttpResponse(html)
 
 
+_ALLOWED_STYLE_KEYS = {"color", "fontSize", "fontFamily", "fontWeight", "align"}
+_ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor"}
+
+
+def _clean_style_value(value):
+    if isinstance(value, bool):
+        return value
+    return str(value)[:120]
+
+
+def _normalize_styles(content: dict) -> None:
+    """Defensively sanitize the _styles / _global meta namespaces in place so a
+    malformed client payload can't inject arbitrary keys the renderer trusts."""
+    raw_styles = content.get("_styles")
+    if raw_styles is not None:
+        clean_styles = {}
+        if isinstance(raw_styles, dict):
+            for element_id, style in raw_styles.items():
+                if not (isinstance(element_id, str) and "." in element_id):
+                    continue
+                if not isinstance(style, dict):
+                    continue
+                kept = {
+                    k: _clean_style_value(v)
+                    for k, v in style.items()
+                    if k in _ALLOWED_STYLE_KEYS and v not in (None, "")
+                }
+                if style.get("italic"):
+                    kept["italic"] = True
+                if kept:
+                    clean_styles[element_id[:120]] = kept
+        content["_styles"] = clean_styles
+
+    raw_global = content.get("_global")
+    if raw_global is not None:
+        if isinstance(raw_global, dict):
+            content["_global"] = {
+                k: str(v)[:120]
+                for k, v in raw_global.items()
+                if k in _ALLOWED_GLOBAL_KEYS and v not in (None, "")
+            }
+        else:
+            content.pop("_global", None)
+
+
 def _save_content(request, editable):
     try:
         payload = json.loads(request.body or "{}")
@@ -2228,6 +2273,8 @@ def _save_content(request, editable):
             ][:500]
         else:
             content.pop("_hidden", None)
+
+    _normalize_styles(content)
 
     # Version history is the tenant home's rolling-10 snapshots. Inner pages
     # don't have undo yet (backlog), so only snapshot when editing the home.

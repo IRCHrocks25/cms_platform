@@ -77,4 +77,51 @@
       </span>
     </div>
   {% endif %}
+
+  {% if field.style_editable %}
+    <details class="cms-style-panel" data-style-panel="{{ field.id }}">
+      <summary class="cms-style-summary">Style</summary>
+      <div class="cms-style-grid">
+        <label class="cms-style-row">
+          <span>Color</span>
+          <input type="color" data-style-color-picker value="#000000">
+          <input class="input" type="text" data-style-bind="colorText" placeholder="#000000">
+        </label>
+        <label class="cms-style-row">
+          <span>Size</span>
+          <input class="input" type="number" min="8" max="200" step="1"
+                 data-style-bind="fontSize" placeholder="px">
+        </label>
+        <label class="cms-style-row">
+          <span>Font</span>
+          <input class="input" type="text" data-style-bind="fontFamily"
+                 placeholder="e.g. Poppins">
+        </label>
+        <label class="cms-style-row">
+          <span>Weight</span>
+          <select class="select" data-style-bind="fontWeight">
+            <option value="">Default</option>
+            <option value="300">Light</option>
+            <option value="400">Normal</option>
+            <option value="500">Medium</option>
+            <option value="600">Semibold</option>
+            <option value="700">Bold</option>
+            <option value="800">Extra bold</option>
+          </select>
+        </label>
+        <label class="cms-style-row cms-style-inline">
+          <span>Italic</span>
+          <input type="checkbox" data-style-bind="italic">
+        </label>
+        <div class="cms-style-row">
+          <span>Align</span>
+          <div class="cms-align-group" role="group" aria-label="Text alignment">
+            <button type="button" data-style-align="left" title="Left" aria-label="Align left">⇤</button>
+            <button type="button" data-style-align="center" title="Center" aria-label="Align center">≡</button>
+            <button type="button" data-style-align="right" title="Right" aria-label="Align right">⇥</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  {% endif %}
 </div>

@@ -128,12 +128,18 @@ def build_schema(html: str) -> dict[str, Any]:
 
             default = _extract_default(field_el, ftype)
 
+            style_editable = (
+                ftype in ("text", "richtext")
+                and field_el.get("data-style", "").strip().lower() != "off"
+            )
+
             section_entry["fields"].append(
                 {
                     "id": full_id,
                     "label": field_el.get("data-label", _humanize(field_part)),
                     "type": ftype,
                     "default": default,
+                    "style_editable": style_editable,
                 }
             )
             section_defaults[field_part] = default

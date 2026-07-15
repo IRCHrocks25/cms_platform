@@ -713,3 +713,42 @@
   color: #92400e;
   font-size: 0.85rem;
 }
+
+/* Per-field Style panel (editable colors / fonts / sizes) */
+.cms-style-panel {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  padding-top: 8px;
+}
+.cms-style-summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-muted, #6b7280);
+  user-select: none;
+}
+.cms-style-grid { display: grid; gap: 8px; margin-top: 8px; }
+.cms-style-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.cms-style-row > span:first-child { color: var(--color-muted, #6b7280); }
+.cms-style-inline { grid-template-columns: 56px auto; }
+.cms-style-row input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--color-border, #e5e7eb); border-radius: 6px; }
+.cms-align-group { display: inline-flex; gap: 2px; }
+.cms-align-group button {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background: #fff;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+.cms-align-group button[aria-pressed="true"] {
+  background: var(--color-blue, #2563eb);
+  color: #fff;
+  border-color: var(--color-blue, #2563eb);
+}

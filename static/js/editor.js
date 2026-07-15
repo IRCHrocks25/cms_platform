@@ -123,6 +123,35 @@
   // hides one field. Hiding is fully reversible — structure stays locked.
   if (!Array.isArray(content._hidden)) content._hidden = [];
 
+  // ---- per-element styles (color / size / font / weight / italic / align) ----
+  // State lives in content._styles[fieldId] = { color, fontSize, ... } so it
+  // rides the normal autosave. Empty style objects are pruned.
+  if (typeof content._styles !== "object" || content._styles === null) content._styles = {};
+  if (typeof content._global !== "object" || content._global === null) content._global = {};
+
+  function getStyle(fieldId) { return content._styles[fieldId] || {}; }
+  function setStyleProp(fieldId, prop, value) {
+    var s = content._styles[fieldId] || {};
+    if (value === "" || value === null || value === undefined || value === false) {
+      delete s[prop];
+    } else {
+      s[prop] = value;
+    }
+    if (Object.keys(s).length) content._styles[fieldId] = s;
+    else delete content._styles[fieldId];
+  }
+  function pushStyleToPreview(fieldId) {
+    if (!previewReady) return;
+    var p = {}; p[fieldId] = getStyle(fieldId);
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-styles", payload: p }, "*");
+  }
+  function pushGlobalToPreview() {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-global", payload: content._global }, "*");
+  }
+
   var EYE_ON =
     '<svg class="cms-eye cms-eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
     'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
@@ -236,6 +265,9 @@
       // Re-assert hidden state in case content._hidden has unsaved changes the
       // freshly server-rendered iframe doesn't reflect yet.
       content._hidden.forEach(function (id) { pushVisibility(id, true); });
+      // Same for per-element and global styles.
+      Object.keys(content._styles).forEach(function (fid) { pushStyleToPreview(fid); });
+      if (content._global && Object.keys(content._global).length) pushGlobalToPreview();
     } else if (data.type === "focus-field") {
       focusFieldInForm(data.payload.id);
     }
@@ -560,6 +592,89 @@
             });
         });
       }
+    });
+
+    // Bind per-element Style panels.
+    document.querySelectorAll("[data-style-panel]").forEach(function (panel) {
+      var fieldId = panel.getAttribute("data-style-panel");
+      var current = getStyle(fieldId);
+
+      function commit(prop, value) {
+        setStyleProp(fieldId, prop, value);
+        pushStyleToPreview(fieldId);
+        scheduleSave();
+      }
+
+      var colorPicker = panel.querySelector("[data-style-color-picker]");
+      var colorText = panel.querySelector('[data-style-bind="colorText"]');
+      if (current.color) {
+        if (colorText) colorText.value = current.color;
+        if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(current.color)) colorPicker.value = current.color;
+      }
+      if (colorPicker) colorPicker.addEventListener("input", function () {
+        if (colorText) colorText.value = colorPicker.value;
+        commit("color", colorPicker.value);
+      });
+      if (colorText) colorText.addEventListener("input", function () {
+        if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(colorText.value)) colorPicker.value = colorText.value;
+        commit("color", colorText.value);
+      });
+
+      var size = panel.querySelector('[data-style-bind="fontSize"]');
+      if (size) {
+        if (current.fontSize) size.value = parseInt(current.fontSize, 10) || "";
+        size.addEventListener("input", function () {
+          commit("fontSize", size.value ? size.value + "px" : "");
+        });
+      }
+
+      var fam = panel.querySelector('[data-style-bind="fontFamily"]');
+      if (fam) {
+        if (current.fontFamily) fam.value = current.fontFamily;
+        fam.addEventListener("input", function () { commit("fontFamily", fam.value.trim()); });
+      }
+
+      var weight = panel.querySelector('[data-style-bind="fontWeight"]');
+      if (weight) {
+        if (current.fontWeight) weight.value = current.fontWeight;
+        weight.addEventListener("change", function () { commit("fontWeight", weight.value); });
+      }
+
+      var italic = panel.querySelector('[data-style-bind="italic"]');
+      if (italic) {
+        italic.checked = !!current.italic;
+        italic.addEventListener("change", function () { commit("italic", italic.checked); });
+      }
+
+      var alignBtns = panel.querySelectorAll("[data-style-align]");
+      function reflectAlign(val) {
+        alignBtns.forEach(function (b) {
+          b.setAttribute("aria-pressed", b.getAttribute("data-style-align") === val ? "true" : "false");
+        });
+      }
+      reflectAlign(current.align || "");
+      alignBtns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          var val = b.getAttribute("data-style-align");
+          if (getStyle(fieldId).align === val) val = ""; // toggle off
+          reflectAlign(val);
+          commit("align", val);
+        });
+      });
+    });
+
+    // Bind global typography controls (Design tab).
+    document.querySelectorAll("[data-global-bind]").forEach(function (input) {
+      var key = input.getAttribute("data-global-bind");
+      var cur = content._global[key];
+      if (cur) input.value = key === "baseSize" ? parseInt(cur, 10) || "" : cur;
+      input.addEventListener("input", function () {
+        var v = input.value.trim();
+        if (key === "baseSize" && v) v = v + "px";
+        if (v) content._global[key] = v; else delete content._global[key];
+        pushGlobalToPreview();
+        scheduleSave();
+      });
     });
 
     // Inject hide/show eye-toggles onto every section head and field.
