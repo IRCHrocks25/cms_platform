@@ -90,8 +90,8 @@
     </aside>
 
     <section class="editor-form" id="editor-form">
-      {# Design tab always shows (global colors + typography), so the tab strip is always rendered. #}
-      <div class="editor-tabs" role="tablist" aria-label="Editor sections">
+      {% if nav_sections or theme_tokens or brand_section %}
+        <div class="editor-tabs" role="tablist" aria-label="Editor sections">
           <button type="button" class="editor-tab active" data-tab="content" role="tab" aria-selected="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             Content
@@ -102,10 +102,13 @@
               Navigation
             </button>
           {% endif %}
-          <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design — colors & fonts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
-          </button>
+          {% if theme_tokens or brand_section %}
+            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design — colors & fonts">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
+            </button>
+          {% endif %}
         </div>
+      {% endif %}
 
       <div class="editor-tab-panel" data-panel="content">
         {% for section in content_sections %}
@@ -172,6 +175,7 @@
         </div>
       {% endif %}
 
+      {% if theme_tokens or brand_section %}
       <div class="editor-tab-panel" data-panel="brand" hidden>
         <div class="brand-intro">
           <h2>Design</h2>
@@ -215,6 +219,7 @@
           </div>
         {% endif %}
       </div>
+      {% endif %}
     </section>
 
     <section class="editor-preview">
