@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% load static %}
+{% load cache_bust %}
 
 {% block title %}Editing {{ tenant.name }} · Locked CMS{% endblock %}
 
 {% block extra_head %}
-  <link rel="stylesheet" href="{% static 'css/editor.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/editor.css' %}">
 {% endblock %}
 
 {% block shell %}
@@ -470,5 +471,5 @@
       content: {{ content_json|safe }},
     };
   </script>
-  <script src="{% static 'js/editor.js' %}"></script>
+  <script src="{% static_v 'js/editor.js' %}"></script>
 {% endblock %}
