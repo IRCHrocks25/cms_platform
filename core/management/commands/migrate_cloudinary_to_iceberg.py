@@ -12,18 +12,30 @@ import httpx
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from core.models import MediaAsset, Template, Tenant
+from core.models import BlogPost, MediaAsset, Page, Template, Tenant
 from core.services import iceberg_media
 
+# BlogPost text fields that can hold media URLs.
+_BLOG_FIELDS = ("cover_image", "body", "og_image_url", "excerpt")
+
 CLOUDINARY_RE = re.compile(r"https?://res\.cloudinary\.com/[^\s\"'<>)\\]+")
-# .../upload/(v1234/)?<public_id>.<ext>
-_UPLOAD_RE = re.compile(r"/upload/(?:v\d+/)?(?P<pid>.+)$")
+# .../upload/[<transforms>/]v<version>/<public_id>   (transforms + version optional)
+_VER_RE = re.compile(r"/upload/(?:.+?/)?v\d+/(?P<pid>.+)$")
+_NOVER_RE = re.compile(r"/upload/(?P<pid>.+)$")
 
 
 def cloudinary_key(url: str) -> str:
-    """Map a Cloudinary delivery URL to the Iceberg key 'cloudinary/<public_id>.<ext>'."""
-    m = _UPLOAD_RE.search(url.split("?", 1)[0])
-    pid = m.group("pid") if m else url.rsplit("/", 1)[-1]
+    """Map a Cloudinary delivery URL to the Iceberg key 'cloudinary/<public_id>'.
+
+    Handles an optional transformation segment (e.g. ``f_auto,q_auto/``) and an
+    optional version segment (``v1234/``) between ``/upload/`` and the public id.
+    """
+    u = url.split("?", 1)[0]
+    m = _VER_RE.search(u)
+    if m:
+        return f"cloudinary/{m.group('pid')}"
+    m = _NOVER_RE.search(u)
+    pid = m.group("pid") if m else u.rsplit("/", 1)[-1]
     return f"cloudinary/{pid}"
 
 
@@ -50,11 +62,18 @@ class Command(BaseCommand):
         # are global; only scan them on a full (non --tenant) run.
         templates = Template.objects.none() if opts["tenant"] else Template.objects.all()
 
-        # 1) discover distinct cloudinary URLs across content + media + templates
+        pages = Page.objects.filter(tenant__in=tenants)
+        blogs = BlogPost.objects.filter(tenant__in=tenants)
+
+        # 1) discover distinct cloudinary URLs across every place they can live
         urls = set()
         for t in tenants:
-            for u in CLOUDINARY_RE.findall(json.dumps(t.content or {})):
-                urls.add(u)
+            urls.update(CLOUDINARY_RE.findall(json.dumps(t.content or {})))
+        for p in pages:
+            urls.update(CLOUDINARY_RE.findall(json.dumps(p.content or {})))
+        for b in blogs:
+            for f in _BLOG_FIELDS:
+                urls.update(CLOUDINARY_RE.findall(getattr(b, f) or ""))
         for a in MediaAsset.objects.filter(secure_url__contains="res.cloudinary.com"):
             urls.update(CLOUDINARY_RE.findall(a.secure_url))
         for tpl in templates:
@@ -106,18 +125,46 @@ class Command(BaseCommand):
             self.stdout.write("Nothing migrated.")
             return
 
-        # 3) rewrite content + media assets, per tenant, atomically
+        def _rewrite(text: str) -> str:
+            for old, new in mapping.items():
+                text = text.replace(old, new)
+            return text
+
+        # 3) rewrite everywhere, atomically
         rewritten = 0
         for t in tenants:
             blob = json.dumps(t.content or {})
-            new_blob = blob
-            for old, new in mapping.items():
-                new_blob = new_blob.replace(old, new)
+            new_blob = _rewrite(blob)
             if new_blob != blob:
                 with transaction.atomic():
                     t.content = json.loads(new_blob)
                     t.save(update_fields=["content"])
                 rewritten += 1
+
+        rewritten_pages = 0
+        for p in pages:
+            blob = json.dumps(p.content or {})
+            new_blob = _rewrite(blob)
+            if new_blob != blob:
+                with transaction.atomic():
+                    p.content = json.loads(new_blob)
+                    p.save(update_fields=["content"])
+                rewritten_pages += 1
+
+        rewritten_blogs = 0
+        for b in blogs:
+            changed = {}
+            for f in _BLOG_FIELDS:
+                cur = getattr(b, f) or ""
+                new = _rewrite(cur)
+                if new != cur:
+                    setattr(b, f, new)
+                    changed[f] = new
+            if changed:
+                with transaction.atomic():
+                    b.save(update_fields=list(changed))
+                rewritten_blogs += 1
+
         for a in MediaAsset.objects.filter(secure_url__contains="res.cloudinary.com"):
             if a.secure_url in mapping:
                 a.secure_url = mapping[a.secure_url]
@@ -138,6 +185,7 @@ class Command(BaseCommand):
                 rewritten_templates += 1
 
         self.stdout.write(
-            f"Done. Re-hosted {len(mapping)} assets, rewrote {rewritten} tenants "
-            f"and {rewritten_templates} templates."
+            f"Done. Re-hosted {len(mapping)} assets; rewrote {rewritten} tenants, "
+            f"{rewritten_pages} pages, {rewritten_blogs} blog posts, "
+            f"{rewritten_templates} templates."
         )

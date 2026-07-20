@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from core.models import Template, Tenant
+from core.models import BlogPost, Template, Tenant
 from core.management.commands.migrate_cloudinary_to_iceberg import cloudinary_key
 
 IB = dict(
@@ -41,6 +41,10 @@ class CloudinaryKeyTests(TestCase):
     def test_preserves_nested_public_id(self):
         url = "https://res.cloudinary.com/dc/image/upload/v1/cms/tenants/acme/a_b.jpg"
         self.assertEqual(cloudinary_key(url), "cloudinary/cms/tenants/acme/a_b.jpg")
+
+    def test_strips_transformation_segment(self):
+        url = "https://res.cloudinary.com/dc/image/upload/f_auto,q_auto/v1/cms/tenants/x/id"
+        self.assertEqual(cloudinary_key(url), "cloudinary/cms/tenants/x/id")
 
 
 @override_settings(**IB)
@@ -93,6 +97,24 @@ class MigrateCommandTests(TestCase):
         tpl.refresh_from_db()
         self.assertNotIn("res.cloudinary.com", tpl.html_source)
         self.assertIn(NEW_URL, tpl.html_source)
+
+    def test_apply_rewrites_blog_post_fields(self):
+        t = _tenant_with_url()
+        post = BlogPost.objects.create(
+            tenant=t,
+            title="P",
+            slug="p",
+            cover_image=CLOUD_URL,
+            body=f"<p><img src='{CLOUD_URL}'></p>",
+        )
+        head = mock.MagicMock(status_code=200)
+        with mock.patch("httpx.head", return_value=head), mock.patch("httpx.get"), mock.patch(
+            "core.services.iceberg_media.upload_bytes"
+        ):
+            call_command("migrate_cloudinary_to_iceberg", "--apply")
+        post.refresh_from_db()
+        self.assertEqual(post.cover_image, NEW_URL)
+        self.assertNotIn("res.cloudinary.com", post.body)
 
     def test_apply_reuses_when_already_on_cdn(self):
         t = _tenant_with_url()
