@@ -1467,16 +1467,9 @@ def tenant_upload(request, pk):
 
 @agency_operator_required
 @require_POST
-def tenant_video_sign(request, pk):
+def tenant_video_upload(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _video_sign(request, tenant)
-
-
-@agency_operator_required
-@require_POST
-def tenant_video_confirm(request, pk):
-    tenant = get_object_or_404(Tenant, pk=pk)
-    return _video_confirm(request, tenant)
+    return _save_video_upload(request, tenant)
 
 
 # --------------------------------------------------------------------------- #
@@ -1517,14 +1510,8 @@ def tenant_upload_self(request):
 
 @tenant_member_required
 @require_POST
-def tenant_video_sign_self(request):
-    return _video_sign(request, request.tenant)
-
-
-@tenant_member_required
-@require_POST
-def tenant_video_confirm_self(request):
-    return _video_confirm(request, request.tenant)
+def tenant_video_upload_self(request):
+    return _save_video_upload(request, request.tenant)
 
 
 # --------------------------------------------------------------------------- #
@@ -2103,8 +2090,7 @@ def _render_editor(request, tenant, *, scope, page=None):
     # editor hides the History button (see editor.html).
     if scope == "tenant":
         upload_url = reverse("dashboard:tenant_upload_self")
-        video_sign_url = reverse("dashboard:tenant_video_sign_self")
-        video_confirm_url = reverse("dashboard:tenant_video_confirm_self")
+        video_upload_url = reverse("dashboard:tenant_video_upload_self")
         settings_url = reverse("dashboard:tenant_site_settings_self")
         blog_url = reverse("dashboard:blog_list_self")
         page_list_url = reverse("dashboard:page_list_self")
@@ -2124,8 +2110,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             live_url = f"/{page.slug}/"
     else:
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
-        video_sign_url = reverse("dashboard:tenant_video_sign", args=[tenant.pk])
-        video_confirm_url = reverse("dashboard:tenant_video_confirm", args=[tenant.pk])
+        video_upload_url = reverse("dashboard:tenant_video_upload", args=[tenant.pk])
         settings_url = reverse("dashboard:tenant_site_settings", args=[tenant.pk])
         blog_url = reverse("dashboard:blog_list", args=[tenant.pk])
         page_list_url = reverse("dashboard:page_list", args=[tenant.pk])
@@ -2198,8 +2183,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "preview_url": preview_url,
             "save_url": save_url,
             "upload_url": upload_url,
-            "video_sign_url": video_sign_url,
-            "video_confirm_url": video_confirm_url,
+            "video_upload_url": video_upload_url,
             "versions_url": versions_url,
             "version_restore_url": version_restore_url,
             "publish_url": publish_url,
@@ -2455,40 +2439,31 @@ def _save_upload(request, tenant):
     return JsonResponse({"ok": True, "url": result["delivery_url"], "id": asset.id})
 
 
-def _video_sign(request, tenant):
-    """Return signed params for a direct browser->Cloudinary video upload."""
-    if not cloudinary_media.is_configured():
+def _save_video_upload(request, tenant):
+    """Video upload: streamed through our server to Iceberg (no browser-direct
+    upload — R2 blocks cross-origin PUT from tenant domains)."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return JsonResponse({"ok": False, "error": "No file received."}, status=400)
+
+    if not iceberg_media.is_configured():
         return JsonResponse(
             {"ok": False, "error": "Video storage isn't configured."}, status=500
         )
-    return JsonResponse({"ok": True, **cloudinary_media.sign_video_upload(tenant)})
 
-
-def _video_confirm(request, tenant):
-    """Verify a directly-uploaded video (resource_type, size, duration) and store it."""
-    try:
-        payload = json.loads(request.body or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
-
-    public_id = (payload.get("public_id") or "").strip()
-    if not public_id:
-        return JsonResponse({"ok": False, "error": "Missing video reference."}, status=400)
-
-    info, error = cloudinary_media.verify_video(public_id)
+    info, error = iceberg_media.upload_video(upload, tenant)
     if error:
         return JsonResponse({"ok": False, "error": error}, status=400)
 
-    secure_url = info.get("secure_url", "")
     asset = MediaAsset.objects.create(
         tenant=tenant,
-        original_name=(payload.get("original_name") or "")[:240],
+        original_name=upload.name[:240],
         resource_type=MediaAsset.RESOURCE_VIDEO,
-        public_id=public_id,
-        secure_url=secure_url,
+        public_id=info["public_id"],
+        secure_url=info["secure_url"],
         bytes=info.get("bytes", 0),
     )
-    return JsonResponse({"ok": True, "url": secure_url, "id": asset.id})
+    return JsonResponse({"ok": True, "url": info["secure_url"], "id": asset.id})
 
 
 # --------------------------------------------------------------------------- #

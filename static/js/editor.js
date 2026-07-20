@@ -646,76 +646,42 @@
             vfile.value = "";
             return;
           }
-          vname.textContent = "Preparing upload…";
-          // 1) Ask our server for a signed, scoped upload signature.
-          fetch(window.CMS.videoSignUrl, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: {
-              "X-CSRFToken": window.CMS.csrfToken,
-              "Content-Type": "application/json",
-            },
-            body: "{}",
-          })
-            .then(function (r) { return r.json(); })
-            .then(function (sig) {
-              if (!sig.ok) throw new Error(sig.error || "Could not start upload.");
-              // 2) Upload the file DIRECTLY to Cloudinary (bypasses our server).
-              var fd = new FormData();
-              fd.append("file", file);
-              fd.append("api_key", sig.api_key);
-              fd.append("timestamp", sig.timestamp);
-              fd.append("signature", sig.signature);
-              fd.append("folder", sig.folder);
-              var endpoint = "https://api.cloudinary.com/v1_1/" + sig.cloud_name + "/video/upload";
-              return new Promise(function (resolve, reject) {
-                var xhr = new XMLHttpRequest();
-                xhr.open("POST", endpoint);
-                xhr.upload.onprogress = function (e) {
-                  if (e.lengthComputable) {
-                    vname.textContent = "Uploading… " + Math.round((e.loaded / e.total) * 100) + "%";
-                  }
-                };
-                xhr.onload = function () {
-                  if (xhr.status >= 200 && xhr.status < 300) {
-                    try { resolve(JSON.parse(xhr.responseText)); }
-                    catch (err) { reject(new Error("Bad response from Cloudinary.")); }
-                  } else {
-                    reject(new Error("Cloudinary upload failed."));
-                  }
-                };
-                xhr.onerror = function () { reject(new Error("Network error during upload.")); };
-                xhr.send(fd);
-              });
-            })
-            .then(function (up) {
-              vname.textContent = "Finalizing…";
-              // 3) Send the public_id back so our server can verify + store it.
-              return fetch(window.CMS.videoConfirmUrl, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: {
-                  "X-CSRFToken": window.CMS.csrfToken,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ public_id: up.public_id, original_name: file.name }),
-              }).then(function (r) { return r.json(); });
-            })
-            .then(function (conf) {
-              if (!conf.ok) throw new Error(conf.error || "Could not save video.");
-              vid.src = conf.url;
-              vid.hidden = false;
-              if (vid.load) vid.load();
-              vname.textContent = file.name;
-              setValue(fieldId, conf.url);
-              var p = {}; p[fieldId] = conf.url;
-              pushToPreview(p);
-              scheduleSave();
-            })
-            .catch(function (err) {
-              vname.textContent = err.message || "Upload failed.";
+          // Server-proxied upload: browser -> our server -> Iceberg. Progress
+          // reflects the browser->server leg (the heavy one for the client).
+          vname.textContent = "Uploading… 0%";
+          var fd = new FormData();
+          fd.append("file", file);
+          var xhr = new XMLHttpRequest();
+          xhr.open("POST", window.CMS.videoUploadUrl);
+          xhr.setRequestHeader("X-CSRFToken", window.CMS.csrfToken);
+          xhr.withCredentials = true;
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) {
+              vname.textContent = "Uploading… " + Math.round((e.loaded / e.total) * 100) + "%";
+            }
+          };
+          xhr.onload = function () {
+            var conf;
+            try { conf = JSON.parse(xhr.responseText); } catch (err) { conf = null; }
+            if (xhr.status < 200 || xhr.status >= 300 || !conf || !conf.ok) {
+              vname.textContent = (conf && conf.error) || "Upload failed.";
               vfile.value = "";
-            });
+              return;
+            }
+            vid.src = conf.url;
+            vid.hidden = false;
+            if (vid.load) vid.load();
+            vname.textContent = file.name;
+            setValue(fieldId, conf.url);
+            var p = {}; p[fieldId] = conf.url;
+            pushToPreview(p);
+            scheduleSave();
+          };
+          xhr.onerror = function () {
+            vname.textContent = "Upload failed — please try again.";
+            vfile.value = "";
+          };
+          xhr.send(fd);
         });
       }
     });
