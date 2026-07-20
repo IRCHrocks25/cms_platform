@@ -65,16 +65,27 @@ class Command(BaseCommand):
             self.stdout.write("Dry run — pass --apply to migrate.")
             return
 
-        # 2) download + re-host, building the old->new map
+        # 2) re-host (or reuse), building the old->new map. If the target key is
+        # already on the CDN (a prior migration), just reuse it — don't re-upload.
         mapping = {}
         for u in sorted(urls):
+            key = cloudinary_key(u)
+            new_url = iceberg_media._cdn_url(key)
+            try:
+                head = httpx.head(new_url, timeout=30.0, follow_redirects=True)
+                if head.status_code == 200:
+                    mapping[u] = new_url
+                    self.stdout.write(f"  reuse (already on CDN): {u} -> {new_url}")
+                    continue
+            except Exception:
+                pass  # fall through to download + upload
+
             try:
                 resp = httpx.get(u, timeout=120.0, follow_redirects=True)
                 resp.raise_for_status()
             except Exception as exc:
-                self.stderr.write(f"  SKIP (download failed): {u} ({exc})")
+                self.stderr.write(f"  SKIP (not on CDN and download failed): {u} ({exc})")
                 continue
-            key = cloudinary_key(u)
             ct = resp.headers.get("Content-Type", "application/octet-stream")
             try:
                 new_url = iceberg_media.upload_bytes(resp.content, key, ct)

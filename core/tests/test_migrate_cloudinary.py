@@ -56,13 +56,16 @@ class MigrateCommandTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.content["hero"]["image"], CLOUD_URL)
 
-    def test_apply_rehosts_and_rewrites(self):
+    def test_apply_downloads_and_rewrites_when_not_on_cdn(self):
         t = _tenant_with_url()
+        head = mock.MagicMock(status_code=404)
         resp = mock.MagicMock()
         resp.content = b"imgbytes"
         resp.raise_for_status.return_value = None
         resp.headers = {"Content-Type": "image/png"}
-        with mock.patch("httpx.get", return_value=resp), mock.patch(
+        with mock.patch("httpx.head", return_value=head), mock.patch(
+            "httpx.get", return_value=resp
+        ), mock.patch(
             "core.services.iceberg_media.upload_bytes", return_value=NEW_URL
         ) as up:
             call_command("migrate_cloudinary_to_iceberg", "--apply")
@@ -73,20 +76,33 @@ class MigrateCommandTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.content["hero"]["image"], NEW_URL)
 
-    def test_apply_is_idempotent(self):
+    def test_apply_reuses_when_already_on_cdn(self):
         t = _tenant_with_url()
-        resp = mock.MagicMock()
-        resp.content = b"imgbytes"
-        resp.raise_for_status.return_value = None
-        resp.headers = {"Content-Type": "image/png"}
-        with mock.patch("httpx.get", return_value=resp), mock.patch(
-            "core.services.iceberg_media.upload_bytes", return_value=NEW_URL
-        ):
-            call_command("migrate_cloudinary_to_iceberg", "--apply")
-        # second run: nothing left to migrate
-        with mock.patch("httpx.get") as get, mock.patch(
+        head = mock.MagicMock(status_code=200)
+        with mock.patch("httpx.head", return_value=head), mock.patch(
+            "httpx.get"
+        ) as get, mock.patch(
             "core.services.iceberg_media.upload_bytes"
         ) as up:
             call_command("migrate_cloudinary_to_iceberg", "--apply")
+        # already hosted -> no download, no upload, but URL is rewritten
+        get.assert_not_called()
+        up.assert_not_called()
+        t.refresh_from_db()
+        self.assertEqual(t.content["hero"]["image"], NEW_URL)
+
+    def test_apply_is_idempotent(self):
+        t = _tenant_with_url()
+        head = mock.MagicMock(status_code=200)
+        with mock.patch("httpx.head", return_value=head), mock.patch(
+            "core.services.iceberg_media.upload_bytes"
+        ):
+            call_command("migrate_cloudinary_to_iceberg", "--apply")
+        # second run: nothing left to migrate
+        with mock.patch("httpx.head") as h, mock.patch("httpx.get") as get, mock.patch(
+            "core.services.iceberg_media.upload_bytes"
+        ) as up:
+            call_command("migrate_cloudinary_to_iceberg", "--apply")
+        h.assert_not_called()
         get.assert_not_called()
         up.assert_not_called()
