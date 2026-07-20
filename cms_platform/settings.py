@@ -386,11 +386,12 @@ EMAIL_BACKEND = "core.email_backend.ResendBackend"
 PASSWORD_RESET_TIMEOUT = int(os.environ.get("PASSWORD_RESET_TIMEOUT", 60 * 60))  # 1h
 
 # --------------------------------------------------------------------------- #
-# Cloudinary — client media (images server-routed; video signed direct upload) #
+# Iceberg — client media host (images + video), served from cdn.katalyst-crm  #
 # --------------------------------------------------------------------------- #
-CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
-CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
-CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+ICEBERG_API_URL = os.environ.get("ICEBERG_API_URL", "")
+ICEBERG_TOKEN = os.environ.get("ICEBERG_TOKEN", "")
+ICEBERG_CDN = os.environ.get("ICEBERG_CDN", "https://cdn.katalyst-crm.com")
+ICEBERG_TENANT = os.environ.get("ICEBERG_TENANT", "t1")
 # Validate-at-the-door limits for client uploads.
 MEDIA_ALLOWED_IMAGE_FORMATS = {"png", "jpg", "jpeg", "gif", "webp"}
 MEDIA_MAX_IMAGE_BYTES = int(os.environ.get("MEDIA_MAX_IMAGE_BYTES", 10 * 1024 * 1024))      # 10 MB
