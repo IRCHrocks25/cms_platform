@@ -76,11 +76,12 @@ barely change.
 **Key scheme:** `cms/tenants/<subdomain>/<kind>/<uuid8>-<safe-name>.<ext>`
 where `kind` ∈ {`image`, `video`}. Stable, collision-free, human-legible.
 
-**HTTP client:** stdlib `urllib.request` — **no new dependency** (CLAUDE.md
-forbids casual deps; the stack is intentionally Django + BeautifulSoup + lxml +
-Pillow). The three Iceberg calls (JSON POST, binary PUT, JSON POST) are simple
-enough for `urllib`. Streaming the PUT body from the temp file uses a file-like
-`data=` with an explicit `Content-Length`.
+**HTTP client:** `httpx` — **already a dependency** (`httpx==0.27.2` in
+`requirements.txt`), so no new dep is added (respects CLAUDE.md's no-casual-deps
+rule). The three Iceberg calls are JSON POST → binary PUT → JSON POST. The PUT
+body is streamed from the upload's `.chunks()` with an explicit `Content-Length`
+header (set from `upload.size`) so large videos never load fully into memory and
+R2 gets a fixed-length body (not chunked transfer-encoding).
 
 ### Changed: `dashboard/views.py`
 
