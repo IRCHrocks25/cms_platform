@@ -76,6 +76,24 @@ class MigrateCommandTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.content["hero"]["image"], NEW_URL)
 
+    def test_apply_rewrites_template_defaults(self):
+        tpl = Template.objects.create(
+            name="Tpl",
+            html_source=(
+                "<section data-section='x'>"
+                f"<img data-edit='x.img' data-type='image' src='{CLOUD_URL}'>"
+                "</section>"
+            ),
+        )
+        head = mock.MagicMock(status_code=200)
+        with mock.patch("httpx.head", return_value=head), mock.patch("httpx.get"), mock.patch(
+            "core.services.iceberg_media.upload_bytes"
+        ):
+            call_command("migrate_cloudinary_to_iceberg", "--apply")
+        tpl.refresh_from_db()
+        self.assertNotIn("res.cloudinary.com", tpl.html_source)
+        self.assertIn(NEW_URL, tpl.html_source)
+
     def test_apply_reuses_when_already_on_cdn(self):
         t = _tenant_with_url()
         head = mock.MagicMock(status_code=200)

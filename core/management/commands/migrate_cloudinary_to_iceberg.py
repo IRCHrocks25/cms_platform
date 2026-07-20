@@ -12,7 +12,7 @@ import httpx
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from core.models import MediaAsset, Tenant
+from core.models import MediaAsset, Template, Tenant
 from core.services import iceberg_media
 
 CLOUDINARY_RE = re.compile(r"https?://res\.cloudinary\.com/[^\s\"'<>)\\]+")
@@ -45,13 +45,20 @@ class Command(BaseCommand):
         if opts["tenant"]:
             tenants = tenants.filter(subdomain=opts["tenant"])
 
-        # 1) discover distinct cloudinary URLs across content + media assets
+        # Templates hold the annotated-HTML defaults the renderer falls back to
+        # for unedited fields, so their src URLs must be migrated too. Templates
+        # are global; only scan them on a full (non --tenant) run.
+        templates = Template.objects.none() if opts["tenant"] else Template.objects.all()
+
+        # 1) discover distinct cloudinary URLs across content + media + templates
         urls = set()
         for t in tenants:
             for u in CLOUDINARY_RE.findall(json.dumps(t.content or {})):
                 urls.add(u)
         for a in MediaAsset.objects.filter(secure_url__contains="res.cloudinary.com"):
             urls.update(CLOUDINARY_RE.findall(a.secure_url))
+        for tpl in templates:
+            urls.update(CLOUDINARY_RE.findall(tpl.html_source or ""))
 
         if opts["limit"]:
             urls = set(list(urls)[: opts["limit"]])
@@ -116,6 +123,21 @@ class Command(BaseCommand):
                 a.secure_url = mapping[a.secure_url]
                 a.save(update_fields=["secure_url"])
 
+        # Rewrite template defaults. Template.save() rebuilds the derived schema,
+        # which is fine — only src attribute values change, not structure.
+        rewritten_templates = 0
+        for tpl in templates:
+            html = tpl.html_source or ""
+            new_html = html
+            for old, new in mapping.items():
+                new_html = new_html.replace(old, new)
+            if new_html != html:
+                with transaction.atomic():
+                    tpl.html_source = new_html
+                    tpl.save()
+                rewritten_templates += 1
+
         self.stdout.write(
-            f"Done. Re-hosted {len(mapping)} assets, rewrote {rewritten} tenants."
+            f"Done. Re-hosted {len(mapping)} assets, rewrote {rewritten} tenants "
+            f"and {rewritten_templates} templates."
         )
