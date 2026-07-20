@@ -31,7 +31,7 @@ from core.permissions import agency_operator_required, agency_admin_required, te
 from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
 from core.services import blog_render
-from core.services import cloudinary_media
+from core.services import iceberg_media
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
 from core import ghl_crypto
@@ -2421,25 +2421,25 @@ def _toggle_publish(request, editable, *, redirect_url, noun="Site"):
 
 
 def _save_upload(request, tenant):
-    """Image upload: validated at the door, then stored on Cloudinary and
-    served with f_auto,q_auto. Returns a clear error the editor can display."""
+    """Image upload: validated at the door, then stored on Iceberg and served
+    from cdn.katalyst-crm.com. Returns a clear error the editor can display."""
     upload = request.FILES.get("file")
     if not upload:
         return JsonResponse({"ok": False, "error": "No file received."}, status=400)
 
-    ok, error = cloudinary_media.validate_image(upload)
+    ok, error = iceberg_media.validate_image(upload)
     if not ok:
         return JsonResponse({"ok": False, "error": error}, status=400)
 
-    if not cloudinary_media.is_configured():
+    if not iceberg_media.is_configured():
         return JsonResponse(
             {"ok": False, "error": "Image storage isn't configured."}, status=500
         )
 
     try:
-        result = cloudinary_media.upload_image(upload, tenant)
+        result = iceberg_media.upload_image(upload, tenant)
     except Exception:
-        logger.exception("Cloudinary image upload failed for tenant %s", tenant.pk)
+        logger.exception("Iceberg image upload failed for tenant %s", tenant.pk)
         return JsonResponse(
             {"ok": False, "error": "Upload failed — please try again."}, status=502
         )
