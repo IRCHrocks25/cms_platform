@@ -27,6 +27,8 @@
       </div>
       <input type="file" accept="image/*" id="f-{{ field.id }}" data-bind="{{ field.id }}">
     </label>
+    <button type="button" class="btn btn-ghost btn-sm cms-gallery-pick"
+            data-gallery-pick="{{ field.id }}">Choose from gallery</button>
 
   {% elif field.type == 'color' %}
     <div class="cms-field-color">

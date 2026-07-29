@@ -1034,6 +1034,412 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && historyModal && historyModal.style.display !== "none") closeHistory();
     });
+
+    // ---- media gallery modal --------------------------------------------
+    var galleryModal = document.getElementById("gallery-modal");
+    var openGalleryBtn = document.getElementById("open-gallery-btn");
+    var closeGalleryBtn = document.getElementById("close-gallery-btn");
+    var cancelGalleryBtn = document.getElementById("cancel-gallery-btn");
+    var useGalleryBtn = document.getElementById("use-gallery-btn");
+    var galleryGrid = document.getElementById("gallery-grid");
+    var galleryStatus = document.getElementById("gallery-status");
+    var galleryCount = document.getElementById("gallery-count");
+    var galleryHint = document.getElementById("gallery-hint");
+    var galleryDetail = document.getElementById("gallery-detail");
+    var galleryDetailImg = document.getElementById("gallery-detail-img");
+    var galleryDetailName = document.getElementById("gallery-detail-name");
+    var galleryDetailNote = document.getElementById("gallery-detail-note");
+    var galleryOpenBtn = document.getElementById("gallery-open-btn");
+    var galleryCopyBtn = document.getElementById("gallery-copy-btn");
+    var galleryDownloadBtn = document.getElementById("gallery-download-btn");
+    var galleryRenameBtn = document.getElementById("gallery-rename-btn");
+    var galleryDeleteBtn = document.getElementById("gallery-delete-btn");
+    var gallerySelected = null;
+    var galleryPickFieldId = null;
+    var galleryAssets = [];
+    var galleryRenaming = false;
+
+    function mediaItemUrl(id) {
+      var base = (window.CMS.galleryUrl || "").replace(/\/?$/, "/");
+      return base + id + "/";
+    }
+
+    function hideGalleryDetail() {
+      if (galleryDetail) galleryDetail.hidden = true;
+      galleryRenaming = false;
+      if (galleryDetailName) {
+        galleryDetailName.readOnly = true;
+        galleryDetailName.value = "";
+      }
+    }
+
+    function closeGallery() {
+      if (galleryModal) galleryModal.style.display = "none";
+      gallerySelected = null;
+      galleryPickFieldId = null;
+      galleryAssets = [];
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      hideGalleryDetail();
+    }
+
+    function fmtBytes(n) {
+      if (!n || n < 1024) return (n || 0) + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function applyGalleryImage(url, name) {
+      if (!galleryPickFieldId) return;
+      var fieldId = galleryPickFieldId;
+      var node = document.querySelector('[data-field-id="' + fieldId + '"]');
+      if (node) {
+        var img = node.querySelector("[data-bind-image]");
+        var nameEl = node.querySelector("[data-bind-image-name]");
+        if (img) img.src = url;
+        if (nameEl) nameEl.textContent = name || "Gallery image";
+      }
+      setValue(fieldId, url);
+      var p = {}; p[fieldId] = url;
+      pushToPreview(p);
+      scheduleSave();
+      closeGallery();
+    }
+
+    function showGalleryDetail(item) {
+      if (!galleryDetail || !item) {
+        hideGalleryDetail();
+        return;
+      }
+      galleryRenaming = false;
+      galleryDetail.hidden = false;
+      if (galleryDetailImg) {
+        galleryDetailImg.src = item.url;
+        galleryDetailImg.alt = item.name || "";
+      }
+      if (galleryDetailName) {
+        galleryDetailName.value = item.name || "";
+        galleryDetailName.readOnly = true;
+      }
+      var editable = !!item.editable;
+      if (galleryRenameBtn) {
+        galleryRenameBtn.hidden = !editable;
+        galleryRenameBtn.textContent = "Rename";
+      }
+      if (galleryDeleteBtn) galleryDeleteBtn.hidden = !editable;
+      if (galleryDetailNote) {
+        if (editable) {
+          galleryDetailNote.textContent = item.bytes
+            ? "Your upload · " + fmtBytes(item.bytes)
+            : "Your upload";
+        } else {
+          galleryDetailNote.textContent =
+            "Default page image — you can open, copy, or download it, but not rename or delete it.";
+        }
+      }
+      if (useGalleryBtn) useGalleryBtn.hidden = !galleryPickFieldId;
+    }
+
+    function selectGalleryItem(item, el) {
+      gallerySelected = item;
+      if (galleryGrid) {
+        galleryGrid.querySelectorAll(".gallery-item").forEach(function (n) {
+          n.classList.toggle("is-selected", n === el);
+        });
+      }
+      showGalleryDetail(item);
+    }
+
+    function renderGallery(assets) {
+      galleryAssets = assets || [];
+      if (!galleryGrid) return;
+      galleryGrid.innerHTML = "";
+      hideGalleryDetail();
+      gallerySelected = null;
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      if (!galleryAssets.length) {
+        var empty = document.createElement("div");
+        empty.className = "gallery-empty";
+        empty.textContent = "No images yet. Images from this site's pages and any uploads will show up here.";
+        galleryGrid.appendChild(empty);
+        if (galleryCount) galleryCount.textContent = "";
+        return;
+      }
+      if (galleryCount) {
+        galleryCount.textContent =
+          galleryAssets.length + " image" + (galleryAssets.length === 1 ? "" : "s");
+      }
+      galleryAssets.forEach(function (asset) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "gallery-item";
+        btn.title = (asset.name || "Image") + (asset.bytes ? " · " + fmtBytes(asset.bytes) : "");
+        if (!asset.editable) {
+          var badge = document.createElement("span");
+          badge.className = "gallery-item-badge";
+          badge.textContent = "Default";
+          btn.appendChild(badge);
+        }
+        var img = document.createElement("img");
+        img.src = asset.url;
+        img.alt = asset.name || "";
+        img.loading = "lazy";
+        var meta = document.createElement("span");
+        meta.className = "gallery-item-meta";
+        meta.textContent = asset.name || "Image";
+        btn.appendChild(img);
+        btn.appendChild(meta);
+        btn.addEventListener("click", function () {
+          selectGalleryItem(asset, btn);
+        });
+        btn.addEventListener("dblclick", function () {
+          if (galleryPickFieldId) {
+            applyGalleryImage(asset.url, asset.name);
+          } else {
+            window.open(asset.url, "_blank", "noopener");
+          }
+        });
+        galleryGrid.appendChild(btn);
+      });
+    }
+
+    function reloadGallery() {
+      if (!window.CMS.galleryUrl) return;
+      if (galleryStatus) galleryStatus.textContent = "Loading…";
+      return fetch(window.CMS.galleryUrl, {
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (galleryStatus) galleryStatus.textContent = "";
+          renderGallery((d && d.assets) || []);
+        })
+        .catch(function () {
+          if (galleryStatus) galleryStatus.textContent = "Couldn't load gallery.";
+        });
+    }
+
+    function openGallery(pickFieldId) {
+      if (!galleryModal || !window.CMS.galleryUrl) return;
+      galleryPickFieldId = pickFieldId || null;
+      gallerySelected = null;
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      hideGalleryDetail();
+      if (galleryHint) {
+        galleryHint.textContent = galleryPickFieldId
+          ? "Select an image, then click Use — or double-click to apply it."
+          : "Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.";
+      }
+      galleryModal.style.display = "";
+      if (galleryGrid) galleryGrid.innerHTML = "";
+      if (galleryCount) galleryCount.textContent = "";
+      reloadGallery();
+    }
+
+    function copyGalleryUrl() {
+      if (!gallerySelected) return;
+      var url = gallerySelected.url;
+      function ok() {
+        if (galleryStatus) {
+          galleryStatus.textContent = "URL copied.";
+          setTimeout(function () {
+            if (galleryStatus && galleryStatus.textContent === "URL copied.") {
+              galleryStatus.textContent = "";
+            }
+          }, 1500);
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(ok).catch(function () {
+          window.prompt("Copy this URL:", url);
+        });
+      } else {
+        window.prompt("Copy this URL:", url);
+        ok();
+      }
+    }
+
+    function downloadGalleryImage() {
+      if (!gallerySelected) return;
+      var url = gallerySelected.url;
+      var name = gallerySelected.name || "image";
+      // Prefer a real download attribute via blob fetch; fall back to new tab.
+      fetch(url, { mode: "cors" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("fetch failed");
+          return r.blob();
+        })
+        .then(function (blob) {
+          var a = document.createElement("a");
+          var obj = URL.createObjectURL(blob);
+          a.href = obj;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function () { URL.revokeObjectURL(obj); }, 1000);
+        })
+        .catch(function () {
+          window.open(url, "_blank", "noopener");
+        });
+    }
+
+    function startRename() {
+      if (!gallerySelected || !gallerySelected.editable || !galleryDetailName) return;
+      galleryRenaming = true;
+      galleryDetailName.readOnly = false;
+      galleryDetailName.focus();
+      galleryDetailName.select();
+      if (galleryRenameBtn) galleryRenameBtn.textContent = "Save name";
+    }
+
+    function saveRename() {
+      if (!gallerySelected || !gallerySelected.editable || !galleryDetailName) return;
+      var name = (galleryDetailName.value || "").trim();
+      if (!name) {
+        if (galleryStatus) galleryStatus.textContent = "Name is required.";
+        return;
+      }
+      if (galleryRenameBtn) galleryRenameBtn.disabled = true;
+      if (galleryStatus) galleryStatus.textContent = "Saving…";
+      fetch(mediaItemUrl(gallerySelected.id), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CMS.csrfToken,
+        },
+        body: JSON.stringify({ name: name }),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (galleryRenameBtn) galleryRenameBtn.disabled = false;
+          if (!res.ok || !res.data.ok) {
+            if (galleryStatus) {
+              galleryStatus.textContent = (res.data && res.data.error) || "Rename failed.";
+            }
+            return;
+          }
+          gallerySelected.name = res.data.name;
+          galleryAssets.forEach(function (a) {
+            if (a.id === gallerySelected.id) a.name = res.data.name;
+          });
+          galleryRenaming = false;
+          galleryDetailName.readOnly = true;
+          galleryDetailName.value = res.data.name;
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+          if (galleryStatus) galleryStatus.textContent = "Renamed.";
+          var selectedBtn = galleryGrid && galleryGrid.querySelector(".gallery-item.is-selected");
+          if (selectedBtn) {
+            var meta = selectedBtn.querySelector(".gallery-item-meta");
+            if (meta) meta.textContent = res.data.name;
+            selectedBtn.title = res.data.name + (gallerySelected.bytes ? " · " + fmtBytes(gallerySelected.bytes) : "");
+          }
+          if (galleryDetailNote) {
+            galleryDetailNote.textContent = gallerySelected.bytes
+              ? "Your upload · " + fmtBytes(gallerySelected.bytes)
+              : "Your upload";
+          }
+        })
+        .catch(function () {
+          if (galleryRenameBtn) galleryRenameBtn.disabled = false;
+          if (galleryStatus) galleryStatus.textContent = "Rename failed — try again.";
+        });
+    }
+
+    function deleteGalleryImage() {
+      if (!gallerySelected || !gallerySelected.editable) return;
+      if (!window.confirm("Delete this upload from your gallery? Fields using it will fall back to the default image.")) {
+        return;
+      }
+      if (galleryDeleteBtn) galleryDeleteBtn.disabled = true;
+      if (galleryStatus) galleryStatus.textContent = "Deleting…";
+      fetch(mediaItemUrl(gallerySelected.id), {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (galleryDeleteBtn) galleryDeleteBtn.disabled = false;
+          if (!res.ok || !res.data.ok) {
+            if (galleryStatus) {
+              galleryStatus.textContent = (res.data && res.data.error) || "Delete failed.";
+            }
+            return;
+          }
+          if (galleryStatus) galleryStatus.textContent = "Deleted.";
+          reloadGallery();
+        })
+        .catch(function () {
+          if (galleryDeleteBtn) galleryDeleteBtn.disabled = false;
+          if (galleryStatus) galleryStatus.textContent = "Delete failed — try again.";
+        });
+    }
+
+    if (openGalleryBtn) {
+      openGalleryBtn.addEventListener("click", function () { openGallery(null); });
+    }
+    if (closeGalleryBtn) closeGalleryBtn.addEventListener("click", closeGallery);
+    if (cancelGalleryBtn) cancelGalleryBtn.addEventListener("click", closeGallery);
+    if (useGalleryBtn) {
+      useGalleryBtn.addEventListener("click", function () {
+        if (gallerySelected) applyGalleryImage(gallerySelected.url, gallerySelected.name);
+      });
+    }
+    if (galleryOpenBtn) {
+      galleryOpenBtn.addEventListener("click", function () {
+        if (gallerySelected) window.open(gallerySelected.url, "_blank", "noopener");
+      });
+    }
+    if (galleryCopyBtn) galleryCopyBtn.addEventListener("click", copyGalleryUrl);
+    if (galleryDownloadBtn) galleryDownloadBtn.addEventListener("click", downloadGalleryImage);
+    if (galleryRenameBtn) {
+      galleryRenameBtn.addEventListener("click", function () {
+        if (galleryRenaming) saveRename();
+        else startRename();
+      });
+    }
+    if (galleryDetailName) {
+      galleryDetailName.addEventListener("keydown", function (e) {
+        if (!galleryRenaming) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveRename();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          galleryRenaming = false;
+          galleryDetailName.value = gallerySelected ? (gallerySelected.name || "") : "";
+          galleryDetailName.readOnly = true;
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+        }
+      });
+    }
+    if (galleryDeleteBtn) galleryDeleteBtn.addEventListener("click", deleteGalleryImage);
+    if (galleryModal) {
+      galleryModal.addEventListener("click", function (e) {
+        if (e.target === galleryModal) closeGallery();
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && galleryModal && galleryModal.style.display !== "none") {
+        if (galleryRenaming) {
+          galleryRenaming = false;
+          if (galleryDetailName) {
+            galleryDetailName.value = gallerySelected ? (gallerySelected.name || "") : "";
+            galleryDetailName.readOnly = true;
+          }
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+          return;
+        }
+        closeGallery();
+      }
+    });
+    document.querySelectorAll("[data-gallery-pick]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openGallery(btn.getAttribute("data-gallery-pick"));
+      });
+    });
   }
 
   if (document.readyState === "loading") {

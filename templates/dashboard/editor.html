@@ -46,6 +46,7 @@
       {% if versions_url %}
         <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
       {% endif %}
+      <button type="button" class="btn btn-secondary" id="open-gallery-btn">Gallery</button>
       <button type="button" class="btn btn-secondary" id="open-settings-btn">Settings</button>
       <form method="post" action="{{ publish_url }}" style="display: inline;">
         {% csrf_token %}
@@ -314,6 +315,49 @@
     </div>
   </div>
 
+  <!-- Media gallery modal -->
+  <div class="modal-overlay" id="gallery-modal" style="display: none;">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Image gallery</h2>
+        <button type="button" class="modal-close" id="close-gallery-btn" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint" id="gallery-hint" style="margin: 0;">
+          Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.
+        </p>
+        <div class="gallery-layout">
+          <div class="gallery-grid" id="gallery-grid"></div>
+          <aside class="gallery-detail" id="gallery-detail" hidden>
+            <div class="gallery-detail-preview">
+              <img id="gallery-detail-img" src="" alt="">
+            </div>
+            <div class="gallery-detail-meta">
+              <div class="field" style="margin: 0;">
+                <label class="field-label" for="gallery-detail-name">Name</label>
+                <input class="input" type="text" id="gallery-detail-name" maxlength="240" readonly>
+              </div>
+              <p class="field-hint" id="gallery-detail-note" style="margin: 0;"></p>
+              <div class="gallery-detail-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-open-btn">Open</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-copy-btn">Copy URL</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-download-btn">Download</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-rename-btn" hidden>Rename</button>
+                <button type="button" class="btn btn-secondary btn-sm gallery-delete-btn" id="gallery-delete-btn" hidden>Delete</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <p class="settings-status" id="gallery-status"></p>
+      </div>
+      <div class="modal-footer">
+        <span class="settings-status" id="gallery-count"></span>
+        <button type="button" class="btn btn-secondary" id="cancel-gallery-btn">Close</button>
+        <button type="button" class="btn btn-purple" id="use-gallery-btn" hidden>Use this image</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var tabs = document.querySelectorAll(".editor-tab");
@@ -479,6 +523,7 @@
       saveUrl: "{{ save_url }}",
       uploadUrl: "{{ upload_url }}",
       videoUploadUrl: "{{ video_upload_url }}",
+      galleryUrl: "{{ gallery_url }}",
       versionsUrl: "{{ versions_url }}",
       versionRestoreUrl: "{{ version_restore_url }}",
       previewUrl: "{{ preview_url }}",
