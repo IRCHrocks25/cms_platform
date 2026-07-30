@@ -134,11 +134,12 @@ PREVIEW_BRIDGE_SCRIPT = """
   }
   function cmsIsStyleable(host) {
     if (!host) return false;
-    // Any text-bearing field — plain text or richtext (like lp-cms, which lets
-    // you style every heading/paragraph, not just "rich" ones). Styling a plain
-    // text field just turns its value into inline HTML (a styled span).
+    // Any text-bearing field — headings, paragraphs, list items, etc. (like
+    // lp-cms, which lets you style every text element, not just "rich" ones).
+    // Only non-text fields are excluded. Styling a plain text field just turns
+    // its value into inline HTML (a styled span).
     var t = host.getAttribute('data-type') || 'text';
-    return t === 'text' || t === 'richtext';
+    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link';
   }
   document.addEventListener('selectionchange', function () {
     var s = window.getSelection();
@@ -150,7 +151,11 @@ PREVIEW_BRIDGE_SCRIPT = """
     // colour/size controls still target it.
     cmsSelRange = r.cloneRange();
     cmsSelField = host.getAttribute('data-edit');
-    send('text-selection', { present: true, id: cmsSelField });
+    // Send the selection's rect (iframe-viewport coords) so the editor can
+    // float the style bubble right below the highlighted text.
+    var rc = r.getBoundingClientRect();
+    send('text-selection', { present: true, id: cmsSelField,
+      rect: { left: rc.left, top: rc.top, bottom: rc.bottom, width: rc.width, height: rc.height } });
   });
   function cmsStyleSelection(prop, value) {
     if (!cmsSelRange) return null;

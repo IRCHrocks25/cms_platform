@@ -120,64 +120,84 @@
   padding: var(--space-6) var(--space-6) var(--space-8);
 }
 
-/* Selection-styling panel — docked at the top of the form column. Highlight
-   text on the preview and these controls restyle just that span. */
+/* Floating text-style bubble — pops up just below the highlighted text on the
+   preview (positioned by editor.js). Hidden until there's a selection. */
 .cms-seltext-panel {
-  position: sticky;
-  top: 0;
-  z-index: 7;
-  display: flex;
+  position: fixed;
+  z-index: 1200;
+  display: none;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  height: 44px;
-  box-sizing: border-box;
-  padding: 0 var(--space-4);
-  background: var(--color-white);
-  border-bottom: 1px solid var(--color-border);
+  gap: 3px;
+  padding: 5px 7px;
+  background: var(--color-text);
+  border-radius: 11px;
+  box-shadow: 0 12px 30px -8px rgba(10, 10, 20, 0.5);
 }
-.cms-seltext-panel.is-active { background: var(--color-blue-soft); }
-.cms-seltext-hint { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
-.cms-seltext-panel.is-active .cms-seltext-hint { color: var(--color-blue-dark); font-weight: 500; }
-.cms-seltext-controls { display: inline-flex; align-items: center; gap: 4px; }
-.cms-seltext-panel:not(.is-active) .cms-seltext-controls { opacity: 0.45; }
-.cms-seltext-controls button {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-white);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
-.cms-seltext-controls button:hover { background: var(--color-surface-2); }
-.cms-seltext-controls button em { font-family: Georgia, serif; }
-.cms-seltext-color {
+.cms-seltext-panel.is-active { display: inline-flex; }
+.cms-seltext-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.18); margin: 0 3px; }
+.cms-seltext-btn {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.cms-seltext-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.cms-seltext-btn:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 1px; }
+.cms-seltext-btn em { font-family: Georgia, serif; }
+.cms-seltext-btn svg { width: 15px; height: 15px; }
+.cms-seltext-color {
+  position: relative;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
 }
 .cms-seltext-color input[type="color"] {
-  width: 36px;
-  height: 36px;
-  margin: -4px;
+  position: absolute;
+  inset: -4px;
+  width: 38px;
+  height: 38px;
   border: 0;
   padding: 0;
   background: none;
   cursor: pointer;
 }
-.cms-seltext-size { height: 28px; padding: 0 4px; font-size: 12px; }
+.cms-seltext-color-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+.cms-seltext-size {
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cms-seltext-size:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 1px; }
+.cms-seltext-size option { color: #111; }
 
-/* Content / Brand tab switcher (sticky below the selection-styling panel) */
+/* Content / Brand tab switcher (sticky at top of the form panel) */
 .editor-tabs {
   position: sticky;
-  top: 44px;
+  top: 0;
   z-index: 5;
   display: flex;
   gap: var(--space-1);

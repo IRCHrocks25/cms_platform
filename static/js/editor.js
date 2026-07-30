@@ -399,24 +399,39 @@
     }
   });
 
-  // ---- selection-based text styling (driven from the preview) ----------
-  // The preview reports when text is highlighted inside a richtext field; the
-  // docked panel below then sends colour/bold/italic/size back, which the
-  // preview applies to that selection and echoes as a `text-update` we persist.
+  // ---- selection-based text styling (floating bubble on the preview) ----
+  // When text is highlighted on the preview, a small bubble pops up just below
+  // it; its controls send colour/bold/italic/size back, the preview applies
+  // them to that selection and echoes a `text-update` we persist.
   var selStyleField = null;
   var selStylePanel = document.getElementById("cms-seltext-panel");
+  var selPicking = false, selPanelHover = false;
   function cmsSendFormat(msg) {
     if (!previewReady || !selStyleField) return;
     previewFrame.contentWindow.postMessage(
       { source: "cms-editor", type: "style-selection", payload: msg }, "*");
   }
+  function positionSelPanel(rect) {
+    if (!rect || !selStylePanel) return;
+    var fr = previewFrame.getBoundingClientRect();
+    var pw = selStylePanel.offsetWidth, ph = selStylePanel.offsetHeight;
+    var below = fr.top + rect.bottom + 8;
+    // Flip above the text if it would overflow the bottom of the window.
+    var top = (below + ph > window.innerHeight - 8) ? fr.top + rect.top - ph - 8 : below;
+    var left = fr.left + rect.left + rect.width / 2 - pw / 2;
+    selStylePanel.style.top = Math.max(8, Math.min(window.innerHeight - ph - 8, top)) + "px";
+    selStylePanel.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, left)) + "px";
+  }
   function cmsOnSelection(p) {
     if (p.present && p.id) {
       selStyleField = p.id;
-      if (selStylePanel) selStylePanel.classList.add("is-active");
-    } else if (selStylePanel) {
-      // Keep selStyleField so the controls still target the last highlight even
-      // after focus moves to them (which collapses the preview selection).
+      if (selStylePanel) {
+        selStylePanel.classList.add("is-active"); // display it so it can be measured
+        positionSelPanel(p.rect);
+      }
+    } else if (selStylePanel && !selPicking && !selPanelHover) {
+      // Keep selStyleField (the controls still target the last highlight) but
+      // hide the bubble once nothing is selected and we're not mid-interaction.
       selStylePanel.classList.remove("is-active");
     }
   }
@@ -428,11 +443,22 @@
     scheduleSave();
   }
   if (selStylePanel) {
+    selStylePanel.addEventListener("mouseenter", function () { selPanelHover = true; });
+    selStylePanel.addEventListener("mouseleave", function () { selPanelHover = false; });
+    // Keep the preview selection alive when pressing a control (except the
+    // native colour input, which needs the mousedown to open its picker).
+    selStylePanel.addEventListener("mousedown", function (e) {
+      // Buttons keep the selection alive; the colour input and size select need
+      // the mousedown to open their native pickers.
+      if (!e.target.closest("[data-seltext-color], [data-seltext-size]")) e.preventDefault();
+    });
     var selColor = selStylePanel.querySelector("[data-seltext-color]");
-    if (selColor) selColor.addEventListener("input", function () { cmsSendFormat({ prop: "color", value: this.value }); });
+    if (selColor) {
+      selColor.addEventListener("mousedown", function () { selPicking = true; });
+      selColor.addEventListener("input", function () { cmsSendFormat({ prop: "color", value: this.value }); });
+      selColor.addEventListener("change", function () { selPicking = false; });
+    }
     selStylePanel.querySelectorAll("[data-seltext-cmd]").forEach(function (b) {
-      // Don't steal focus from the preview selection on click.
-      b.addEventListener("mousedown", function (e) { e.preventDefault(); });
       b.addEventListener("click", function () {
         var cmd = b.getAttribute("data-seltext-cmd");
         if (cmd === "bold") cmsSendFormat({ prop: "font-weight", value: "700" });
