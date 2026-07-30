@@ -403,6 +403,16 @@
 
   <script>
     (function () {
+      // Curated text colours for the selection toolbar. Applying one wraps the
+      // selection in <span style="color:…"> (execCommand foreColor + styleWithCSS),
+      // which is stored inside the richtext field's own HTML — so you can recolour
+      // part of a heading (e.g. a two-colour header) without repainting the rest.
+      var COLORS = [
+        "#0a0a14", "#374151", "#6b7280", "#ffffff",
+        "#b91c1c", "#ef4444", "#f97316", "#f59e0b",
+        "#22c55e", "#10b981", "#06b6d4", "#2563eb",
+        "#6366f1", "#8b5cf6", "#d946ef", "#ec4899",
+      ];
       var bar = document.createElement("div");
       bar.className = "cms-fmt-bar";
       bar.setAttribute("role", "toolbar");
@@ -415,9 +425,19 @@
         '<button type="button" data-cmd="italic" title="Italic (Ctrl/Cmd+I)"><em>I</em></button>' +
         '<button type="button" data-cmd="createLink" title="Add or remove link">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>' +
+        '<button type="button" data-color-toggle title="Text colour" aria-label="Text colour"><span class="cms-fmt-a">A</span></button>' +
         '<button type="button" data-cmd="removeFormat" title="Clear formatting">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg></button>';
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg></button>' +
+        '<div class="cms-fmt-swatches" role="group" aria-label="Text colours">' +
+          COLORS.map(function (c) {
+            return '<button type="button" class="cms-fmt-sw" data-color="' + c +
+              '" style="background:' + c + '" title="' + c + '"></button>';
+          }).join("") +
+          '<label class="cms-fmt-sw cms-fmt-custom" title="Custom colour">' +
+            '<input type="color" data-color-custom value="#e11d48"></label>' +
+        '</div>';
       document.body.appendChild(bar);
+      var swatches = bar.querySelector(".cms-fmt-swatches");
 
       function activeRichtext() {
         var sel = window.getSelection();
@@ -447,10 +467,24 @@
         if (link) link.classList.toggle("is-active", selectionInLink());
       }
 
+      // The native colour picker steals focus and collapses the selection, so
+      // we remember the live range (and its richtext host) while the toolbar is
+      // up, then restore it before applying the colour.
+      var savedRange = null, activeRt = null, picking = false;
+      function rememberSelection() {
+        var rt = activeRichtext();
+        if (!rt) return;
+        activeRt = rt;
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
+      }
+
       function showBar() {
-        if (!activeRichtext()) { bar.style.display = "none"; return; }
+        if (picking) return; // keep the bar up while the colour dialog is open
+        if (!activeRichtext()) { bar.style.display = "none"; swatches.classList.remove("is-open"); return; }
+        rememberSelection();
         var rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
-        if (!rect || (rect.width === 0 && rect.height === 0)) { bar.style.display = "none"; return; }
+        if (!rect || (rect.width === 0 && rect.height === 0)) { bar.style.display = "none"; swatches.classList.remove("is-open"); return; }
         bar.style.display = "flex";
         var top = rect.top - bar.offsetHeight - 8;
         var left = rect.left + rect.width / 2 - bar.offsetWidth / 2;
@@ -459,10 +493,32 @@
         refreshStates();
       }
 
-      // Keep the selection alive when clicking a toolbar button.
-      bar.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      // Wrap the current selection in <span style="color:…"> via foreColor. Stored
+      // in the field's richtext HTML, so only the highlighted text is recoloured.
+      function applyColor(value) {
+        var rt = activeRt || activeRichtext();
+        if (!rt) return;
+        var sel = window.getSelection();
+        if (savedRange) { try { sel.removeAllRanges(); sel.addRange(savedRange); } catch (e) {} }
+        if (!sel.rangeCount || sel.isCollapsed) return;
+        try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+        document.execCommand("foreColor", false, value);
+        rt.dispatchEvent(new Event("input", { bubbles: true })); // save + live preview
+        rememberSelection();
+        showBar();
+      }
+
+      // Keep the selection alive when clicking a toolbar button — except the
+      // native colour input, which must receive the mousedown to open.
+      bar.addEventListener("mousedown", function (e) {
+        if (e.target.closest("[data-color-custom]")) return;
+        e.preventDefault();
+      });
 
       bar.addEventListener("click", function (e) {
+        if (e.target.closest("[data-color-toggle]")) { swatches.classList.toggle("is-open"); showBar(); return; }
+        var sw = e.target.closest("[data-color]");
+        if (sw) { applyColor(sw.getAttribute("data-color")); return; }
         var btn = e.target.closest("[data-cmd]");
         if (!btn) return;
         var rt = activeRichtext();
@@ -482,6 +538,13 @@
         rt.dispatchEvent(new Event("input", { bubbles: true })); // save + live preview
         showBar();
       });
+
+      var custom = bar.querySelector("[data-color-custom]");
+      if (custom) {
+        custom.addEventListener("mousedown", function () { picking = true; });
+        custom.addEventListener("input", function () { applyColor(this.value); });
+        custom.addEventListener("change", function () { picking = false; });
+      }
 
       var t = null;
       document.addEventListener("selectionchange", function () {

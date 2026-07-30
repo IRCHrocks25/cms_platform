@@ -150,6 +150,63 @@ class RenderSiteStylesTests(SimpleTestCase):
         self.assertNotIn("display:none", html)
 
 
+_RICHTEXT_TEMPLATE = (
+    "<html><head></head><body>"
+    '<section data-section="hero">'
+    '<h1 data-edit="hero.title" data-type="richtext">Welcome</h1>'
+    "</section></body></html>"
+)
+
+
+class RichtextSpanStyleTests(SimpleTestCase):
+    """Selection-level styling is stored as a styled <span> inside the
+    richtext field's own HTML value (not the whole-element _styles map), so a
+    client can recolor part of a heading — e.g. a two-colour header. This
+    locks the contract that such a span survives sanitize + phrasing-host
+    flatten + render with its inline style and text intact."""
+
+    def test_partial_color_span_survives_render(self):
+        content = {"hero": {"title":
+                            'Anxiety <span style="color: #e11d48">isn\'t</span> who you are'}}
+        html = render_site(_RICHTEXT_TEMPLATE, content)
+        soup = BeautifulSoup(html, "lxml")
+        span = soup.select_one('[data-edit="hero.title"] span')
+        self.assertIsNotNone(span, "styled span was stripped from the richtext value")
+        self.assertIn("color: #e11d48", span.get("style", ""))
+        self.assertEqual(span.get_text(), "isn't")
+        # The rest of the heading keeps the host's own color (no forced override).
+        self.assertEqual(soup.find(attrs={"data-edit": "hero.title"}).get_text(),
+                         "Anxiety isn't who you are")
+
+    def test_partial_color_not_forced_onto_siblings(self):
+        # Unlike the whole-element _styles path, a richtext span must NOT emit a
+        # scoped `[data-edit] * { color: … !important }` rule that would repaint
+        # the untouched text.
+        content = {"hero": {"title":
+                            'Anxiety <span style="color: #e11d48">isn\'t</span> who you are'}}
+        html = render_site(_RICHTEXT_TEMPLATE, content)
+        self.assertNotIn("!important", html)
+
+    def test_browser_rgb_color_span_survives_render(self):
+        # execCommand('foreColor') emits rgb(), not hex — the value the editor
+        # actually stores. It must survive the richtext sanitizer untouched.
+        content = {"hero": {"title":
+                            'Anxiety <span style="color: rgb(239, 68, 68)">isn\'t</span> who you are'}}
+        html = render_site(_RICHTEXT_TEMPLATE, content)
+        span = BeautifulSoup(html, "lxml").select_one('[data-edit="hero.title"] span')
+        self.assertIsNotNone(span)
+        self.assertIn("rgb(239, 68, 68)", span.get("style", ""))
+        self.assertEqual(span.get_text(), "isn't")
+
+    def test_font_size_span_survives_render(self):
+        content = {"hero": {"title":
+                            'Big <span style="font-size: 32px">word</span> here'}}
+        html = render_site(_RICHTEXT_TEMPLATE, content)
+        span = BeautifulSoup(html, "lxml").select_one('[data-edit="hero.title"] span')
+        self.assertIsNotNone(span)
+        self.assertIn("font-size: 32px", span.get("style", ""))
+
+
 class PreviewBridgeStyleTests(SimpleTestCase):
     def test_bridge_has_style_handlers(self):
         html = render_site(_TEMPLATE, {"hero": {"title": "Hi"}}, preview=True)

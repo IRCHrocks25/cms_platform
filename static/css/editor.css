@@ -273,11 +273,59 @@
 /* Selection format toolbar (bubble) for rich-text fields */
 .cms-fmt-bar {
   display: none;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 4px;
   background: var(--color-text);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
+  max-width: 260px;
+}
+.cms-fmt-bar button[data-color-toggle] .cms-fmt-a {
+  font-weight: 700;
+  border-bottom: 3px solid currentColor;
+  line-height: 0.9;
+  padding-bottom: 1px;
+}
+/* Swatch palette flyout — wraps onto its own row inside the bubble */
+.cms-fmt-swatches {
+  display: none;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 2px 2px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+.cms-fmt-swatches.is-open { display: flex; }
+.cms-fmt-bar button.cms-fmt-sw {
+  min-width: 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+}
+.cms-fmt-bar button.cms-fmt-sw:hover { transform: scale(1.12); background: none; }
+.cms-fmt-custom {
+  position: relative;
+  overflow: hidden;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  cursor: pointer;
+  background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+}
+.cms-fmt-custom input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .cms-fmt-bar button {
   display: inline-flex;
