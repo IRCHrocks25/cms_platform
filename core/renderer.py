@@ -805,6 +805,39 @@ def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
         (soup.find("head") or soup.find("body") or soup).append(style)
 
 
+# Auto-annotation: every text-leaf element that the agency didn't annotate gets
+# a ``data-edit="auto.nN"`` id at render time, so it becomes editable/styleable
+# through the normal pipeline — the lp-cms "everything is editable" idea expressed
+# as our own annotations. Purely additive (only adds attributes); ids are assigned
+# in document order and applied on BOTH preview and public renders so they line up.
+_AUTO_TEXT_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote",
+                   "figcaption", "td", "th", "dt", "dd", "caption", "cite", "address")
+# If a candidate contains one of these it's a container, not a text leaf — skip it
+# so we annotate the innermost text element (mirrors lp-cms's leaf detection).
+_AUTO_BLOCK_CHILD = ("div", "ul", "ol", "li", "table", "thead", "tbody", "tfoot",
+                     "tr", "figure", "form", "section", "article", "nav", "aside",
+                     "header", "footer", "main", "dl", "hr", "h1", "h2", "h3", "h4",
+                     "h5", "h6", "p", "blockquote")
+
+
+def _auto_annotate(soup) -> None:
+    body = soup.find("body") or soup
+    n = 0
+    for el in body.find_all(_AUTO_TEXT_TAGS):
+        if el.has_attr("data-edit"):
+            continue  # already annotated by the agency
+        if el.find_parent(attrs={"data-edit": True}) is not None:
+            continue  # inside an existing field — outermost wins
+        if not el.get_text(strip=True):
+            continue  # no visible text
+        if el.find(_AUTO_BLOCK_CHILD):
+            continue  # container, not a text leaf
+        el["data-edit"] = f"auto.n{n}"
+        el["data-type"] = "text"
+        el["data-label"] = "Text"
+        n += 1
+
+
 def render_site(
     template_html: str,
     content: dict[str, Any],
@@ -817,6 +850,7 @@ def render_site(
         return ""
 
     soup = BeautifulSoup(template_html, "lxml")
+    _auto_annotate(soup)
 
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})

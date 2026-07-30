@@ -282,6 +282,55 @@ class TextFieldSelectionStyleTests(SimpleTestCase):
         self.assertEqual(p.get_text(), "a < b and c")
 
 
+class AutoAnnotateTests(SimpleTestCase):
+    """Un-annotated text-leaf elements get a data-edit id at render time so they
+    become editable/styleable through the normal pipeline (combining lp-cms
+    auto-detection with our annotations). Purely additive."""
+
+    def _render(self, body_html, content=None):
+        template = "<html><head></head><body>" + body_html + "</body></html>"
+        return BeautifulSoup(render_site(template, content or {}), "lxml")
+
+    def test_unannotated_text_leaves_get_data_edit(self):
+        soup = self._render("<h1>Hi</h1><p>Body</p>")
+        h1 = soup.find("h1")
+        p = soup.find("p")
+        self.assertTrue(h1.get("data-edit", "").startswith("auto."))
+        self.assertTrue(p.get("data-edit", "").startswith("auto."))
+        self.assertNotEqual(h1.get("data-edit"), p.get("data-edit"))
+
+    def test_existing_annotation_is_untouched(self):
+        soup = self._render('<h1 data-edit="hero.title" data-type="text">Hi</h1>')
+        self.assertEqual(soup.find("h1").get("data-edit"), "hero.title")
+
+    def test_container_not_annotated_only_leaf(self):
+        soup = self._render("<div><p>Leaf</p></div>")
+        self.assertIsNone(soup.find("div").get("data-edit"))
+        self.assertTrue(soup.find("p").get("data-edit", "").startswith("auto."))
+
+    def test_nested_inside_field_not_annotated(self):
+        soup = self._render('<div data-edit="s.f" data-type="richtext"><p>x</p></div>')
+        self.assertIsNone(soup.find("p").get("data-edit"))
+
+    def test_empty_element_not_annotated(self):
+        soup = self._render("<p>   </p>")
+        self.assertIsNone(soup.find("p").get("data-edit"))
+
+    def test_styled_content_applies_to_auto_element(self):
+        # First render to discover the id assigned to the paragraph…
+        soup = self._render("<h1>Head</h1><p>Body text</p>")
+        pid = soup.find("p").get("data-edit")
+        section, field = pid.split(".", 1)
+        # …then store a selection-styled span under that id and re-render.
+        content = {section: {field: 'Body <span class="cms-tspan" style="color: #e11d48">text</span>'}}
+        soup2 = self._render("<h1>Head</h1><p>Body text</p>", content)
+        span = soup2.find("p").find("span")
+        self.assertIsNotNone(span)
+        self.assertIn("#e11d48", span.get("style", ""))
+        # Unstyled auto element keeps its original text.
+        self.assertEqual(soup2.find("h1").get_text(), "Head")
+
+
 class PreviewBridgeStyleTests(SimpleTestCase):
     def test_bridge_has_style_handlers(self):
         html = render_site(_TEMPLATE, {"hero": {"title": "Hi"}}, preview=True)
