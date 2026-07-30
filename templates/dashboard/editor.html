@@ -91,8 +91,10 @@
     </aside>
 
     <section class="editor-form" id="editor-form">
-      {# Selection styling: highlight text on the preview and these controls
-         restyle just that span (stored in the field's richtext HTML). #}
+      {% comment %}
+        Selection styling: highlight text on the preview and these controls
+        restyle just that span (stored in the field's richtext HTML).
+      {% endcomment %}
       <div class="cms-seltext-panel" id="cms-seltext-panel" role="group" aria-label="Text styling">
         <span class="cms-seltext-hint">Highlight text on the page to style it →</span>
         <div class="cms-seltext-controls">
