@@ -136,7 +136,30 @@ class RenderSiteStylesTests(SimpleTestCase):
                    "_styles": {"hero.title": {"color": "#b91c1c"}}}
         html = render_site(template, content)
         # element itself gets inline color, AND a scoped rule recolors descendants
-        self.assertIn('[data-edit="hero.title"] * { color: #b91c1c !important; }', html)
+        # (except selection-styled spans, which keep their own per-part colour).
+        self.assertIn(
+            '[data-edit="hero.title"] *:not(.cms-tspan) { color: #b91c1c !important; }',
+            html)
+
+    def test_whole_element_color_does_not_override_selection_span(self):
+        # The robyn bug: an element has a whole-element _styles colour (emitting
+        # the !important descendant rule) AND a per-part <span class="cms-tspan">.
+        # The span must be excluded from the rule so its colour still shows.
+        template = (
+            "<html><head></head><body>"
+            '<section data-section="hero">'
+            '<h1 data-edit="hero.title" data-type="richtext">A B</h1>'
+            "</section></body></html>"
+        )
+        content = {
+            "hero": {"title": 'A <span class="cms-tspan" style="color: #e11d48">B</span>'},
+            "_styles": {"hero.title": {"color": "#ffffff"}},
+        }
+        html = render_site(template, content)
+        self.assertIn('*:not(.cms-tspan) { color: #ffffff !important; }', html)
+        span = BeautifulSoup(html, "lxml").select_one('[data-edit="hero.title"] span.cms-tspan')
+        self.assertIsNotNone(span)
+        self.assertIn("#e11d48", span.get("style", ""))
 
     def test_unsafe_color_does_not_inject_css(self):
         template = (

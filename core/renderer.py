@@ -54,6 +54,9 @@ PREVIEW_BRIDGE_SCRIPT = """
     // <cite> with their own color rule), which a parent color can't do.
     var kids = el.querySelectorAll('*');
     for (var i = 0; i < kids.length; i++) {
+      // Leave selection-styled spans (and their contents) alone so a per-part
+      // colour survives a whole-element colour on the same element.
+      if (kids[i].closest && kids[i].closest('.cms-tspan')) continue;
       if (style.color) { kids[i].style.setProperty('color', style.color, 'important'); }
       else { kids[i].style.removeProperty('color'); }
     }
@@ -149,6 +152,8 @@ PREVIEW_BRIDGE_SCRIPT = """
     var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
     if (!cmsIsRich(host)) return null;
     var sp = document.createElement('span');
+    sp.className = 'cms-tspan'; // marks a selection-styled span so the
+                                // whole-element recolor rule leaves it alone
     sp.style.setProperty(prop, value);
     var r = cmsSelRange.cloneRange();
     try { r.surroundContents(sp); }
@@ -528,8 +533,10 @@ def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
         color = _safe_css_value(style.get("color", ""))
         if color:
             sel_id = element_id.replace('"', "").replace("\\", "")
+            # Exclude selection-styled spans (cms-tspan) so a per-part colour
+            # inside the element isn't overridden by the whole-element colour.
             descendant_rules.append(
-                f'[data-edit="{sel_id}"] * {{ color: {color} !important; }}'
+                f'[data-edit="{sel_id}"] *:not(.cms-tspan) {{ color: {color} !important; }}'
             )
     if descendant_rules:
         tag = soup.new_tag("style")
