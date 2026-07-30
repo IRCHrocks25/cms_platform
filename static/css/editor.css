@@ -120,10 +120,64 @@
   padding: var(--space-6) var(--space-6) var(--space-8);
 }
 
-/* Content / Brand tab switcher (sticky at top of the form panel) */
-.editor-tabs {
+/* Selection-styling panel — docked at the top of the form column. Highlight
+   text on the preview and these controls restyle just that span. */
+.cms-seltext-panel {
   position: sticky;
   top: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 var(--space-4);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-border);
+}
+.cms-seltext-panel.is-active { background: var(--color-blue-soft); }
+.cms-seltext-hint { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.cms-seltext-panel.is-active .cms-seltext-hint { color: var(--color-blue-dark); font-weight: 500; }
+.cms-seltext-controls { display: inline-flex; align-items: center; gap: 4px; }
+.cms-seltext-panel:not(.is-active) .cms-seltext-controls { opacity: 0.45; }
+.cms-seltext-controls button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-white);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.cms-seltext-controls button:hover { background: var(--color-surface-2); }
+.cms-seltext-controls button em { font-family: Georgia, serif; }
+.cms-seltext-color {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+}
+.cms-seltext-color input[type="color"] {
+  width: 36px;
+  height: 36px;
+  margin: -4px;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+.cms-seltext-size { height: 28px; padding: 0 4px; font-size: 12px; }
+
+/* Content / Brand tab switcher (sticky below the selection-styling panel) */
+.editor-tabs {
+  position: sticky;
+  top: 44px;
   z-index: 5;
   display: flex;
   gap: var(--space-1);
@@ -273,59 +327,11 @@
 /* Selection format toolbar (bubble) for rich-text fields */
 .cms-fmt-bar {
   display: none;
-  flex-wrap: wrap;
   gap: 2px;
   padding: 4px;
   background: var(--color-text);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  max-width: 260px;
-}
-.cms-fmt-bar button[data-color-toggle] .cms-fmt-a {
-  font-weight: 700;
-  border-bottom: 3px solid currentColor;
-  line-height: 0.9;
-  padding-bottom: 1px;
-}
-/* Swatch palette flyout — wraps onto its own row inside the bubble */
-.cms-fmt-swatches {
-  display: none;
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 6px 2px 2px;
-  margin-top: 2px;
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-}
-.cms-fmt-swatches.is-open { display: flex; }
-.cms-fmt-bar button.cms-fmt-sw {
-  min-width: 20px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-}
-.cms-fmt-bar button.cms-fmt-sw:hover { transform: scale(1.12); background: none; }
-.cms-fmt-custom {
-  position: relative;
-  overflow: hidden;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-  cursor: pointer;
-  background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
-}
-.cms-fmt-custom input[type="color"] {
-  position: absolute;
-  inset: -4px;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  padding: 0;
-  opacity: 0;
-  cursor: pointer;
 }
 .cms-fmt-bar button {
   display: inline-flex;

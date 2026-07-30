@@ -206,6 +206,21 @@ class RichtextSpanStyleTests(SimpleTestCase):
         self.assertIsNotNone(span)
         self.assertIn("font-size: 32px", span.get("style", ""))
 
+    def test_nested_style_spans_survive_render(self):
+        # Stacking colour then bold on the same selection nests spans; both must
+        # survive (colour + weight) with the text intact.
+        content = {"hero": {"title":
+                            'Anxiety <span style="color: rgb(225, 29, 72)">'
+                            '<span style="font-weight: 700">isn\'t</span></span> who you are'}}
+        html = render_site(_RICHTEXT_TEMPLATE, content)
+        soup = BeautifulSoup(html, "lxml")
+        outer = soup.select_one('[data-edit="hero.title"] span')
+        inner = soup.select_one('[data-edit="hero.title"] span span')
+        self.assertIsNotNone(inner)
+        self.assertIn("rgb(225, 29, 72)", outer.get("style", ""))
+        self.assertIn("font-weight: 700", inner.get("style", ""))
+        self.assertEqual(inner.get_text(), "isn't")
+
 
 class PreviewBridgeStyleTests(SimpleTestCase):
     def test_bridge_has_style_handlers(self):

@@ -392,8 +392,60 @@
       if (content._tokens && Object.keys(content._tokens).length) pushTokensToPreview();
     } else if (data.type === "focus-field") {
       focusFieldInForm(data.payload.id);
+    } else if (data.type === "text-selection") {
+      cmsOnSelection(data.payload || {});
+    } else if (data.type === "text-update") {
+      cmsOnTextUpdate(data.payload || {});
     }
   });
+
+  // ---- selection-based text styling (driven from the preview) ----------
+  // The preview reports when text is highlighted inside a richtext field; the
+  // docked panel below then sends colour/bold/italic/size back, which the
+  // preview applies to that selection and echoes as a `text-update` we persist.
+  var selStyleField = null;
+  var selStylePanel = document.getElementById("cms-seltext-panel");
+  function cmsSendFormat(msg) {
+    if (!previewReady || !selStyleField) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "style-selection", payload: msg }, "*");
+  }
+  function cmsOnSelection(p) {
+    if (p.present && p.id) {
+      selStyleField = p.id;
+      if (selStylePanel) selStylePanel.classList.add("is-active");
+    } else if (selStylePanel) {
+      // Keep selStyleField so the controls still target the last highlight even
+      // after focus moves to them (which collapses the preview selection).
+      selStylePanel.classList.remove("is-active");
+    }
+  }
+  function cmsOnTextUpdate(p) {
+    if (!p.id) return;
+    setValue(p.id, p.html);
+    var box = document.querySelector('.cms-field-richtext[data-bind="' + p.id + '"]');
+    if (box) box.innerHTML = p.html; // keep the form's richtext box in sync
+    scheduleSave();
+  }
+  if (selStylePanel) {
+    var selColor = selStylePanel.querySelector("[data-seltext-color]");
+    if (selColor) selColor.addEventListener("input", function () { cmsSendFormat({ prop: "color", value: this.value }); });
+    selStylePanel.querySelectorAll("[data-seltext-cmd]").forEach(function (b) {
+      // Don't steal focus from the preview selection on click.
+      b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      b.addEventListener("click", function () {
+        var cmd = b.getAttribute("data-seltext-cmd");
+        if (cmd === "bold") cmsSendFormat({ prop: "font-weight", value: "700" });
+        else if (cmd === "italic") cmsSendFormat({ prop: "font-style", value: "italic" });
+        else if (cmd === "clear") cmsSendFormat({ clear: true });
+      });
+    });
+    var selSize = selStylePanel.querySelector("[data-seltext-size]");
+    if (selSize) {
+      buildSizeSelect(selSize, CMS_SIZES, "");
+      selSize.addEventListener("change", function () { if (selSize.value) cmsSendFormat({ prop: "font-size", value: selSize.value }); });
+    }
+  }
 
   function pushAllToPreview() {
     var patch = {};
@@ -686,62 +738,10 @@
       }
     });
 
-    // Bind per-element Style panels.
-    document.querySelectorAll("[data-style-panel]").forEach(function (panel) {
-      var fieldId = panel.getAttribute("data-style-panel");
-      var current = getStyle(fieldId);
-
-      function commit(prop, value) {
-        setStyleProp(fieldId, prop, value);
-        pushStyleToPreview(fieldId);
-        scheduleSave();
-      }
-
-      panel.querySelectorAll("[data-style-swatches]").forEach(function (container) {
-        var key = container.getAttribute("data-style-swatches"); // "color" | "bgColor"
-        buildSwatches(container, current[key], function (c) { commit(key, c); });
-      });
-
-      var size = panel.querySelector("[data-style-sizeselect]");
-      if (size) {
-        buildSizeSelect(size, CMS_SIZES, current.fontSize);
-        size.addEventListener("change", function () { commit("fontSize", size.value); });
-      }
-
-      var fam = panel.querySelector("[data-style-fontselect]");
-      if (fam) {
-        buildFontSelect(fam, current.fontFamily);
-        fam.addEventListener("change", function () { commit("fontFamily", fam.value); });
-      }
-
-      var weight = panel.querySelector('[data-style-bind="fontWeight"]');
-      if (weight) {
-        if (current.fontWeight) weight.value = current.fontWeight;
-        weight.addEventListener("change", function () { commit("fontWeight", weight.value); });
-      }
-
-      var italic = panel.querySelector('[data-style-bind="italic"]');
-      if (italic) {
-        italic.checked = !!current.italic;
-        italic.addEventListener("change", function () { commit("italic", italic.checked); });
-      }
-
-      var alignBtns = panel.querySelectorAll("[data-style-align]");
-      function reflectAlign(val) {
-        alignBtns.forEach(function (b) {
-          b.setAttribute("aria-pressed", b.getAttribute("data-style-align") === val ? "true" : "false");
-        });
-      }
-      reflectAlign(current.align || "");
-      alignBtns.forEach(function (b) {
-        b.addEventListener("click", function () {
-          var val = b.getAttribute("data-style-align");
-          if (getStyle(fieldId).align === val) val = ""; // toggle off
-          reflectAlign(val);
-          commit("align", val);
-        });
-      });
-    });
+    // Per-element whole-element Style panels were replaced by selection-based
+    // styling (highlight text on the preview → the docked panel restyles just
+    // that span). Existing stored `_styles` still render server-side for
+    // back-compat and are re-pushed to the preview on load (see 'ready').
 
     // Bind global Design controls (fonts / size dropdowns + color swatches).
     cmsLoadEditorFonts();

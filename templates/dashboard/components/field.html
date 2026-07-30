@@ -80,51 +80,7 @@
     </div>
   {% endif %}
 
-  {% if field.style_editable %}
-    <details class="cms-style-panel" data-style-panel="{{ field.id }}">
-      <summary class="cms-style-summary">Style</summary>
-      <div class="cms-style-grid">
-        <div class="cms-style-row">
-          <span>Color</span>
-          <div class="cms-swatches" data-style-swatches="color"></div>
-        </div>
-        <div class="cms-style-row">
-          <span>Background</span>
-          <div class="cms-swatches" data-style-swatches="bgColor"></div>
-        </div>
-        <label class="cms-style-row">
-          <span>Size</span>
-          <select class="select" data-style-bind="fontSize" data-style-sizeselect></select>
-        </label>
-        <label class="cms-style-row">
-          <span>Font</span>
-          <select class="select" data-style-bind="fontFamily" data-style-fontselect></select>
-        </label>
-        <label class="cms-style-row">
-          <span>Weight</span>
-          <select class="select" data-style-bind="fontWeight">
-            <option value="">Default</option>
-            <option value="300">Light</option>
-            <option value="400">Normal</option>
-            <option value="500">Medium</option>
-            <option value="600">Semibold</option>
-            <option value="700">Bold</option>
-            <option value="800">Extra bold</option>
-          </select>
-        </label>
-        <label class="cms-style-row cms-style-inline">
-          <span>Italic</span>
-          <input type="checkbox" data-style-bind="italic">
-        </label>
-        <div class="cms-style-row">
-          <span>Align</span>
-          <div class="cms-align-group" role="group" aria-label="Text alignment">
-            <button type="button" data-style-align="left" title="Left" aria-label="Align left">⇤</button>
-            <button type="button" data-style-align="center" title="Center" aria-label="Align center">≡</button>
-            <button type="button" data-style-align="right" title="Right" aria-label="Align right">⇥</button>
-          </div>
-        </div>
-      </div>
-    </details>
-  {% endif %}
+  {# Per-element Style panel removed — styling is now selection-based: highlight
+     text on the preview and use the docked "Selected text" panel (see
+     #cms-seltext-panel in editor.html). #}
 </div>

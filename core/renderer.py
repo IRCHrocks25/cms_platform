@@ -117,6 +117,63 @@ PREVIEW_BRIDGE_SCRIPT = """
       send('focus-field', { id: el.getAttribute('data-edit') });
     });
   });
+
+  // ---- selection-based text styling ------------------------------------
+  // Highlight text inside a richtext field on the preview and the editor's
+  // side panel restyles just that selection: we wrap it in a styled <span>,
+  // stored in the field's own richtext HTML (so a two-colour heading is just
+  // a span, not a separate style layer). The live range is remembered so it
+  // survives focus moving to the editor's controls in the parent frame.
+  var cmsSelRange = null, cmsSelField = null;
+  function cmsRichHost(node) {
+    var el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return el && el.closest ? el.closest('[data-edit]') : null;
+  }
+  function cmsIsRich(host) {
+    return !!host && (host.getAttribute('data-type') || 'text') === 'richtext';
+  }
+  document.addEventListener('selectionchange', function () {
+    var s = window.getSelection();
+    if (!s || !s.rangeCount || s.isCollapsed) { send('text-selection', { present: false }); return; }
+    var r = s.getRangeAt(0);
+    var host = cmsRichHost(r.commonAncestorContainer);
+    if (!cmsIsRich(host)) { send('text-selection', { present: false }); return; }
+    // Remember this selection; keep it across later focus loss so the parent's
+    // colour/size controls still target it.
+    cmsSelRange = r.cloneRange();
+    cmsSelField = host.getAttribute('data-edit');
+    send('text-selection', { present: true, id: cmsSelField });
+  });
+  function cmsStyleSelection(prop, value) {
+    if (!cmsSelRange) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsRich(host)) return null;
+    var sp = document.createElement('span');
+    sp.style.setProperty(prop, value);
+    var r = cmsSelRange.cloneRange();
+    try { r.surroundContents(sp); }
+    catch (e) { try { sp.appendChild(r.extractContents()); r.insertNode(sp); } catch (_) { return null; } }
+    if (prop === 'font-family') cmsEnsureFont(value);
+    // Re-select the wrapped text so successive tweaks stack on the same span.
+    var sel = window.getSelection(); sel.removeAllRanges();
+    var nr = document.createRange(); nr.selectNodeContents(sp); sel.addRange(nr);
+    cmsSelRange = nr.cloneRange();
+    return host;
+  }
+  function cmsClearSelection() {
+    if (!cmsSelRange) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsRich(host)) return null;
+    var r = cmsSelRange;
+    Array.prototype.slice.call(host.querySelectorAll('span[style]')).forEach(function (sp) {
+      if (r.intersectsNode(sp)) {
+        while (sp.firstChild) sp.parentNode.insertBefore(sp.firstChild, sp);
+        sp.parentNode.removeChild(sp);
+      }
+    });
+    host.normalize();
+    return host;
+  }
   window.addEventListener('message', function (e) {
     var data = e.data || {};
     if (data.source !== 'cms-editor') return;
@@ -199,6 +256,11 @@ PREVIEW_BRIDGE_SCRIPT = """
         el.classList.add('cms-highlight');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
+    }
+    if (data.type === 'style-selection') {
+      var sd = data.payload || {};
+      var host = sd.clear ? cmsClearSelection() : cmsStyleSelection(sd.prop, sd.value);
+      if (host) send('text-update', { id: host.getAttribute('data-edit'), html: host.innerHTML });
     }
     if (data.type === 'scroll-to-section') {
       var sec = document.querySelector('[data-section="' + data.payload.id + '"]');
