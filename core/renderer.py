@@ -132,15 +132,20 @@ PREVIEW_BRIDGE_SCRIPT = """
     var el = node && (node.nodeType === 1 ? node : node.parentElement);
     return el && el.closest ? el.closest('[data-edit]') : null;
   }
-  function cmsIsRich(host) {
-    return !!host && (host.getAttribute('data-type') || 'text') === 'richtext';
+  function cmsIsStyleable(host) {
+    if (!host) return false;
+    // Any text-bearing field — plain text or richtext (like lp-cms, which lets
+    // you style every heading/paragraph, not just "rich" ones). Styling a plain
+    // text field just turns its value into inline HTML (a styled span).
+    var t = host.getAttribute('data-type') || 'text';
+    return t === 'text' || t === 'richtext';
   }
   document.addEventListener('selectionchange', function () {
     var s = window.getSelection();
     if (!s || !s.rangeCount || s.isCollapsed) { send('text-selection', { present: false }); return; }
     var r = s.getRangeAt(0);
     var host = cmsRichHost(r.commonAncestorContainer);
-    if (!cmsIsRich(host)) { send('text-selection', { present: false }); return; }
+    if (!cmsIsStyleable(host)) { send('text-selection', { present: false }); return; }
     // Remember this selection; keep it across later focus loss so the parent's
     // colour/size controls still target it.
     cmsSelRange = r.cloneRange();
@@ -150,7 +155,7 @@ PREVIEW_BRIDGE_SCRIPT = """
   function cmsStyleSelection(prop, value) {
     if (!cmsSelRange) return null;
     var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
-    if (!cmsIsRich(host)) return null;
+    if (!cmsIsStyleable(host)) return null;
     var sp = document.createElement('span');
     sp.className = 'cms-tspan'; // marks a selection-styled span so the
                                 // whole-element recolor rule leaves it alone
@@ -168,7 +173,7 @@ PREVIEW_BRIDGE_SCRIPT = """
   function cmsClearSelection() {
     if (!cmsSelRange) return null;
     var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
-    if (!cmsIsRich(host)) return null;
+    if (!cmsIsStyleable(host)) return null;
     var r = cmsSelRange;
     Array.prototype.slice.call(host.querySelectorAll('span[style]')).forEach(function (sp) {
       if (r.intersectsNode(sp)) {
@@ -215,6 +220,9 @@ PREVIEW_BRIDGE_SCRIPT = """
             el.style[prop] = value;
           }
           else if (t === 'richtext') { el.innerHTML = cmsRichtextHTML(el, value); }
+          // Plain text field: normally textContent, but once it carries a
+          // selection-styled span (or any inline markup) render it as HTML.
+          else if (/<[a-z]/i.test(value)) { el.innerHTML = cmsRichtextHTML(el, value); }
           else { el.textContent = value; }
         });
       });
@@ -372,6 +380,21 @@ def _apply_image(el, value: str) -> None:
                 del source["data-srcset"]
 
 
+def _insert_sanitized_html(el, html: str) -> None:
+    """Replace ``el``'s contents with sanitized inline HTML (used by richtext
+    fields and by plain text fields once they carry a selection-styled span)."""
+    el.clear()
+    cleaned = sanitize_template_html(html)
+    fragment = BeautifulSoup(cleaned, "lxml").body
+    if fragment:
+        if el.name in _PHRASING_HOSTS:
+            _flatten_for_phrasing_host(fragment)
+        for child in list(fragment.children):
+            el.append(child)
+    else:
+        el.append(cleaned)
+
+
 def _apply_field(el, value: str, ftype: str) -> None:
     # No-op short-circuit. Skip the write when the value already equals what's
     # in the element — typically every render where the tenant hasn't actually
@@ -427,19 +450,15 @@ def _apply_field(el, value: str, ftype: str) -> None:
         # Real edit. Use the template-aware sanitizer (preserves classes,
         # styles, structural tags) rather than the blog-body sanitizer.
         # See ``core/services/template_sanitizer.py`` for the trust model.
-        el.clear()
-        cleaned = sanitize_template_html(value_stripped)
-        fragment = BeautifulSoup(cleaned, "lxml").body
-        if fragment:
-            if el.name in _PHRASING_HOSTS:
-                _flatten_for_phrasing_host(fragment)
-            for child in list(fragment.children):
-                el.append(child)
-        else:
-            el.append(cleaned)
+        _insert_sanitized_html(el, value_stripped)
         return
     # text type
     if el.get_text() == value:
+        return
+    # A plain text field that now carries inline markup (a selection-styled
+    # span) renders as HTML, like richtext; otherwise it's literal text.
+    if re.search(r"<[a-zA-Z]", value or ""):
+        _insert_sanitized_html(el, value.strip())
         return
     el.string = value
 

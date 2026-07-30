@@ -245,6 +245,43 @@ class RichtextSpanStyleTests(SimpleTestCase):
         self.assertEqual(inner.get_text(), "isn't")
 
 
+_TEXT_TEMPLATE = (
+    "<html><head></head><body>"
+    '<section data-section="hero">'
+    '<p data-edit="hero.tagline" data-type="text">Tag</p>'
+    "</section></body></html>"
+)
+
+
+class TextFieldSelectionStyleTests(SimpleTestCase):
+    """A plain `text` field can also carry a selection-styled span (lp-cms lets
+    you style any text, not just 'rich' fields). Once it holds inline markup it
+    renders as sanitized HTML; a plain value stays literal text."""
+
+    def test_text_field_with_span_renders_as_html(self):
+        content = {"hero": {"tagline":
+                            'Big <span class="cms-tspan" style="color: #e11d48">deal</span>'}}
+        html = render_site(_TEXT_TEMPLATE, content)
+        span = BeautifulSoup(html, "lxml").select_one('[data-edit="hero.tagline"] span.cms-tspan')
+        self.assertIsNotNone(span)
+        self.assertIn("#e11d48", span.get("style", ""))
+        self.assertEqual(span.get_text(), "deal")
+
+    def test_plain_text_field_stays_literal(self):
+        content = {"hero": {"tagline": "Just plain text"}}
+        html = render_site(_TEXT_TEMPLATE, content)
+        p = BeautifulSoup(html, "lxml").find(attrs={"data-edit": "hero.tagline"})
+        self.assertEqual(p.get_text(), "Just plain text")
+        self.assertIsNone(p.find("span"))
+
+    def test_text_field_angle_bracket_not_treated_as_markup(self):
+        # "a < b" is not inline markup — must not be swallowed as a tag.
+        content = {"hero": {"tagline": "a < b and c"}}
+        html = render_site(_TEXT_TEMPLATE, content)
+        p = BeautifulSoup(html, "lxml").find(attrs={"data-edit": "hero.tagline"})
+        self.assertEqual(p.get_text(), "a < b and c")
+
+
 class PreviewBridgeStyleTests(SimpleTestCase):
     def test_bridge_has_style_handlers(self):
         html = render_site(_TEMPLATE, {"hero": {"title": "Hi"}}, preview=True)
