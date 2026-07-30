@@ -764,10 +764,73 @@
       }
     });
 
-    // Per-element whole-element Style panels were replaced by selection-based
-    // styling (highlight text on the preview → the docked panel restyles just
-    // that span). Existing stored `_styles` still render server-side for
-    // back-compat and are re-pushed to the preview on load (see 'ready').
+    // Per-field Style panel — whole-element styling (colour/size/font/weight/
+    // italic/align). Colours use a custom picker (swatch) rather than presets.
+    // Selection-level styling is separate (the floating bubble on the preview).
+    document.querySelectorAll("[data-style-panel]").forEach(function (panel) {
+      var fieldId = panel.getAttribute("data-style-panel");
+      var current = getStyle(fieldId);
+
+      function commit(prop, value) {
+        setStyleProp(fieldId, prop, value);
+        pushStyleToPreview(fieldId);
+        scheduleSave();
+      }
+
+      var color = panel.querySelector("[data-style-color]");
+      if (color) {
+        if (current.color) color.value = current.color;
+        color.addEventListener("input", function () { commit("color", color.value); });
+      }
+      var bg = panel.querySelector("[data-style-bgcolor]");
+      if (bg) {
+        if (current.bgColor) bg.value = current.bgColor;
+        bg.addEventListener("input", function () { commit("bgColor", bg.value); });
+      }
+      panel.querySelectorAll("[data-style-clear]").forEach(function (btn) {
+        btn.addEventListener("click", function () { commit(btn.getAttribute("data-style-clear"), ""); });
+      });
+
+      var size = panel.querySelector("[data-style-sizeselect]");
+      if (size) {
+        buildSizeSelect(size, CMS_SIZES, current.fontSize);
+        size.addEventListener("change", function () { commit("fontSize", size.value); });
+      }
+
+      var fam = panel.querySelector("[data-style-fontselect]");
+      if (fam) {
+        buildFontSelect(fam, current.fontFamily);
+        fam.addEventListener("change", function () { commit("fontFamily", fam.value); });
+      }
+
+      var weight = panel.querySelector('[data-style-bind="fontWeight"]');
+      if (weight) {
+        if (current.fontWeight) weight.value = current.fontWeight;
+        weight.addEventListener("change", function () { commit("fontWeight", weight.value); });
+      }
+
+      var italic = panel.querySelector('[data-style-bind="italic"]');
+      if (italic) {
+        italic.checked = !!current.italic;
+        italic.addEventListener("change", function () { commit("italic", italic.checked); });
+      }
+
+      var alignBtns = panel.querySelectorAll("[data-style-align]");
+      function reflectAlign(val) {
+        alignBtns.forEach(function (b) {
+          b.setAttribute("aria-pressed", b.getAttribute("data-style-align") === val ? "true" : "false");
+        });
+      }
+      reflectAlign(current.align || "");
+      alignBtns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          var val = b.getAttribute("data-style-align");
+          if (getStyle(fieldId).align === val) val = ""; // toggle off
+          reflectAlign(val);
+          commit("align", val);
+        });
+      });
+    });
 
     // Bind global Design controls (fonts / size dropdowns + color swatches).
     cmsLoadEditorFonts();
