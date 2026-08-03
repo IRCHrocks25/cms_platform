@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 
 from core import ghl_oauth
@@ -78,11 +79,12 @@ def bind_orphan_install(*, install: GhlInstall, tenant: Tenant) -> GhlInstall:
     exchange. Caller is responsible for clash-checking first, mirroring
     integrations_bind's convention (the clash check lives in the view, not
     the service function)."""
-    install.tenant = tenant
-    install.save(update_fields=["tenant", "updated_at"])
-    if tenant.ghl_location_id != install.location_id:
-        tenant.ghl_location_id = install.location_id
-        tenant.save(update_fields=["ghl_location_id", "updated_at"])
+    with transaction.atomic():
+        install.tenant = tenant
+        install.save(update_fields=["tenant", "updated_at"])
+        if tenant.ghl_location_id != install.location_id:
+            tenant.ghl_location_id = install.location_id
+            tenant.save(update_fields=["ghl_location_id", "updated_at"])
     return install
 
 
