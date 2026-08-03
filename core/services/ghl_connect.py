@@ -72,6 +72,20 @@ def bind_location(*, agency: GhlAgencyInstall, location_id: str, tenant: Tenant)
     return install
 
 
+def bind_orphan_install(*, install: GhlInstall, tenant: Tenant) -> GhlInstall:
+    """Link a direct (agency-less) GhlInstall to a Tenant. No token minting —
+    the install already holds its own valid token from the direct OAuth
+    exchange. Caller is responsible for clash-checking first, mirroring
+    integrations_bind's convention (the clash check lives in the view, not
+    the service function)."""
+    install.tenant = tenant
+    install.save(update_fields=["tenant", "updated_at"])
+    if tenant.ghl_location_id != install.location_id:
+        tenant.ghl_location_id = install.location_id
+        tenant.save(update_fields=["ghl_location_id", "updated_at"])
+    return install
+
+
 def reconnect_install(install: GhlInstall) -> GhlInstall:
     """Re-mint a location token for an existing install from its agency."""
     if install.agency is None or install.tenant is None:

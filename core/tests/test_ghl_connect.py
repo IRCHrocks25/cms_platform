@@ -73,3 +73,32 @@ class BindLocationTests(TestCase):
         orphan = GhlInstall.objects.create(location_id="loc_x", access_token=encrypt_token("x"))
         with self.assertRaises(ValueError):
             ghl_connect.reconnect_install(orphan)
+
+
+@override_settings(GHL_TOKEN_ENCRYPTION_KEY=KEY, GHL_CLIENT_ID="app-ver", GHL_CLIENT_SECRET="s")
+class BindOrphanInstallTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user("orphan_owner", password="pw")
+        self.template = Template.objects.create(name="OT", html_source="<div></div>")
+        self.tenant = Tenant.objects.create(
+            name="Orphan Target", subdomain="orphantarget", template=self.template, owner=self.owner
+        )
+
+    def test_bind_orphan_install_links_tenant_without_minting(self):
+        from core.services import ghl_connect
+
+        install = GhlInstall.objects.create(
+            location_id="loc_orphan",
+            access_token=encrypt_token("orig-access"),
+            refresh_token=encrypt_token("orig-refresh"),
+        )
+        with mock.patch("core.ghl_oauth.mint_location_token") as mint:
+            result = ghl_connect.bind_orphan_install(install=install, tenant=self.tenant)
+            mint.assert_not_called()
+
+        self.assertEqual(result.tenant_id, self.tenant.pk)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.ghl_location_id, "loc_orphan")
+        # Tokens are untouched — still decrypt to their original values.
+        self.assertEqual(decrypt_token(result.access_token), "orig-access")
+        self.assertEqual(decrypt_token(result.refresh_token), "orig-refresh")
