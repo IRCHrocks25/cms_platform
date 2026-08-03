@@ -77,6 +77,7 @@ urlpatterns = [
     path("integrations/bind/", views.integrations_bind, name="integrations_bind"),
     path("integrations/reconnect/", views.integrations_reconnect, name="integrations_reconnect"),
     path("integrations/disconnect/", views.integrations_disconnect, name="integrations_disconnect"),
+    path("integrations/bind-orphan/", views.integrations_bind_orphan, name="integrations_bind_orphan"),
     path("integrations/refresh-locations/", views.integrations_refresh_locations,
          name="integrations_refresh_locations"),
     path("integrations/disconnect-agency/", views.integrations_disconnect_agency,

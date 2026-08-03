@@ -211,3 +211,66 @@ class IntegrationsViewTests(TestCase):
         })
         self.agency.refresh_from_db()
         self.assertEqual(self.agency.company_name, "Robyn Agency")
+
+    def test_bind_orphan_links_tenant(self):
+        install = GhlInstall.objects.create(location_id="loc_orphan", access_token=encrypt_token("x"))
+        resp = self.client.post(reverse("dashboard:integrations_bind_orphan"), {
+            "install_id": install.pk, "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.tenant.refresh_from_db()
+        self.assertEqual(install.tenant_id, self.tenant.pk)
+        self.assertEqual(self.tenant.ghl_location_id, "loc_orphan")
+
+    def test_bind_orphan_rejects_when_location_claimed_by_another_tenant(self):
+        other = Tenant.objects.create(
+            name="Beta", subdomain="beta", template=self.template,
+            owner=self.owner, ghl_location_id="loc_orphan",
+        )
+        install = GhlInstall.objects.create(location_id="loc_orphan", access_token=encrypt_token("x"))
+        resp = self.client.post(reverse("dashboard:integrations_bind_orphan"), {
+            "install_id": install.pk, "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.tenant.refresh_from_db()
+        self.assertIsNone(install.tenant_id)
+        self.assertNotEqual(self.tenant.ghl_location_id, "loc_orphan")
+        other.refresh_from_db()
+        self.assertEqual(other.ghl_location_id, "loc_orphan")
+
+    def test_bind_orphan_rejects_when_install_already_bound_elsewhere(self):
+        other = Tenant.objects.create(
+            name="Gamma", subdomain="gamma", template=self.template, owner=self.owner,
+        )
+        install = GhlInstall.objects.create(
+            location_id="loc_orphan", tenant=other, access_token=encrypt_token("x"),
+        )
+        resp = self.client.post(reverse("dashboard:integrations_bind_orphan"), {
+            "install_id": install.pk, "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.assertEqual(install.tenant_id, other.pk)
+
+    def test_bind_orphan_rejects_when_install_has_agency(self):
+        install = GhlInstall.objects.create(
+            location_id="loc_a", agency=self.agency, access_token=encrypt_token("x"),
+        )
+        resp = self.client.post(reverse("dashboard:integrations_bind_orphan"), {
+            "install_id": install.pk, "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        install.refresh_from_db()
+        self.assertIsNone(install.tenant_id)
+
+    def test_bind_orphan_requires_superuser(self):
+        self.client.logout()
+        non_admin = User.objects.create_user("staffonly", password="pw", is_staff=True, is_superuser=False)
+        self.client.force_login(non_admin)
+        install = GhlInstall.objects.create(location_id="loc_orphan", access_token=encrypt_token("x"))
+        resp = self.client.post(reverse("dashboard:integrations_bind_orphan"), {
+            "install_id": install.pk, "tenant_id": self.tenant.pk,
+        })
+        self.assertEqual(resp.status_code, 403)
