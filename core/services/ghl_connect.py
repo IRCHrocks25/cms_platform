@@ -78,7 +78,14 @@ def bind_orphan_install(*, install: GhlInstall, tenant: Tenant) -> GhlInstall:
     the install already holds its own valid token from the direct OAuth
     exchange. Caller is responsible for clash-checking first, mirroring
     integrations_bind's convention (the clash check lives in the view, not
-    the service function)."""
+    the service function).
+
+    The atomic block keeps this call's own two writes consistent with each
+    other, but it does not re-validate the clash check against fresh DB
+    state — two concurrent calls binding different installs to the same
+    tenant can still both succeed, leaving Tenant.ghl_location_id pointing
+    at only one of them. Acceptable for this low-traffic, superuser-only
+    admin action; would need select_for_update() to close fully."""
     with transaction.atomic():
         install.tenant = tenant
         install.save(update_fields=["tenant", "updated_at"])
