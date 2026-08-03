@@ -274,3 +274,27 @@ class IntegrationsViewTests(TestCase):
             "install_id": install.pk, "tenant_id": self.tenant.pk,
         })
         self.assertEqual(resp.status_code, 403)
+
+    def test_integrations_page_shows_bind_form_for_unbound_orphan(self):
+        # NOTE: don't also assert on 'name="tenant_id"' here — the existing
+        # agency-bind form (integrations.html ~line 88) already renders that
+        # attribute whenever setUp's self.agency has an unbound location, so
+        # that assertion would false-pass even without this task's template
+        # change. The reverse()'d bind-orphan URL is unique to this form and
+        # is the only assertion needed to isolate it.
+        GhlInstall.objects.create(location_id="loc_unbound", access_token=encrypt_token("x"))
+        resp = self.client.get(reverse("dashboard:integrations"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse("dashboard:integrations_bind_orphan"))
+
+    def test_integrations_page_hides_bind_form_for_bound_orphan(self):
+        already_bound = Tenant.objects.create(
+            name="Delta", subdomain="delta", template=self.template, owner=self.owner,
+        )
+        GhlInstall.objects.create(
+            location_id="loc_bound", tenant=already_bound, access_token=encrypt_token("x"),
+        )
+        resp = self.client.get(reverse("dashboard:integrations"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Delta")
+        self.assertNotContains(resp, reverse("dashboard:integrations_bind_orphan"))

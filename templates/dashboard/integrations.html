@@ -196,6 +196,19 @@
               </td>
               <td class="right">
                 <span class="row-actions">
+                  {% if not i.tenant %}
+                  <form method="post" action="{% url 'dashboard:integrations_bind_orphan' %}" style="display: inline; margin: 0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="install_id" value="{{ i.pk }}">
+                    <select name="tenant_id" class="input" style="display: inline-block; width: auto;" required>
+                      <option value="">Link to site…</option>
+                      {% for t in tenants %}
+                      <option value="{{ t.pk }}">{{ t.name }}</option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-secondary btn-sm" type="submit">Link</button>
+                  </form>
+                  {% endif %}
                   <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" style="display: inline; margin: 0;">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
