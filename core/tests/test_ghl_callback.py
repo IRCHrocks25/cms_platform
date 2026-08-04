@@ -37,6 +37,24 @@ class CallbackCompanyBranchTests(TestCase):
         self.assertEqual(decrypt_token(install.access_token), "aa")
         self.assertEqual(install.status, GhlInstall.STATUS_CONNECTED)
 
+    def test_company_install_redirect_marks_agency_connected(self):
+        token = {"userType": "Company", "companyId": "co_marker", "access_token": "a",
+                 "refresh_token": "r", "expires_in": 86400, "scope": "locations.readonly"}
+        with mock.patch("core.ghl_oauth.exchange_code", return_value=token), \
+             mock.patch("core.ghl_oauth.list_installed_locations", return_value=[]):
+            resp = self.client.get(reverse("ghl_oauth_callback"), {"code": "c"})
+        self.assertEqual(resp.url, f"{reverse('dashboard:integrations')}?connected=agency")
+
+    def test_location_install_redirect_marks_location_connected(self):
+        token = {"userType": "Location", "locationId": "loc_marker", "access_token": "aa",
+                 "refresh_token": "rr", "expires_in": 86400, "scope": ""}
+        with mock.patch("core.ghl_oauth.exchange_code", return_value=token):
+            resp = self.client.get(reverse("ghl_oauth_callback"), {"code": "c"})
+        self.assertEqual(
+            resp.url,
+            f"{reverse('dashboard:integrations')}?connected=location&location_id=loc_marker",
+        )
+
     @override_settings(GHL_TOKEN_ENCRYPTION_KEY="")
     def test_callback_returns_503_when_encryption_key_unset(self):
         token = {"userType": "Location", "locationId": "loc_z", "access_token": "aa",
