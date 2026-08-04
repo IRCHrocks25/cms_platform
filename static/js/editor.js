@@ -123,6 +123,156 @@
   // hides one field. Hiding is fully reversible — structure stays locked.
   if (!Array.isArray(content._hidden)) content._hidden = [];
 
+  // ---- per-element styles (color / size / font / weight / italic / align) ----
+  // State lives in content._styles[fieldId] = { color, fontSize, ... } so it
+  // rides the normal autosave. Empty style objects are pruned.
+  if (typeof content._styles !== "object" || content._styles === null) content._styles = {};
+  if (typeof content._global !== "object" || content._global === null) content._global = {};
+  if (typeof content._tokens !== "object" || content._tokens === null) content._tokens = {};
+
+  function getStyle(fieldId) { return content._styles[fieldId] || {}; }
+  function setStyleProp(fieldId, prop, value) {
+    var s = content._styles[fieldId] || {};
+    if (value === "" || value === null || value === undefined || value === false) {
+      delete s[prop];
+    } else {
+      s[prop] = value;
+    }
+    if (Object.keys(s).length) content._styles[fieldId] = s;
+    else delete content._styles[fieldId];
+  }
+  function pushStyleToPreview(fieldId) {
+    if (!previewReady) return;
+    var p = {}; p[fieldId] = getStyle(fieldId);
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-styles", payload: p }, "*");
+  }
+  function pushGlobalToPreview() {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-global", payload: content._global }, "*");
+  }
+  function pushTokensToPreview() {
+    if (!previewReady) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "apply-tokens", payload: content._tokens }, "*");
+  }
+
+  // ---- curated choice lists (pre-made fonts / sizes / colors) ----------
+  var CMS_FONTS = [
+    "Inter", "Poppins", "Roboto", "Open Sans", "Lato", "Montserrat",
+    "Raleway", "Nunito", "Work Sans", "Rubik", "DM Sans", "Source Sans 3",
+    "Playfair Display", "Merriweather", "Lora", "Oswald", "Bebas Neue",
+    "Dancing Script",
+  ];
+  var CMS_SIZES = [
+    { label: "Small", value: "14px" }, { label: "Normal", value: "16px" },
+    { label: "Medium", value: "20px" }, { label: "Large", value: "28px" },
+    { label: "X-Large", value: "40px" }, { label: "Huge", value: "56px" },
+    { label: "Display", value: "72px" },
+  ];
+  var CMS_BASE_SIZES = [
+    { label: "14px", value: "14px" }, { label: "15px", value: "15px" },
+    { label: "16px (default)", value: "16px" }, { label: "17px", value: "17px" },
+    { label: "18px", value: "18px" }, { label: "20px", value: "20px" },
+  ];
+  var CMS_COLORS = [
+    "#000000", "#1f2937", "#374151", "#6b7280", "#9ca3af", "#ffffff",
+    "#b91c1c", "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16",
+    "#22c55e", "#10b981", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1",
+    "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#7c3aed",
+  ];
+
+  // Load the curated fonts into the dashboard document so dropdown option
+  // labels render in their own typeface (data-cookieconsent ignore for parity).
+  function cmsLoadEditorFonts() {
+    if (document.getElementById("cms-editor-fonts")) return;
+    var fam = CMS_FONTS.map(function (f) {
+      return "family=" + f.replace(/ /g, "+") + ":wght@400;700";
+    }).join("&");
+    var link = document.createElement("link");
+    link.id = "cms-editor-fonts";
+    link.rel = "stylesheet";
+    link.setAttribute("data-cookieconsent", "ignore");
+    link.href = "https://fonts.googleapis.com/css2?" + fam + "&display=swap";
+    document.head.appendChild(link);
+  }
+
+  function buildFontSelect(sel, current) {
+    sel.innerHTML = "";
+    var def = document.createElement("option");
+    def.value = ""; def.textContent = "Default";
+    sel.appendChild(def);
+    CMS_FONTS.forEach(function (f) {
+      var o = document.createElement("option");
+      o.value = f; o.textContent = f; o.style.fontFamily = "'" + f + "'";
+      if (f === current) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (!current) sel.value = "";
+  }
+
+  function buildSizeSelect(sel, list, current) {
+    sel.innerHTML = "";
+    var def = document.createElement("option");
+    def.value = ""; def.textContent = "Default";
+    sel.appendChild(def);
+    list.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.value; o.textContent = s.label;
+      if (s.value === current) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (!current) sel.value = "";
+  }
+
+  // Build a palette of preset color chips + a "none/default" chip.
+  function buildSwatches(container, current, onPick) {
+    container.innerHTML = "";
+    function mark(el) {
+      container.querySelectorAll(".cms-swatch").forEach(function (x) {
+        x.classList.remove("active");
+      });
+      if (el) el.classList.add("active");
+    }
+    var none = document.createElement("button");
+    none.type = "button";
+    none.className = "cms-swatch cms-swatch-none";
+    none.title = "Default (no override)";
+    none.textContent = "×";
+    none.addEventListener("click", function () { mark(none); onPick(""); });
+    container.appendChild(none);
+    var activeSet = false;
+    // Surface the current colour as its own chip when it isn't one of the
+    // presets (e.g. a theme token's existing value like #6b47b8) so it stays
+    // visible and selectable.
+    var curLc = (current || "").toLowerCase();
+    var inPresets = CMS_COLORS.some(function (c) { return c.toLowerCase() === curLc; });
+    if (current && curLc.charAt(0) === "#" && !inPresets) {
+      var cur = document.createElement("button");
+      cur.type = "button";
+      cur.className = "cms-swatch active";
+      cur.style.background = current;
+      cur.title = current + " (current)";
+      cur.setAttribute("data-color", current);
+      cur.addEventListener("click", function () { mark(cur); onPick(current); });
+      container.appendChild(cur);
+      activeSet = true;
+    }
+    CMS_COLORS.forEach(function (c) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "cms-swatch";
+      b.style.background = c;
+      b.title = c;
+      b.setAttribute("data-color", c);
+      if (c.toLowerCase() === (current || "").toLowerCase()) { b.classList.add("active"); activeSet = true; }
+      b.addEventListener("click", function () { mark(b); onPick(c); });
+      container.appendChild(b);
+    });
+    if (!activeSet && !current) none.classList.add("active");
+  }
+
   var EYE_ON =
     '<svg class="cms-eye cms-eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
     'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
@@ -236,10 +386,92 @@
       // Re-assert hidden state in case content._hidden has unsaved changes the
       // freshly server-rendered iframe doesn't reflect yet.
       content._hidden.forEach(function (id) { pushVisibility(id, true); });
+      // Same for per-element and global styles.
+      Object.keys(content._styles).forEach(function (fid) { pushStyleToPreview(fid); });
+      if (content._global && Object.keys(content._global).length) pushGlobalToPreview();
+      if (content._tokens && Object.keys(content._tokens).length) pushTokensToPreview();
     } else if (data.type === "focus-field") {
       focusFieldInForm(data.payload.id);
+    } else if (data.type === "text-selection") {
+      cmsOnSelection(data.payload || {});
+    } else if (data.type === "text-update") {
+      cmsOnTextUpdate(data.payload || {});
     }
   });
+
+  // ---- selection-based text styling (floating bubble on the preview) ----
+  // When text is highlighted on the preview, a small bubble pops up just below
+  // it; its controls send colour/bold/italic/size back, the preview applies
+  // them to that selection and echoes a `text-update` we persist.
+  var selStyleField = null;
+  var selStylePanel = document.getElementById("cms-seltext-panel");
+  var selPicking = false, selPanelHover = false;
+  function cmsSendFormat(msg) {
+    if (!previewReady || !selStyleField) return;
+    previewFrame.contentWindow.postMessage(
+      { source: "cms-editor", type: "style-selection", payload: msg }, "*");
+  }
+  function positionSelPanel(rect) {
+    if (!rect || !selStylePanel) return;
+    var fr = previewFrame.getBoundingClientRect();
+    var pw = selStylePanel.offsetWidth, ph = selStylePanel.offsetHeight;
+    var below = fr.top + rect.bottom + 8;
+    // Flip above the text if it would overflow the bottom of the window.
+    var top = (below + ph > window.innerHeight - 8) ? fr.top + rect.top - ph - 8 : below;
+    var left = fr.left + rect.left + rect.width / 2 - pw / 2;
+    selStylePanel.style.top = Math.max(8, Math.min(window.innerHeight - ph - 8, top)) + "px";
+    selStylePanel.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, left)) + "px";
+  }
+  function cmsOnSelection(p) {
+    if (p.present && p.id) {
+      selStyleField = p.id;
+      if (selStylePanel) {
+        selStylePanel.classList.add("is-active"); // display it so it can be measured
+        positionSelPanel(p.rect);
+      }
+    } else if (selStylePanel && !selPicking && !selPanelHover) {
+      // Keep selStyleField (the controls still target the last highlight) but
+      // hide the bubble once nothing is selected and we're not mid-interaction.
+      selStylePanel.classList.remove("is-active");
+    }
+  }
+  function cmsOnTextUpdate(p) {
+    if (!p.id) return;
+    setValue(p.id, p.html);
+    var box = document.querySelector('.cms-field-richtext[data-bind="' + p.id + '"]');
+    if (box) box.innerHTML = p.html; // keep the form's richtext box in sync
+    scheduleSave();
+  }
+  if (selStylePanel) {
+    selStylePanel.addEventListener("mouseenter", function () { selPanelHover = true; });
+    selStylePanel.addEventListener("mouseleave", function () { selPanelHover = false; });
+    // Keep the preview selection alive when pressing a control (except the
+    // native colour input, which needs the mousedown to open its picker).
+    selStylePanel.addEventListener("mousedown", function (e) {
+      // Buttons keep the selection alive; the colour input and size select need
+      // the mousedown to open their native pickers.
+      if (!e.target.closest("[data-seltext-color], [data-seltext-size]")) e.preventDefault();
+    });
+    var selColor = selStylePanel.querySelector("[data-seltext-color]");
+    if (selColor) {
+      selColor.addEventListener("mousedown", function () { selPicking = true; });
+      selColor.addEventListener("input", function () { cmsSendFormat({ prop: "color", value: this.value }); });
+      selColor.addEventListener("change", function () { selPicking = false; });
+    }
+    selStylePanel.querySelectorAll("[data-seltext-cmd]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var cmd = b.getAttribute("data-seltext-cmd");
+        if (cmd === "bold") cmsSendFormat({ prop: "font-weight", value: "700" });
+        else if (cmd === "italic") cmsSendFormat({ prop: "font-style", value: "italic" });
+        else if (cmd === "clear") cmsSendFormat({ clear: true });
+      });
+    });
+    var selSize = selStylePanel.querySelector("[data-seltext-size]");
+    if (selSize) {
+      buildSizeSelect(selSize, CMS_SIZES, "");
+      selSize.addEventListener("change", function () { if (selSize.value) cmsSendFormat({ prop: "font-size", value: selSize.value }); });
+    }
+  }
 
   function pushAllToPreview() {
     var patch = {};
@@ -263,6 +495,10 @@
     var sub = node.closest && node.closest(".nav-subpanel");
     if (sub && window.cmsSwitchSub) window.cmsSwitchSub(sub.getAttribute("data-subpanel"));
     node.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Reveal the Style panel so clicking an element in the preview lets you
+    // restyle it (font / color / background) right away.
+    var stylePanel = node.querySelector(".cms-style-panel");
+    if (stylePanel && stylePanel.tagName.toLowerCase() === "details") stylePanel.open = true;
     var input = node.querySelector("[data-bind]");
     if (input) {
       if (input.contentEditable === "true") {
@@ -488,78 +724,148 @@
             vfile.value = "";
             return;
           }
-          vname.textContent = "Preparing upload…";
-          // 1) Ask our server for a signed, scoped upload signature.
-          fetch(window.CMS.videoSignUrl, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: {
-              "X-CSRFToken": window.CMS.csrfToken,
-              "Content-Type": "application/json",
-            },
-            body: "{}",
-          })
-            .then(function (r) { return r.json(); })
-            .then(function (sig) {
-              if (!sig.ok) throw new Error(sig.error || "Could not start upload.");
-              // 2) Upload the file DIRECTLY to Cloudinary (bypasses our server).
-              var fd = new FormData();
-              fd.append("file", file);
-              fd.append("api_key", sig.api_key);
-              fd.append("timestamp", sig.timestamp);
-              fd.append("signature", sig.signature);
-              fd.append("folder", sig.folder);
-              var endpoint = "https://api.cloudinary.com/v1_1/" + sig.cloud_name + "/video/upload";
-              return new Promise(function (resolve, reject) {
-                var xhr = new XMLHttpRequest();
-                xhr.open("POST", endpoint);
-                xhr.upload.onprogress = function (e) {
-                  if (e.lengthComputable) {
-                    vname.textContent = "Uploading… " + Math.round((e.loaded / e.total) * 100) + "%";
-                  }
-                };
-                xhr.onload = function () {
-                  if (xhr.status >= 200 && xhr.status < 300) {
-                    try { resolve(JSON.parse(xhr.responseText)); }
-                    catch (err) { reject(new Error("Bad response from Cloudinary.")); }
-                  } else {
-                    reject(new Error("Cloudinary upload failed."));
-                  }
-                };
-                xhr.onerror = function () { reject(new Error("Network error during upload.")); };
-                xhr.send(fd);
-              });
-            })
-            .then(function (up) {
-              vname.textContent = "Finalizing…";
-              // 3) Send the public_id back so our server can verify + store it.
-              return fetch(window.CMS.videoConfirmUrl, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: {
-                  "X-CSRFToken": window.CMS.csrfToken,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ public_id: up.public_id, original_name: file.name }),
-              }).then(function (r) { return r.json(); });
-            })
-            .then(function (conf) {
-              if (!conf.ok) throw new Error(conf.error || "Could not save video.");
-              vid.src = conf.url;
-              vid.hidden = false;
-              if (vid.load) vid.load();
-              vname.textContent = file.name;
-              setValue(fieldId, conf.url);
-              var p = {}; p[fieldId] = conf.url;
-              pushToPreview(p);
-              scheduleSave();
-            })
-            .catch(function (err) {
-              vname.textContent = err.message || "Upload failed.";
+          // Server-proxied upload: browser -> our server -> Iceberg. Progress
+          // reflects the browser->server leg (the heavy one for the client).
+          vname.textContent = "Uploading… 0%";
+          var fd = new FormData();
+          fd.append("file", file);
+          var xhr = new XMLHttpRequest();
+          xhr.open("POST", window.CMS.videoUploadUrl);
+          xhr.setRequestHeader("X-CSRFToken", window.CMS.csrfToken);
+          xhr.withCredentials = true;
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) {
+              vname.textContent = "Uploading… " + Math.round((e.loaded / e.total) * 100) + "%";
+            }
+          };
+          xhr.onload = function () {
+            var conf;
+            try { conf = JSON.parse(xhr.responseText); } catch (err) { conf = null; }
+            if (xhr.status < 200 || xhr.status >= 300 || !conf || !conf.ok) {
+              vname.textContent = (conf && conf.error) || "Upload failed.";
               vfile.value = "";
-            });
+              return;
+            }
+            vid.src = conf.url;
+            vid.hidden = false;
+            if (vid.load) vid.load();
+            vname.textContent = file.name;
+            setValue(fieldId, conf.url);
+            var p = {}; p[fieldId] = conf.url;
+            pushToPreview(p);
+            scheduleSave();
+          };
+          xhr.onerror = function () {
+            vname.textContent = "Upload failed — please try again.";
+            vfile.value = "";
+          };
+          xhr.send(fd);
         });
       }
+    });
+
+    // Per-field Style panel — whole-element styling (colour/size/font/weight/
+    // italic/align). Colours use a custom picker (swatch) rather than presets.
+    // Selection-level styling is separate (the floating bubble on the preview).
+    document.querySelectorAll("[data-style-panel]").forEach(function (panel) {
+      var fieldId = panel.getAttribute("data-style-panel");
+      var current = getStyle(fieldId);
+
+      function commit(prop, value) {
+        setStyleProp(fieldId, prop, value);
+        pushStyleToPreview(fieldId);
+        scheduleSave();
+      }
+
+      var color = panel.querySelector("[data-style-color]");
+      if (color) {
+        if (current.color) color.value = current.color;
+        color.addEventListener("input", function () { commit("color", color.value); });
+      }
+      var bg = panel.querySelector("[data-style-bgcolor]");
+      if (bg) {
+        if (current.bgColor) bg.value = current.bgColor;
+        bg.addEventListener("input", function () { commit("bgColor", bg.value); });
+      }
+      panel.querySelectorAll("[data-style-clear]").forEach(function (btn) {
+        btn.addEventListener("click", function () { commit(btn.getAttribute("data-style-clear"), ""); });
+      });
+
+      var size = panel.querySelector("[data-style-sizeselect]");
+      if (size) {
+        buildSizeSelect(size, CMS_SIZES, current.fontSize);
+        size.addEventListener("change", function () { commit("fontSize", size.value); });
+      }
+
+      var fam = panel.querySelector("[data-style-fontselect]");
+      if (fam) {
+        buildFontSelect(fam, current.fontFamily);
+        fam.addEventListener("change", function () { commit("fontFamily", fam.value); });
+      }
+
+      var weight = panel.querySelector('[data-style-bind="fontWeight"]');
+      if (weight) {
+        if (current.fontWeight) weight.value = current.fontWeight;
+        weight.addEventListener("change", function () { commit("fontWeight", weight.value); });
+      }
+
+      var italic = panel.querySelector('[data-style-bind="italic"]');
+      if (italic) {
+        italic.checked = !!current.italic;
+        italic.addEventListener("change", function () { commit("italic", italic.checked); });
+      }
+
+      var alignBtns = panel.querySelectorAll("[data-style-align]");
+      function reflectAlign(val) {
+        alignBtns.forEach(function (b) {
+          b.setAttribute("aria-pressed", b.getAttribute("data-style-align") === val ? "true" : "false");
+        });
+      }
+      reflectAlign(current.align || "");
+      alignBtns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          var val = b.getAttribute("data-style-align");
+          if (getStyle(fieldId).align === val) val = ""; // toggle off
+          reflectAlign(val);
+          commit("align", val);
+        });
+      });
+    });
+
+    // Bind global Design controls (fonts / size dropdowns + color swatches).
+    cmsLoadEditorFonts();
+
+    function commitGlobal(key, value) {
+      if (value) content._global[key] = value; else delete content._global[key];
+      pushGlobalToPreview();
+      scheduleSave();
+    }
+
+    document.querySelectorAll("[data-global-fontselect]").forEach(function (sel) {
+      var key = sel.getAttribute("data-global-bind");
+      buildFontSelect(sel, content._global[key]);
+      sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
+    });
+    document.querySelectorAll("[data-global-sizeselect]").forEach(function (sel) {
+      var key = sel.getAttribute("data-global-bind");
+      buildSizeSelect(sel, CMS_BASE_SIZES, content._global[key]);
+      sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
+    });
+    document.querySelectorAll("[data-global-swatches]").forEach(function (container) {
+      var key = container.getAttribute("data-global-swatches");
+      buildSwatches(container, content._global[key], function (c) { commitGlobal(key, c); });
+    });
+
+    // Theme colors — override the template's design tokens site-wide.
+    document.querySelectorAll("[data-token-bind]").forEach(function (container) {
+      var name = container.getAttribute("data-token-bind");
+      var def = container.getAttribute("data-token-default") || "";
+      var current = content._tokens[name] || def;
+      buildSwatches(container, current, function (c) {
+        if (c) content._tokens[name] = c; else delete content._tokens[name];
+        pushTokensToPreview();
+        scheduleSave();
+      });
     });
 
     // Inject hide/show eye-toggles onto every section head and field.
@@ -816,6 +1122,412 @@
     }
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && historyModal && historyModal.style.display !== "none") closeHistory();
+    });
+
+    // ---- media gallery modal --------------------------------------------
+    var galleryModal = document.getElementById("gallery-modal");
+    var openGalleryBtn = document.getElementById("open-gallery-btn");
+    var closeGalleryBtn = document.getElementById("close-gallery-btn");
+    var cancelGalleryBtn = document.getElementById("cancel-gallery-btn");
+    var useGalleryBtn = document.getElementById("use-gallery-btn");
+    var galleryGrid = document.getElementById("gallery-grid");
+    var galleryStatus = document.getElementById("gallery-status");
+    var galleryCount = document.getElementById("gallery-count");
+    var galleryHint = document.getElementById("gallery-hint");
+    var galleryDetail = document.getElementById("gallery-detail");
+    var galleryDetailImg = document.getElementById("gallery-detail-img");
+    var galleryDetailName = document.getElementById("gallery-detail-name");
+    var galleryDetailNote = document.getElementById("gallery-detail-note");
+    var galleryOpenBtn = document.getElementById("gallery-open-btn");
+    var galleryCopyBtn = document.getElementById("gallery-copy-btn");
+    var galleryDownloadBtn = document.getElementById("gallery-download-btn");
+    var galleryRenameBtn = document.getElementById("gallery-rename-btn");
+    var galleryDeleteBtn = document.getElementById("gallery-delete-btn");
+    var gallerySelected = null;
+    var galleryPickFieldId = null;
+    var galleryAssets = [];
+    var galleryRenaming = false;
+
+    function mediaItemUrl(id) {
+      var base = (window.CMS.galleryUrl || "").replace(/\/?$/, "/");
+      return base + id + "/";
+    }
+
+    function hideGalleryDetail() {
+      if (galleryDetail) galleryDetail.hidden = true;
+      galleryRenaming = false;
+      if (galleryDetailName) {
+        galleryDetailName.readOnly = true;
+        galleryDetailName.value = "";
+      }
+    }
+
+    function closeGallery() {
+      if (galleryModal) galleryModal.style.display = "none";
+      gallerySelected = null;
+      galleryPickFieldId = null;
+      galleryAssets = [];
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      hideGalleryDetail();
+    }
+
+    function fmtBytes(n) {
+      if (!n || n < 1024) return (n || 0) + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function applyGalleryImage(url, name) {
+      if (!galleryPickFieldId) return;
+      var fieldId = galleryPickFieldId;
+      var node = document.querySelector('[data-field-id="' + fieldId + '"]');
+      if (node) {
+        var img = node.querySelector("[data-bind-image]");
+        var nameEl = node.querySelector("[data-bind-image-name]");
+        if (img) img.src = url;
+        if (nameEl) nameEl.textContent = name || "Gallery image";
+      }
+      setValue(fieldId, url);
+      var p = {}; p[fieldId] = url;
+      pushToPreview(p);
+      scheduleSave();
+      closeGallery();
+    }
+
+    function showGalleryDetail(item) {
+      if (!galleryDetail || !item) {
+        hideGalleryDetail();
+        return;
+      }
+      galleryRenaming = false;
+      galleryDetail.hidden = false;
+      if (galleryDetailImg) {
+        galleryDetailImg.src = item.url;
+        galleryDetailImg.alt = item.name || "";
+      }
+      if (galleryDetailName) {
+        galleryDetailName.value = item.name || "";
+        galleryDetailName.readOnly = true;
+      }
+      var editable = !!item.editable;
+      if (galleryRenameBtn) {
+        galleryRenameBtn.hidden = !editable;
+        galleryRenameBtn.textContent = "Rename";
+      }
+      if (galleryDeleteBtn) galleryDeleteBtn.hidden = !editable;
+      if (galleryDetailNote) {
+        if (editable) {
+          galleryDetailNote.textContent = item.bytes
+            ? "Your upload · " + fmtBytes(item.bytes)
+            : "Your upload";
+        } else {
+          galleryDetailNote.textContent =
+            "Default page image — you can open, copy, or download it, but not rename or delete it.";
+        }
+      }
+      if (useGalleryBtn) useGalleryBtn.hidden = !galleryPickFieldId;
+    }
+
+    function selectGalleryItem(item, el) {
+      gallerySelected = item;
+      if (galleryGrid) {
+        galleryGrid.querySelectorAll(".gallery-item").forEach(function (n) {
+          n.classList.toggle("is-selected", n === el);
+        });
+      }
+      showGalleryDetail(item);
+    }
+
+    function renderGallery(assets) {
+      galleryAssets = assets || [];
+      if (!galleryGrid) return;
+      galleryGrid.innerHTML = "";
+      hideGalleryDetail();
+      gallerySelected = null;
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      if (!galleryAssets.length) {
+        var empty = document.createElement("div");
+        empty.className = "gallery-empty";
+        empty.textContent = "No images yet. Images from this site's pages and any uploads will show up here.";
+        galleryGrid.appendChild(empty);
+        if (galleryCount) galleryCount.textContent = "";
+        return;
+      }
+      if (galleryCount) {
+        galleryCount.textContent =
+          galleryAssets.length + " image" + (galleryAssets.length === 1 ? "" : "s");
+      }
+      galleryAssets.forEach(function (asset) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "gallery-item";
+        btn.title = (asset.name || "Image") + (asset.bytes ? " · " + fmtBytes(asset.bytes) : "");
+        if (!asset.editable) {
+          var badge = document.createElement("span");
+          badge.className = "gallery-item-badge";
+          badge.textContent = "Default";
+          btn.appendChild(badge);
+        }
+        var img = document.createElement("img");
+        img.src = asset.url;
+        img.alt = asset.name || "";
+        img.loading = "lazy";
+        var meta = document.createElement("span");
+        meta.className = "gallery-item-meta";
+        meta.textContent = asset.name || "Image";
+        btn.appendChild(img);
+        btn.appendChild(meta);
+        btn.addEventListener("click", function () {
+          selectGalleryItem(asset, btn);
+        });
+        btn.addEventListener("dblclick", function () {
+          if (galleryPickFieldId) {
+            applyGalleryImage(asset.url, asset.name);
+          } else {
+            window.open(asset.url, "_blank", "noopener");
+          }
+        });
+        galleryGrid.appendChild(btn);
+      });
+    }
+
+    function reloadGallery() {
+      if (!window.CMS.galleryUrl) return;
+      if (galleryStatus) galleryStatus.textContent = "Loading…";
+      return fetch(window.CMS.galleryUrl, {
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (galleryStatus) galleryStatus.textContent = "";
+          renderGallery((d && d.assets) || []);
+        })
+        .catch(function () {
+          if (galleryStatus) galleryStatus.textContent = "Couldn't load gallery.";
+        });
+    }
+
+    function openGallery(pickFieldId) {
+      if (!galleryModal || !window.CMS.galleryUrl) return;
+      galleryPickFieldId = pickFieldId || null;
+      gallerySelected = null;
+      if (useGalleryBtn) useGalleryBtn.hidden = true;
+      hideGalleryDetail();
+      if (galleryHint) {
+        galleryHint.textContent = galleryPickFieldId
+          ? "Select an image, then click Use — or double-click to apply it."
+          : "Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.";
+      }
+      galleryModal.style.display = "";
+      if (galleryGrid) galleryGrid.innerHTML = "";
+      if (galleryCount) galleryCount.textContent = "";
+      reloadGallery();
+    }
+
+    function copyGalleryUrl() {
+      if (!gallerySelected) return;
+      var url = gallerySelected.url;
+      function ok() {
+        if (galleryStatus) {
+          galleryStatus.textContent = "URL copied.";
+          setTimeout(function () {
+            if (galleryStatus && galleryStatus.textContent === "URL copied.") {
+              galleryStatus.textContent = "";
+            }
+          }, 1500);
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(ok).catch(function () {
+          window.prompt("Copy this URL:", url);
+        });
+      } else {
+        window.prompt("Copy this URL:", url);
+        ok();
+      }
+    }
+
+    function downloadGalleryImage() {
+      if (!gallerySelected) return;
+      var url = gallerySelected.url;
+      var name = gallerySelected.name || "image";
+      // Prefer a real download attribute via blob fetch; fall back to new tab.
+      fetch(url, { mode: "cors" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("fetch failed");
+          return r.blob();
+        })
+        .then(function (blob) {
+          var a = document.createElement("a");
+          var obj = URL.createObjectURL(blob);
+          a.href = obj;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function () { URL.revokeObjectURL(obj); }, 1000);
+        })
+        .catch(function () {
+          window.open(url, "_blank", "noopener");
+        });
+    }
+
+    function startRename() {
+      if (!gallerySelected || !gallerySelected.editable || !galleryDetailName) return;
+      galleryRenaming = true;
+      galleryDetailName.readOnly = false;
+      galleryDetailName.focus();
+      galleryDetailName.select();
+      if (galleryRenameBtn) galleryRenameBtn.textContent = "Save name";
+    }
+
+    function saveRename() {
+      if (!gallerySelected || !gallerySelected.editable || !galleryDetailName) return;
+      var name = (galleryDetailName.value || "").trim();
+      if (!name) {
+        if (galleryStatus) galleryStatus.textContent = "Name is required.";
+        return;
+      }
+      if (galleryRenameBtn) galleryRenameBtn.disabled = true;
+      if (galleryStatus) galleryStatus.textContent = "Saving…";
+      fetch(mediaItemUrl(gallerySelected.id), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CMS.csrfToken,
+        },
+        body: JSON.stringify({ name: name }),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (galleryRenameBtn) galleryRenameBtn.disabled = false;
+          if (!res.ok || !res.data.ok) {
+            if (galleryStatus) {
+              galleryStatus.textContent = (res.data && res.data.error) || "Rename failed.";
+            }
+            return;
+          }
+          gallerySelected.name = res.data.name;
+          galleryAssets.forEach(function (a) {
+            if (a.id === gallerySelected.id) a.name = res.data.name;
+          });
+          galleryRenaming = false;
+          galleryDetailName.readOnly = true;
+          galleryDetailName.value = res.data.name;
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+          if (galleryStatus) galleryStatus.textContent = "Renamed.";
+          var selectedBtn = galleryGrid && galleryGrid.querySelector(".gallery-item.is-selected");
+          if (selectedBtn) {
+            var meta = selectedBtn.querySelector(".gallery-item-meta");
+            if (meta) meta.textContent = res.data.name;
+            selectedBtn.title = res.data.name + (gallerySelected.bytes ? " · " + fmtBytes(gallerySelected.bytes) : "");
+          }
+          if (galleryDetailNote) {
+            galleryDetailNote.textContent = gallerySelected.bytes
+              ? "Your upload · " + fmtBytes(gallerySelected.bytes)
+              : "Your upload";
+          }
+        })
+        .catch(function () {
+          if (galleryRenameBtn) galleryRenameBtn.disabled = false;
+          if (galleryStatus) galleryStatus.textContent = "Rename failed — try again.";
+        });
+    }
+
+    function deleteGalleryImage() {
+      if (!gallerySelected || !gallerySelected.editable) return;
+      if (!window.confirm("Delete this upload from your gallery? Fields using it will fall back to the default image.")) {
+        return;
+      }
+      if (galleryDeleteBtn) galleryDeleteBtn.disabled = true;
+      if (galleryStatus) galleryStatus.textContent = "Deleting…";
+      fetch(mediaItemUrl(gallerySelected.id), {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": window.CMS.csrfToken },
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (galleryDeleteBtn) galleryDeleteBtn.disabled = false;
+          if (!res.ok || !res.data.ok) {
+            if (galleryStatus) {
+              galleryStatus.textContent = (res.data && res.data.error) || "Delete failed.";
+            }
+            return;
+          }
+          if (galleryStatus) galleryStatus.textContent = "Deleted.";
+          reloadGallery();
+        })
+        .catch(function () {
+          if (galleryDeleteBtn) galleryDeleteBtn.disabled = false;
+          if (galleryStatus) galleryStatus.textContent = "Delete failed — try again.";
+        });
+    }
+
+    if (openGalleryBtn) {
+      openGalleryBtn.addEventListener("click", function () { openGallery(null); });
+    }
+    if (closeGalleryBtn) closeGalleryBtn.addEventListener("click", closeGallery);
+    if (cancelGalleryBtn) cancelGalleryBtn.addEventListener("click", closeGallery);
+    if (useGalleryBtn) {
+      useGalleryBtn.addEventListener("click", function () {
+        if (gallerySelected) applyGalleryImage(gallerySelected.url, gallerySelected.name);
+      });
+    }
+    if (galleryOpenBtn) {
+      galleryOpenBtn.addEventListener("click", function () {
+        if (gallerySelected) window.open(gallerySelected.url, "_blank", "noopener");
+      });
+    }
+    if (galleryCopyBtn) galleryCopyBtn.addEventListener("click", copyGalleryUrl);
+    if (galleryDownloadBtn) galleryDownloadBtn.addEventListener("click", downloadGalleryImage);
+    if (galleryRenameBtn) {
+      galleryRenameBtn.addEventListener("click", function () {
+        if (galleryRenaming) saveRename();
+        else startRename();
+      });
+    }
+    if (galleryDetailName) {
+      galleryDetailName.addEventListener("keydown", function (e) {
+        if (!galleryRenaming) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveRename();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          galleryRenaming = false;
+          galleryDetailName.value = gallerySelected ? (gallerySelected.name || "") : "";
+          galleryDetailName.readOnly = true;
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+        }
+      });
+    }
+    if (galleryDeleteBtn) galleryDeleteBtn.addEventListener("click", deleteGalleryImage);
+    if (galleryModal) {
+      galleryModal.addEventListener("click", function (e) {
+        if (e.target === galleryModal) closeGallery();
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && galleryModal && galleryModal.style.display !== "none") {
+        if (galleryRenaming) {
+          galleryRenaming = false;
+          if (galleryDetailName) {
+            galleryDetailName.value = gallerySelected ? (gallerySelected.name || "") : "";
+            galleryDetailName.readOnly = true;
+          }
+          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
+          return;
+        }
+        closeGallery();
+      }
+    });
+    document.querySelectorAll("[data-gallery-pick]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openGallery(btn.getAttribute("data-gallery-pick"));
+      });
     });
   }
 

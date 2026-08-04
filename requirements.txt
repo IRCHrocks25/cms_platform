@@ -11,7 +11,6 @@ whitenoise==6.7.0
 openai>=1.40,<2.0
 resend>=2.0,<3.0
 cryptography>=42
-cloudinary>=1.40,<2.0
 
 # OPTIONAL: server-side rendering for SPA templates fetched via the
 # "Fetch from URL" button. Without these the static-fetch path still

@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% load static %}
+{% load cache_bust %}
 
 {% block title %}Editing {{ tenant.name }} · Locked CMS{% endblock %}
 
 {% block extra_head %}
-  <link rel="stylesheet" href="{% static 'css/editor.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/editor.css' %}">
 {% endblock %}
 
 {% block shell %}
@@ -45,6 +46,7 @@
       {% if versions_url %}
         <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
       {% endif %}
+      <button type="button" class="btn btn-secondary" id="open-gallery-btn">Gallery</button>
       <button type="button" class="btn btn-secondary" id="open-settings-btn">Settings</button>
       <form method="post" action="{{ publish_url }}" style="display: inline;">
         {% csrf_token %}
@@ -89,7 +91,29 @@
     </aside>
 
     <section class="editor-form" id="editor-form">
-      {% if brand_section or nav_sections %}
+      {% comment %}
+        Selection styling: highlight text on the preview and these controls
+        restyle just that span (stored in the field's richtext HTML).
+      {% endcomment %}
+      {% comment %}
+        Floating text-style bubble — pops up below the highlighted text on the
+        preview (positioned by editor.js). Hidden until a selection exists.
+      {% endcomment %}
+      <div class="cms-seltext-panel" id="cms-seltext-panel" role="toolbar" aria-label="Text styling">
+        <label class="cms-seltext-color" title="Text colour">
+          <input type="color" data-seltext-color value="#111111">
+          <span class="cms-seltext-color-ring" aria-hidden="true"></span>
+        </label>
+        <span class="cms-seltext-sep" aria-hidden="true"></span>
+        <button type="button" class="cms-seltext-btn" data-seltext-cmd="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+        <button type="button" class="cms-seltext-btn" data-seltext-cmd="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+        <select class="cms-seltext-size" data-seltext-size aria-label="Font size"></select>
+        <span class="cms-seltext-sep" aria-hidden="true"></span>
+        <button type="button" class="cms-seltext-btn" data-seltext-cmd="clear" title="Clear formatting" aria-label="Clear formatting">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg>
+        </button>
+      </div>
+      {% if nav_sections or theme_tokens or brand_section %}
         <div class="editor-tabs" role="tablist" aria-label="Editor sections">
           <button type="button" class="editor-tab active" data-tab="content" role="tab" aria-selected="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -101,8 +125,8 @@
               Navigation
             </button>
           {% endif %}
-          {% if brand_section %}
-            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Brand" title="Brand colors">
+          {% if theme_tokens or brand_section %}
+            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design — colors & fonts">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
             </button>
           {% endif %}
@@ -174,20 +198,50 @@
         </div>
       {% endif %}
 
-      {% if brand_section %}
-        <div class="editor-tab-panel" data-panel="brand" hidden>
-          <div class="brand-intro">
-            <h2>Brand colors</h2>
-            <p>These apply across every section of your site — headers, buttons, backgrounds. Changes preview live on the right.</p>
+      {% if theme_tokens or brand_section %}
+      <div class="editor-tab-panel" data-panel="brand" hidden>
+        <div class="brand-intro">
+          <h2>Design</h2>
+          <p>Site-wide colors and fonts. These apply across every section — individual headings and text can still be styled on their own from the Content tab.</p>
+        </div>
+        <div class="editor-form-section" data-section-id="_global">
+          <div class="editor-form-section-head"><h2>Colors &amp; fonts</h2></div>
+          <div class="stack-5">
+            <label class="field"><span class="field-label">Body font</span>
+              <select class="select" data-global-bind="fontFamily" data-global-fontselect></select></label>
+            <label class="field"><span class="field-label">Heading font</span>
+              <select class="select" data-global-bind="headingFamily" data-global-fontselect></select></label>
+            <label class="field"><span class="field-label">Base text size</span>
+              <select class="select" data-global-bind="baseSize" data-global-sizeselect></select></label>
+            <div class="field"><span class="field-label">Page background color</span>
+              <div class="cms-swatches" data-global-swatches="pageBg"></div></div>
+            <div class="field"><span class="field-label">Default text color</span>
+              <div class="cms-swatches" data-global-swatches="textColor"></div></div>
           </div>
+        </div>
+        {% if theme_tokens %}
+          <div class="editor-form-section" data-section-id="_tokens">
+            <div class="editor-form-section-head"><h2>Theme colors</h2></div>
+            <p class="field-hint" style="margin: 0 0 8px;">These recolor your whole site — buttons, headings and accents update together.</p>
+            <div class="stack-5">
+              {% for tk in theme_tokens %}
+                <div class="field"><span class="field-label">{{ tk.label }}</span>
+                  <div class="cms-swatches" data-token-bind="{{ tk.name }}" data-token-default="{{ tk.value }}"></div></div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+        {% if brand_section %}
           <div class="editor-form-section" id="section-{{ brand_section.id }}" data-section-id="{{ brand_section.id }}">
+            <div class="editor-form-section-head"><h2>Brand colors</h2></div>
             <div class="stack-5">
               {% for field in brand_section.fields %}
                 {% include "dashboard/components/field.html" with field=field section_id=brand_section.id %}
               {% endfor %}
             </div>
           </div>
-        </div>
+        {% endif %}
+      </div>
       {% endif %}
     </section>
 
@@ -279,6 +333,49 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" id="cancel-history-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media gallery modal -->
+  <div class="modal-overlay" id="gallery-modal" style="display: none;">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Image gallery</h2>
+        <button type="button" class="modal-close" id="close-gallery-btn" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint" id="gallery-hint" style="margin: 0;">
+          Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.
+        </p>
+        <div class="gallery-layout">
+          <div class="gallery-grid" id="gallery-grid"></div>
+          <aside class="gallery-detail" id="gallery-detail" hidden>
+            <div class="gallery-detail-preview">
+              <img id="gallery-detail-img" src="" alt="">
+            </div>
+            <div class="gallery-detail-meta">
+              <div class="field" style="margin: 0;">
+                <label class="field-label" for="gallery-detail-name">Name</label>
+                <input class="input" type="text" id="gallery-detail-name" maxlength="240" readonly>
+              </div>
+              <p class="field-hint" id="gallery-detail-note" style="margin: 0;"></p>
+              <div class="gallery-detail-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-open-btn">Open</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-copy-btn">Copy URL</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-download-btn">Download</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="gallery-rename-btn" hidden>Rename</button>
+                <button type="button" class="btn btn-secondary btn-sm gallery-delete-btn" id="gallery-delete-btn" hidden>Delete</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <p class="settings-status" id="gallery-status"></p>
+      </div>
+      <div class="modal-footer">
+        <span class="settings-status" id="gallery-count"></span>
+        <button type="button" class="btn btn-secondary" id="cancel-gallery-btn">Close</button>
+        <button type="button" class="btn btn-purple" id="use-gallery-btn" hidden>Use this image</button>
       </div>
     </div>
   </div>
@@ -447,8 +544,8 @@
       tenantId: {{ tenant.pk }},
       saveUrl: "{{ save_url }}",
       uploadUrl: "{{ upload_url }}",
-      videoSignUrl: "{{ video_sign_url }}",
-      videoConfirmUrl: "{{ video_confirm_url }}",
+      videoUploadUrl: "{{ video_upload_url }}",
+      galleryUrl: "{{ gallery_url }}",
       versionsUrl: "{{ versions_url }}",
       versionRestoreUrl: "{{ version_restore_url }}",
       previewUrl: "{{ preview_url }}",
@@ -457,5 +554,5 @@
       content: {{ content_json|safe }},
     };
   </script>
-  <script src="{% static 'js/editor.js' %}"></script>
+  <script src="{% static_v 'js/editor.js' %}"></script>
 {% endblock %}

@@ -27,6 +27,8 @@
       </div>
       <input type="file" accept="image/*" id="f-{{ field.id }}" data-bind="{{ field.id }}">
     </label>
+    <button type="button" class="btn btn-ghost btn-sm cms-gallery-pick"
+            data-gallery-pick="{{ field.id }}">Choose from gallery</button>
 
   {% elif field.type == 'color' %}
     <div class="cms-field-color">
@@ -76,5 +78,59 @@
         This doesn't look like a working link — it'll still save.
       </span>
     </div>
+  {% endif %}
+
+  {% if field.style_editable %}
+    <details class="cms-style-panel" data-style-panel="{{ field.id }}">
+      <summary class="cms-style-summary">Style this element</summary>
+      <div class="cms-style-grid">
+        <div class="cms-style-row">
+          <span>Text colour</span>
+          <div class="cms-style-colorwrap">
+            <input type="color" data-style-color value="#111111">
+            <button type="button" class="cms-style-clear" data-style-clear="color" title="Clear text colour" aria-label="Clear text colour">×</button>
+          </div>
+        </div>
+        <div class="cms-style-row">
+          <span>Background</span>
+          <div class="cms-style-colorwrap">
+            <input type="color" data-style-bgcolor value="#ffffff">
+            <button type="button" class="cms-style-clear" data-style-clear="bgColor" title="Clear background" aria-label="Clear background">×</button>
+          </div>
+        </div>
+        <label class="cms-style-row">
+          <span>Size</span>
+          <select class="select" data-style-bind="fontSize" data-style-sizeselect></select>
+        </label>
+        <label class="cms-style-row">
+          <span>Font</span>
+          <select class="select" data-style-bind="fontFamily" data-style-fontselect></select>
+        </label>
+        <label class="cms-style-row">
+          <span>Weight</span>
+          <select class="select" data-style-bind="fontWeight">
+            <option value="">Default</option>
+            <option value="300">Light</option>
+            <option value="400">Normal</option>
+            <option value="500">Medium</option>
+            <option value="600">Semibold</option>
+            <option value="700">Bold</option>
+            <option value="800">Extra bold</option>
+          </select>
+        </label>
+        <label class="cms-style-row cms-style-inline">
+          <span>Italic</span>
+          <input type="checkbox" data-style-bind="italic">
+        </label>
+        <div class="cms-style-row">
+          <span>Align</span>
+          <div class="cms-align-group" role="group" aria-label="Text alignment">
+            <button type="button" data-style-align="left" title="Left" aria-label="Align left">⇤</button>
+            <button type="button" data-style-align="center" title="Center" aria-label="Align center">≡</button>
+            <button type="button" data-style-align="right" title="Right" aria-label="Align right">⇥</button>
+          </div>
+        </div>
+      </div>
+    </details>
   {% endif %}
 </div>

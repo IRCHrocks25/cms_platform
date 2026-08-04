@@ -44,10 +44,11 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
-      # Media uploads (Cloudinary).
-      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
-      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
-      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      # Media uploads (Iceberg — cdn.katalyst-crm.com).
+      ICEBERG_API_URL: ${ICEBERG_API_URL:-}
+      ICEBERG_TOKEN: ${ICEBERG_TOKEN:-}
+      ICEBERG_CDN: ${ICEBERG_CDN:-https://cdn.katalyst-crm.com}
+      ICEBERG_TENANT: ${ICEBERG_TENANT:-t1}
     volumes:
       - media:/app/media
     healthcheck:

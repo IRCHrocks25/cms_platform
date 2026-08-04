@@ -18,7 +18,7 @@ from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
 
 from core.models import (
@@ -31,7 +31,7 @@ from core.permissions import agency_operator_required, agency_admin_required, te
 from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
 from core.services import blog_render
-from core.services import cloudinary_media
+from core.services import iceberg_media
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
 from core import ghl_crypto
@@ -1467,16 +1467,23 @@ def tenant_upload(request, pk):
 
 @agency_operator_required
 @require_POST
-def tenant_video_sign(request, pk):
+def tenant_video_upload(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _video_sign(request, tenant)
+    return _save_video_upload(request, tenant)
 
 
 @agency_operator_required
-@require_POST
-def tenant_video_confirm(request, pk):
+@require_GET
+def tenant_media_gallery(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _video_confirm(request, tenant)
+    return _media_gallery_list(tenant)
+
+
+@agency_operator_required
+@require_http_methods(["POST", "DELETE"])
+def tenant_media_item(request, pk, asset_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _media_item_mutate(request, tenant, asset_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -1517,14 +1524,20 @@ def tenant_upload_self(request):
 
 @tenant_member_required
 @require_POST
-def tenant_video_sign_self(request):
-    return _video_sign(request, request.tenant)
+def tenant_video_upload_self(request):
+    return _save_video_upload(request, request.tenant)
 
 
 @tenant_member_required
-@require_POST
-def tenant_video_confirm_self(request):
-    return _video_confirm(request, request.tenant)
+@require_GET
+def tenant_media_gallery_self(request):
+    return _media_gallery_list(request.tenant)
+
+
+@tenant_member_required
+@require_http_methods(["POST", "DELETE"])
+def tenant_media_item_self(request, asset_id):
+    return _media_item_mutate(request, request.tenant, asset_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -2054,8 +2067,18 @@ def _render_editor(request, tenant, *, scope, page=None):
     # Both expose the same template / content / is_published shape, so the only
     # differences are the action URLs and the bar labels.
     editable = page or tenant
-    schema = editable.template.schema or {"sections": []}
+    # Build the schema fresh from the template HTML so the editor always reflects
+    # the CURRENT parser — per-element style flags, theme tokens, etc. — even for
+    # templates whose stored schema predates those features (avoids a stale
+    # schema hiding the Style panels / Design tab until every template is
+    # re-saved). Public rendering still uses the stored schema for defaults.
+    tpl = editable.template
+    if tpl and tpl.html_source:
+        schema = build_schema(tpl.html_source)
+    else:
+        schema = (tpl.schema if tpl else None) or {"sections": []}
     content = merge_with_defaults(schema, editable.content)
+    theme_tokens = schema.get("theme_tokens", [])
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
@@ -2093,8 +2116,8 @@ def _render_editor(request, tenant, *, scope, page=None):
     # editor hides the History button (see editor.html).
     if scope == "tenant":
         upload_url = reverse("dashboard:tenant_upload_self")
-        video_sign_url = reverse("dashboard:tenant_video_sign_self")
-        video_confirm_url = reverse("dashboard:tenant_video_confirm_self")
+        video_upload_url = reverse("dashboard:tenant_video_upload_self")
+        gallery_url = reverse("dashboard:tenant_media_gallery_self")
         settings_url = reverse("dashboard:tenant_site_settings_self")
         blog_url = reverse("dashboard:blog_list_self")
         page_list_url = reverse("dashboard:page_list_self")
@@ -2114,8 +2137,8 @@ def _render_editor(request, tenant, *, scope, page=None):
             live_url = f"/{page.slug}/"
     else:
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
-        video_sign_url = reverse("dashboard:tenant_video_sign", args=[tenant.pk])
-        video_confirm_url = reverse("dashboard:tenant_video_confirm", args=[tenant.pk])
+        video_upload_url = reverse("dashboard:tenant_video_upload", args=[tenant.pk])
+        gallery_url = reverse("dashboard:tenant_media_gallery", args=[tenant.pk])
         settings_url = reverse("dashboard:tenant_site_settings", args=[tenant.pk])
         blog_url = reverse("dashboard:blog_list", args=[tenant.pk])
         page_list_url = reverse("dashboard:page_list", args=[tenant.pk])
@@ -2180,6 +2203,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "header_sections": header_sections,
             "footer_sections": footer_sections,
             "brand_section": brand_section,
+            "theme_tokens": theme_tokens,
             "link_targets": link_targets,
             "grouped_sections": grouped,
             "content_json": json.dumps(content),
@@ -2187,8 +2211,8 @@ def _render_editor(request, tenant, *, scope, page=None):
             "preview_url": preview_url,
             "save_url": save_url,
             "upload_url": upload_url,
-            "video_sign_url": video_sign_url,
-            "video_confirm_url": video_confirm_url,
+            "video_upload_url": video_upload_url,
+            "gallery_url": gallery_url,
             "versions_url": versions_url,
             "version_restore_url": version_restore_url,
             "publish_url": publish_url,
@@ -2206,6 +2230,65 @@ def _render_preview(editable):
     content = merge_with_defaults(editable.template.schema, editable.content)
     html = render_site(editable.template.html_source, content, preview=True)
     return HttpResponse(html)
+
+
+_ALLOWED_STYLE_KEYS = {"color", "bgColor", "fontSize", "fontFamily", "fontWeight", "align"}
+_ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"}
+
+
+def _clean_style_value(value):
+    if isinstance(value, bool):
+        return value
+    return str(value)[:120]
+
+
+def _normalize_styles(content: dict) -> None:
+    """Defensively sanitize the _styles / _global meta namespaces in place so a
+    malformed client payload can't inject arbitrary keys the renderer trusts."""
+    raw_styles = content.get("_styles")
+    if raw_styles is not None:
+        clean_styles = {}
+        if isinstance(raw_styles, dict):
+            for element_id, style in raw_styles.items():
+                if not (isinstance(element_id, str) and "." in element_id):
+                    continue
+                if not isinstance(style, dict):
+                    continue
+                kept = {
+                    k: _clean_style_value(v)
+                    for k, v in style.items()
+                    if k in _ALLOWED_STYLE_KEYS and v not in (None, "")
+                }
+                if style.get("italic"):
+                    kept["italic"] = True
+                if kept:
+                    clean_styles[element_id[:120]] = kept
+        content["_styles"] = clean_styles
+
+    raw_global = content.get("_global")
+    if raw_global is not None:
+        if isinstance(raw_global, dict):
+            content["_global"] = {
+                k: str(v)[:120]
+                for k, v in raw_global.items()
+                if k in _ALLOWED_GLOBAL_KEYS and v not in (None, "")
+            }
+        else:
+            content.pop("_global", None)
+
+    # Theme-token overrides: {css-var-name: color}. Names restricted to safe
+    # CSS identifier chars; the renderer additionally validates the color value.
+    raw_tokens = content.get("_tokens")
+    if raw_tokens is not None:
+        clean_tokens = {}
+        if isinstance(raw_tokens, dict):
+            for name, value in raw_tokens.items():
+                if not isinstance(name, str) or value in (None, ""):
+                    continue
+                safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", name)[:64]
+                if safe_name:
+                    clean_tokens[safe_name] = str(value)[:120]
+        content["_tokens"] = clean_tokens
 
 
 def _save_content(request, editable):
@@ -2228,6 +2311,8 @@ def _save_content(request, editable):
             ][:500]
         else:
             content.pop("_hidden", None)
+
+    _normalize_styles(content)
 
     # Version history is the tenant home's rolling-10 snapshots. Inner pages
     # don't have undo yet (backlog), so only snapshot when editing the home.
@@ -2348,26 +2433,250 @@ def _toggle_publish(request, editable, *, redirect_url, noun="Site"):
     return redirect(redirect_url)
 
 
+_CSS_URL_RE = re.compile(r"""url\(\s*['"]?([^'")]+)['"]?\s*\)""", re.I)
+
+
+def _usable_image_url(url: str) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    u = url.strip()
+    if not u or u.startswith("#"):
+        return False
+    lower = u.lower()
+    if lower.startswith("data:") or lower.startswith("javascript:"):
+        return False
+    return True
+
+
+def _filename_from_url(url: str) -> str:
+    from urllib.parse import unquote, urlparse
+
+    path = urlparse(url.strip()).path
+    name = unquote(path.rsplit("/", 1)[-1] if path else "")
+    return name or "Image"
+
+
+def _urls_from_srcset(srcset: str) -> list[str]:
+    urls = []
+    for part in (srcset or "").split(","):
+        token = part.strip().split()
+        if token:
+            urls.append(token[0])
+    return urls
+
+
+def _harvest_html_image_urls(html: str) -> list[str]:
+    """Pull every image URL out of a page's HTML (img/srcset + css url())."""
+    from bs4 import BeautifulSoup
+
+    if not html or not html.strip():
+        return []
+    soup = BeautifulSoup(html, "lxml")
+    found: list[str] = []
+
+    for img in soup.find_all("img"):
+        src = img.get("src")
+        if src:
+            found.append(src)
+        if img.get("srcset"):
+            found.extend(_urls_from_srcset(img["srcset"]))
+
+    for source in soup.find_all("source"):
+        if source.get("srcset"):
+            found.extend(_urls_from_srcset(source["srcset"]))
+        src = source.get("src")
+        if src:
+            found.append(src)
+
+    for el in soup.find_all(style=True):
+        for match in _CSS_URL_RE.finditer(el.get("style") or ""):
+            found.append(match.group(1))
+
+    for style in soup.find_all("style"):
+        text = style.string or style.get_text() or ""
+        for match in _CSS_URL_RE.finditer(text):
+            found.append(match.group(1))
+
+    return [u.strip() for u in found if _usable_image_url(u)]
+
+
+def _harvest_schema_image_urls(schema: dict, content: dict) -> list[str]:
+    """Image field values after merge (covers content overrides of template defaults)."""
+    image_field_ids: list[str] = []
+    for section in (schema or {}).get("sections") or []:
+        for field in section.get("fields") or []:
+            if field.get("type") == "image" and field.get("id"):
+                image_field_ids.append(field["id"])
+
+    merged = merge_with_defaults(schema or {}, content or {})
+    found: list[str] = []
+    for field_id in image_field_ids:
+        parts = field_id.split(".", 1)
+        if len(parts) != 2:
+            continue
+        value = (merged.get(parts[0]) or {}).get(parts[1])
+        if _usable_image_url(value):
+            found.append(value.strip())
+    return found
+
+
+def _media_gallery_list(tenant):
+    """All images for a tenant: uploads + every image used on their pages."""
+    seen: set[str] = set()
+    items: list[dict] = []
+
+    def add(url, *, name=None, asset_id=None, nbytes=0, uploaded_at="", source="upload"):
+        key = (url or "").strip()
+        if not _usable_image_url(key) or key in seen:
+            return
+        seen.add(key)
+        items.append({
+            "id": asset_id,
+            "url": key,
+            "name": name or _filename_from_url(key),
+            "bytes": nbytes or 0,
+            "uploaded_at": uploaded_at or "",
+            "source": source,
+            # Only uploaded MediaAssets can be renamed/deleted — template
+            # defaults and harvested page images are read-only in the gallery.
+            "editable": source == "upload" and asset_id is not None,
+        })
+
+    # 1) Explicit uploads first (newest).
+    for asset in tenant.assets.filter(resource_type=MediaAsset.RESOURCE_IMAGE).order_by(
+        "-uploaded_at"
+    ):
+        add(
+            asset.url,
+            name=asset.original_name or "Image",
+            asset_id=asset.id,
+            nbytes=asset.bytes,
+            uploaded_at=asset.uploaded_at.isoformat() if asset.uploaded_at else "",
+            source="upload",
+        )
+
+    # 2) Home landing page (template HTML + editable image fields).
+    home_tpl = tenant.template
+    if home_tpl is not None:
+        for url in _harvest_html_image_urls(home_tpl.html_source):
+            add(url, source="page")
+        for url in _harvest_schema_image_urls(home_tpl.schema or {}, tenant.content or {}):
+            add(url, source="page")
+
+    # 3) Inner pages.
+    for page in tenant.pages.select_related("template").all():
+        tpl = page.template
+        if tpl is None:
+            continue
+        for url in _harvest_html_image_urls(tpl.html_source):
+            add(url, source="page")
+        for url in _harvest_schema_image_urls(tpl.schema or {}, page.content or {}):
+            add(url, source="page")
+
+    # 4) Social share image from site settings, if any.
+    og = (tenant.site_settings or {}).get("og_image_url") or ""
+    if og:
+        add(og.strip(), name="Social share image", source="settings")
+
+    return JsonResponse({"ok": True, "assets": items})
+
+
+def _scrub_url_from_content(content: dict, url: str) -> tuple[dict, bool]:
+    """Remove exact URL matches from section field values so deletes fall back
+    to template defaults. Returns (new_content, changed)."""
+    if not isinstance(content, dict) or not url:
+        return content or {}, False
+    changed = False
+    new: dict = {}
+    for key, value in content.items():
+        if isinstance(key, str) and key.startswith("_"):
+            new[key] = value
+            continue
+        if isinstance(value, dict):
+            section = {}
+            for field_key, field_val in value.items():
+                if field_val == url:
+                    changed = True
+                    continue
+                section[field_key] = field_val
+            new[key] = section
+        else:
+            new[key] = value
+    return new, changed
+
+
+def _media_item_mutate(request, tenant, asset_id):
+    """Rename (POST) or delete (DELETE) an uploaded MediaAsset.
+
+    Default / harvested page images have no MediaAsset id and cannot reach
+    this endpoint — the gallery UI also hides those actions for them.
+    """
+    asset = tenant.assets.filter(
+        pk=asset_id, resource_type=MediaAsset.RESOURCE_IMAGE
+    ).first()
+    if asset is None:
+        return JsonResponse(
+            {"ok": False, "error": "That image isn't in your uploads."},
+            status=404,
+        )
+
+    if request.method == "DELETE":
+        url = asset.url
+        asset.delete()
+        if url:
+            new_content, changed = _scrub_url_from_content(tenant.content or {}, url)
+            if changed:
+                tenant.content = new_content
+                tenant.save(update_fields=["content", "updated_at"])
+            for page in tenant.pages.all():
+                page_content, page_changed = _scrub_url_from_content(
+                    page.content or {}, url
+                )
+                if page_changed:
+                    page.content = page_content
+                    page.save(update_fields=["content", "updated_at"])
+        return JsonResponse({"ok": True})
+
+    # POST → rename
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
+
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return JsonResponse({"ok": False, "error": "Name is required."}, status=400)
+    if len(name) > 240:
+        return JsonResponse(
+            {"ok": False, "error": "Name must be 240 characters or fewer."},
+            status=400,
+        )
+
+    asset.original_name = name
+    asset.save(update_fields=["original_name"])
+    return JsonResponse({"ok": True, "id": asset.id, "name": asset.original_name})
+
+
 def _save_upload(request, tenant):
-    """Image upload: validated at the door, then stored on Cloudinary and
-    served with f_auto,q_auto. Returns a clear error the editor can display."""
+    """Image upload: validated at the door, then stored on Iceberg and served
+    from cdn.katalyst-crm.com. Returns a clear error the editor can display."""
     upload = request.FILES.get("file")
     if not upload:
         return JsonResponse({"ok": False, "error": "No file received."}, status=400)
 
-    ok, error = cloudinary_media.validate_image(upload)
+    ok, error = iceberg_media.validate_image(upload)
     if not ok:
         return JsonResponse({"ok": False, "error": error}, status=400)
 
-    if not cloudinary_media.is_configured():
+    if not iceberg_media.is_configured():
         return JsonResponse(
             {"ok": False, "error": "Image storage isn't configured."}, status=500
         )
 
     try:
-        result = cloudinary_media.upload_image(upload, tenant)
+        result = iceberg_media.upload_image(upload, tenant)
     except Exception:
-        logger.exception("Cloudinary image upload failed for tenant %s", tenant.pk)
+        logger.exception("Iceberg image upload failed for tenant %s", tenant.pk)
         return JsonResponse(
             {"ok": False, "error": "Upload failed — please try again."}, status=502
         )
@@ -2383,40 +2692,31 @@ def _save_upload(request, tenant):
     return JsonResponse({"ok": True, "url": result["delivery_url"], "id": asset.id})
 
 
-def _video_sign(request, tenant):
-    """Return signed params for a direct browser->Cloudinary video upload."""
-    if not cloudinary_media.is_configured():
+def _save_video_upload(request, tenant):
+    """Video upload: streamed through our server to Iceberg (no browser-direct
+    upload — R2 blocks cross-origin PUT from tenant domains)."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return JsonResponse({"ok": False, "error": "No file received."}, status=400)
+
+    if not iceberg_media.is_configured():
         return JsonResponse(
             {"ok": False, "error": "Video storage isn't configured."}, status=500
         )
-    return JsonResponse({"ok": True, **cloudinary_media.sign_video_upload(tenant)})
 
-
-def _video_confirm(request, tenant):
-    """Verify a directly-uploaded video (resource_type, size, duration) and store it."""
-    try:
-        payload = json.loads(request.body or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
-
-    public_id = (payload.get("public_id") or "").strip()
-    if not public_id:
-        return JsonResponse({"ok": False, "error": "Missing video reference."}, status=400)
-
-    info, error = cloudinary_media.verify_video(public_id)
+    info, error = iceberg_media.upload_video(upload, tenant)
     if error:
         return JsonResponse({"ok": False, "error": error}, status=400)
 
-    secure_url = info.get("secure_url", "")
     asset = MediaAsset.objects.create(
         tenant=tenant,
-        original_name=(payload.get("original_name") or "")[:240],
+        original_name=upload.name[:240],
         resource_type=MediaAsset.RESOURCE_VIDEO,
-        public_id=public_id,
-        secure_url=secure_url,
+        public_id=info["public_id"],
+        secure_url=info["secure_url"],
         bytes=info.get("bytes", 0),
     )
-    return JsonResponse({"ok": True, "url": secure_url, "id": asset.id})
+    return JsonResponse({"ok": True, "url": info["secure_url"], "id": asset.id})
 
 
 # --------------------------------------------------------------------------- #

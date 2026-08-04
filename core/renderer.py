@@ -24,6 +24,43 @@ PREVIEW_BRIDGE_SCRIPT = """
   function send(type, payload) {
     parent.postMessage({ source: 'cms-preview', type: type, payload: payload }, '*');
   }
+  var CMS_STYLE_PROP = { color: 'color', bgColor: 'backgroundColor', fontSize: 'fontSize',
+    fontFamily: 'fontFamily', fontWeight: 'fontWeight', align: 'textAlign' };
+  function cmsEnsureFont(family) {
+    if (!family) return;
+    var safe = String(family).replace(/[^A-Za-z0-9 \\-]/g, '').trim();
+    if (!safe) return;
+    var id = 'cms-font-' + safe.replace(/ /g, '-');
+    if (document.getElementById(id)) return;
+    var link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.setAttribute('data-cookieconsent', 'ignore');
+    link.href = 'https://fonts.googleapis.com/css2?family=' +
+      safe.replace(/ /g, '+') + ':wght@300;400;500;600;700;800&display=swap';
+    document.head.appendChild(link);
+  }
+  function cmsApplyStyle(el, style) {
+    Object.keys(CMS_STYLE_PROP).forEach(function (k) {
+      if (style[k] !== undefined && style[k] !== null && style[k] !== '') {
+        el.style[CMS_STYLE_PROP[k]] = style[k];
+      } else {
+        el.style[CMS_STYLE_PROP[k]] = '';
+      }
+    });
+    el.style.fontStyle = style.italic ? 'italic' : '';
+    if (style.fontFamily) cmsEnsureFont(style.fontFamily);
+    // Text color must also override styled descendants (<em>/<span>/<strong>/
+    // <cite> with their own color rule), which a parent color can't do.
+    var kids = el.querySelectorAll('*');
+    for (var i = 0; i < kids.length; i++) {
+      // Leave selection-styled spans (and their contents) alone so a per-part
+      // colour survives a whole-element colour on the same element.
+      if (kids[i].closest && kids[i].closest('.cms-tspan')) continue;
+      if (style.color) { kids[i].style.setProperty('color', style.color, 'important'); }
+      else { kids[i].style.removeProperty('color'); }
+    }
+  }
   // Minimal in-browser HTML scrub for live richtext apply (same-origin preview).
   // <template> content is inert, so onerror/onload don't fire while we clean.
   function cmsScrub(html) {
@@ -83,6 +120,75 @@ PREVIEW_BRIDGE_SCRIPT = """
       send('focus-field', { id: el.getAttribute('data-edit') });
     });
   });
+
+  // ---- selection-based text styling ------------------------------------
+  // Highlight text inside a richtext field on the preview and the editor's
+  // side panel restyles just that selection: we wrap it in a styled <span>,
+  // stored in the field's own richtext HTML (so a two-colour heading is just
+  // a span, not a separate style layer). The live range is remembered so it
+  // survives focus moving to the editor's controls in the parent frame.
+  var cmsSelRange = null, cmsSelField = null;
+  function cmsRichHost(node) {
+    var el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return el && el.closest ? el.closest('[data-edit]') : null;
+  }
+  function cmsIsStyleable(host) {
+    if (!host) return false;
+    // Any text-bearing field — headings, paragraphs, list items, etc. (like
+    // lp-cms, which lets you style every text element, not just "rich" ones).
+    // Only non-text fields are excluded. Styling a plain text field just turns
+    // its value into inline HTML (a styled span).
+    var t = host.getAttribute('data-type') || 'text';
+    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link';
+  }
+  document.addEventListener('selectionchange', function () {
+    var s = window.getSelection();
+    if (!s || !s.rangeCount || s.isCollapsed) { send('text-selection', { present: false }); return; }
+    var r = s.getRangeAt(0);
+    var host = cmsRichHost(r.commonAncestorContainer);
+    if (!cmsIsStyleable(host)) { send('text-selection', { present: false }); return; }
+    // Remember this selection; keep it across later focus loss so the parent's
+    // colour/size controls still target it.
+    cmsSelRange = r.cloneRange();
+    cmsSelField = host.getAttribute('data-edit');
+    // Send the selection's rect (iframe-viewport coords) so the editor can
+    // float the style bubble right below the highlighted text.
+    var rc = r.getBoundingClientRect();
+    send('text-selection', { present: true, id: cmsSelField,
+      rect: { left: rc.left, top: rc.top, bottom: rc.bottom, width: rc.width, height: rc.height } });
+  });
+  function cmsStyleSelection(prop, value) {
+    if (!cmsSelRange) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsStyleable(host)) return null;
+    var sp = document.createElement('span');
+    sp.className = 'cms-tspan'; // marks a selection-styled span so the
+                                // whole-element recolor rule leaves it alone
+    sp.style.setProperty(prop, value);
+    var r = cmsSelRange.cloneRange();
+    try { r.surroundContents(sp); }
+    catch (e) { try { sp.appendChild(r.extractContents()); r.insertNode(sp); } catch (_) { return null; } }
+    if (prop === 'font-family') cmsEnsureFont(value);
+    // Re-select the wrapped text so successive tweaks stack on the same span.
+    var sel = window.getSelection(); sel.removeAllRanges();
+    var nr = document.createRange(); nr.selectNodeContents(sp); sel.addRange(nr);
+    cmsSelRange = nr.cloneRange();
+    return host;
+  }
+  function cmsClearSelection() {
+    if (!cmsSelRange) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsStyleable(host)) return null;
+    var r = cmsSelRange;
+    Array.prototype.slice.call(host.querySelectorAll('span[style]')).forEach(function (sp) {
+      if (r.intersectsNode(sp)) {
+        while (sp.firstChild) sp.parentNode.insertBefore(sp.firstChild, sp);
+        sp.parentNode.removeChild(sp);
+      }
+    });
+    host.normalize();
+    return host;
+  }
   window.addEventListener('message', function (e) {
     var data = e.data || {};
     if (data.source !== 'cms-editor') return;
@@ -119,9 +225,46 @@ PREVIEW_BRIDGE_SCRIPT = """
             el.style[prop] = value;
           }
           else if (t === 'richtext') { el.innerHTML = cmsRichtextHTML(el, value); }
+          // Plain text field: normally textContent, but once it carries a
+          // selection-styled span (or any inline markup) render it as HTML.
+          else if (/<[a-z]/i.test(value)) { el.innerHTML = cmsRichtextHTML(el, value); }
           else { el.textContent = value; }
         });
       });
+    }
+    if (data.type === 'apply-styles') {
+      Object.entries(data.payload || {}).forEach(function (entry) {
+        var fid = entry[0];
+        var style = entry[1] || {};
+        document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
+          cmsApplyStyle(el, style);
+        });
+      });
+    }
+    if (data.type === 'apply-global') {
+      var g = data.payload || {};
+      var css = '';
+      var bodyDecls = '';
+      if (g.fontFamily) { bodyDecls += 'font-family:' + g.fontFamily + ';'; cmsEnsureFont(g.fontFamily); }
+      if (g.baseSize) bodyDecls += 'font-size:' + g.baseSize + ';';
+      if (g.textColor) bodyDecls += 'color:' + g.textColor + ';';
+      if (g.pageBg) bodyDecls += 'background-color:' + g.pageBg + ';';
+      if (bodyDecls) css += 'body{' + bodyDecls + '}';
+      if (g.headingFamily) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + g.headingFamily + ';}'; cmsEnsureFont(g.headingFamily); }
+      var gtag = document.getElementById('cms-global-style');
+      if (!gtag) { gtag = document.createElement('style'); gtag.id = 'cms-global-style'; document.head.appendChild(gtag); }
+      gtag.textContent = css;
+    }
+    if (data.type === 'apply-tokens') {
+      var tk = data.payload || {};
+      var tcss = '';
+      Object.keys(tk).forEach(function (n) {
+        var sn = String(n).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (sn && tk[n]) { tcss += '--' + sn + ':' + tk[n] + ';'; }
+      });
+      var toktag = document.getElementById('cms-tokens');
+      if (!toktag) { toktag = document.createElement('style'); toktag.id = 'cms-tokens'; document.head.appendChild(toktag); }
+      toktag.textContent = ':root{' + tcss + '}';
     }
     if (data.type === 'highlight-field') {
       document.querySelectorAll('.cms-highlight').forEach(function (el) {
@@ -131,6 +274,11 @@ PREVIEW_BRIDGE_SCRIPT = """
         el.classList.add('cms-highlight');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
+    }
+    if (data.type === 'style-selection') {
+      var sd = data.payload || {};
+      var host = sd.clear ? cmsClearSelection() : cmsStyleSelection(sd.prop, sd.value);
+      if (host) send('text-update', { id: host.getAttribute('data-edit'), html: host.innerHTML });
     }
     if (data.type === 'scroll-to-section') {
       var sec = document.querySelector('[data-section="' + data.payload.id + '"]');
@@ -237,6 +385,21 @@ def _apply_image(el, value: str) -> None:
                 del source["data-srcset"]
 
 
+def _insert_sanitized_html(el, html: str) -> None:
+    """Replace ``el``'s contents with sanitized inline HTML (used by richtext
+    fields and by plain text fields once they carry a selection-styled span)."""
+    el.clear()
+    cleaned = sanitize_template_html(html)
+    fragment = BeautifulSoup(cleaned, "lxml").body
+    if fragment:
+        if el.name in _PHRASING_HOSTS:
+            _flatten_for_phrasing_host(fragment)
+        for child in list(fragment.children):
+            el.append(child)
+    else:
+        el.append(cleaned)
+
+
 def _apply_field(el, value: str, ftype: str) -> None:
     # No-op short-circuit. Skip the write when the value already equals what's
     # in the element — typically every render where the tenant hasn't actually
@@ -292,19 +455,15 @@ def _apply_field(el, value: str, ftype: str) -> None:
         # Real edit. Use the template-aware sanitizer (preserves classes,
         # styles, structural tags) rather than the blog-body sanitizer.
         # See ``core/services/template_sanitizer.py`` for the trust model.
-        el.clear()
-        cleaned = sanitize_template_html(value_stripped)
-        fragment = BeautifulSoup(cleaned, "lxml").body
-        if fragment:
-            if el.name in _PHRASING_HOSTS:
-                _flatten_for_phrasing_host(fragment)
-            for child in list(fragment.children):
-                el.append(child)
-        else:
-            el.append(cleaned)
+        _insert_sanitized_html(el, value_stripped)
         return
     # text type
     if el.get_text() == value:
+        return
+    # A plain text field that now carries inline markup (a selection-styled
+    # span) renders as HTML, like richtext; otherwise it's literal text.
+    if re.search(r"<[a-zA-Z]", value or ""):
+        _insert_sanitized_html(el, value.strip())
         return
     el.string = value
 
@@ -323,6 +482,210 @@ def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> N
         return match.group(0)
 
     style.string = re.sub(r"--([a-zA-Z0-9_-]+)\s*:\s*[^;]+;", replace, css)
+
+
+# Per-element editable styles. Keys are the client-facing style names stored in
+# content["_styles"][<data-edit id>]; values map to CSS declarations. `italic`
+# is handled separately (boolean -> font-style: italic).
+_STYLE_PROPERTIES = {
+    "color": "color",
+    "bgColor": "background-color",
+    "fontSize": "font-size",
+    "fontFamily": "font-family",
+    "fontWeight": "font-weight",
+    "align": "text-align",
+}
+
+
+def _set_css_prop(el, prop: str, value: str) -> None:
+    """Set one CSS declaration on an element's inline style, replacing any
+    existing declaration of the same property (mirrors the `color` field type
+    in _apply_field so re-renders don't stack duplicates)."""
+    existing = el.get("style", "")
+    cleaned = re.sub(rf"{re.escape(prop)}\s*:[^;]*;?", "", existing).strip()
+    el["style"] = (cleaned + f" {prop}: {value};").strip()
+
+
+def _apply_element_styles(el, style: dict) -> None:
+    if not isinstance(style, dict):
+        return
+    for key, css_prop in _STYLE_PROPERTIES.items():
+        value = style.get(key)
+        if value is None or value == "":
+            continue
+        # Color values are validated so a malformed value can't smuggle extra
+        # declarations into the inline style attribute.
+        if key in ("color", "bgColor"):
+            value = _safe_css_value(value)
+            if not value:
+                continue
+        _set_css_prop(el, css_prop, str(value))
+    if style.get("italic"):
+        _set_css_prop(el, "font-style", "italic")
+
+
+# A CSS color/value safe enough to interpolate into a stylesheet rule: hex,
+# rgb()/rgba()/hsl(), or a plain keyword. Anything with braces/semicolons that
+# could break out of the rule is rejected.
+_SAFE_CSS_VALUE_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)$")
+
+
+def _safe_css_value(value: str) -> str | None:
+    v = str(value or "").strip()
+    return v if _SAFE_CSS_VALUE_RE.match(v) else None
+
+
+def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
+    """Apply every per-element style override to its `data-edit` element(s).
+
+    Inline styles on the element win over the template's class rules for that
+    element. But a text *color* must also reach styled descendants (an <em> or
+    <span> with its own color rule), which inline-on-the-parent can't do — the
+    child's own rule wins. So for color we additionally emit a scoped
+    ``[data-edit="id"] * { color: ... !important }`` stylesheet rule.
+    """
+    if not isinstance(styles, dict):
+        return
+    descendant_rules = []
+    for element_id, style in styles.items():
+        if not isinstance(element_id, str) or "." not in element_id:
+            continue
+        if not isinstance(style, dict):
+            continue
+        for el in soup.find_all(attrs={"data-edit": element_id}):
+            _apply_element_styles(el, style)
+        color = _safe_css_value(style.get("color", ""))
+        if color:
+            sel_id = element_id.replace('"', "").replace("\\", "")
+            # Exclude selection-styled spans (cms-tspan) so a per-part colour
+            # inside the element isn't overridden by the whole-element colour.
+            descendant_rules.append(
+                f'[data-edit="{sel_id}"] *:not(.cms-tspan) {{ color: {color} !important; }}'
+            )
+    if descendant_rules:
+        tag = soup.new_tag("style")
+        tag["data-cms-elem"] = "true"
+        tag.string = "".join(descendant_rules)
+        (soup.find("head") or soup.find("body") or soup).append(tag)
+
+
+def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
+    """Write site-wide typography defaults as a low-specificity <style> block.
+    Per-element inline styles always win over these; the template's own
+    element-specific CSS may still override the body-level defaults."""
+    if not isinstance(global_styles, dict):
+        return
+    body_decls = []
+    font_family = global_styles.get("fontFamily")
+    base_size = global_styles.get("baseSize")
+    text_color = global_styles.get("textColor")
+    heading_family = global_styles.get("headingFamily")
+    page_bg = global_styles.get("pageBg")
+    if font_family:
+        body_decls.append(f"font-family: {font_family};")
+    if base_size:
+        body_decls.append(f"font-size: {base_size};")
+    if text_color:
+        body_decls.append(f"color: {text_color};")
+    if page_bg:
+        body_decls.append(f"background-color: {page_bg};")
+
+    rules = []
+    if body_decls:
+        rules.append("body{" + " ".join(body_decls) + "}")
+    if heading_family:
+        rules.append("h1,h2,h3,h4,h5,h6{font-family: " + str(heading_family) + ";}")
+    if not rules:
+        return
+
+    style = soup.new_tag("style")
+    style["data-cms-global"] = "true"
+    style.string = "".join(rules)
+    (soup.find("head") or soup.find("body") or soup).append(style)
+
+
+def _apply_tokens(soup: BeautifulSoup, tokens: dict) -> None:
+    """Override template design tokens (CSS custom properties) site-wide.
+
+    Appends a ``<style>:root{ --name: value; }</style>`` block after the
+    template's own styles, so ``var(--name)`` everywhere resolves to the
+    client's chosen value — buttons, headings, accents all recolor together
+    with no per-element overrides."""
+    if not isinstance(tokens, dict):
+        return
+    decls = []
+    for name, value in tokens.items():
+        if not isinstance(name, str):
+            continue
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", name)
+        safe_val = _safe_css_value(value)
+        if safe_name and safe_val:
+            decls.append(f"--{safe_name}: {safe_val};")
+    if not decls:
+        return
+    tag = soup.new_tag("style")
+    tag["data-cms-tokens"] = "true"
+    tag.string = ":root{" + "".join(decls) + "}"
+    (soup.find("head") or soup.find("body") or soup).append(tag)
+
+
+_FONT_NAME_RE = re.compile(r"[^A-Za-z0-9 \-]")
+# Weights we request so the per-element weight control (300-800) always has glyphs.
+_FONT_WEIGHTS = "300;400;500;600;700;800"
+
+
+def _sanitize_font_family(name: str) -> str:
+    """Reduce a family name to a Google-Fonts-safe token (letters, digits,
+    spaces, hyphens). Prevents URL/HTML injection from free-text font input."""
+    return _FONT_NAME_RE.sub("", (name or "")).strip()
+
+
+def _collect_font_families(content: dict) -> list[str]:
+    """Every distinct family used across per-element _styles and _global,
+    sanitized and de-duplicated in first-seen order."""
+    if not isinstance(content, dict):
+        return []
+    seen: dict[str, None] = {}
+    styles = content.get("_styles")
+    if isinstance(styles, dict):
+        for style in styles.values():
+            if isinstance(style, dict):
+                fam = _sanitize_font_family(style.get("fontFamily", ""))
+                if fam:
+                    seen.setdefault(fam, None)
+    glob = content.get("_global")
+    if isinstance(glob, dict):
+        for key in ("fontFamily", "headingFamily"):
+            fam = _sanitize_font_family(glob.get(key, ""))
+            if fam:
+                seen.setdefault(fam, None)
+    return list(seen.keys())
+
+
+def _inject_font_links(soup: BeautifulSoup, families: list[str]) -> None:
+    """Inject one Google Fonts stylesheet <link> (+ preconnects) for the given
+    families. All carry data-cookieconsent="ignore" so Cookiebot auto-blocking
+    doesn't strip the font CDN."""
+    if not families:
+        return
+    head = soup.find("head") or soup.find("body")
+    if head is None:
+        return
+    params = "&".join(
+        f"family={fam.replace(' ', '+')}:wght@{_FONT_WEIGHTS}" for fam in families
+    )
+    href = f"https://fonts.googleapis.com/css2?{params}&display=swap"
+
+    pre1 = soup.new_tag("link", rel="preconnect", href="https://fonts.googleapis.com")
+    pre1["data-cookieconsent"] = "ignore"
+    pre2 = soup.new_tag("link", rel="preconnect", href="https://fonts.gstatic.com")
+    pre2["crossorigin"] = ""
+    pre2["data-cookieconsent"] = "ignore"
+    link = soup.new_tag("link", rel="stylesheet", href=href)
+    link["data-cookieconsent"] = "ignore"
+    head.append(pre1)
+    head.append(pre2)
+    head.append(link)
 
 
 GA_SCRIPT_TEMPLATE = """<script async src="https://www.googletagmanager.com/gtag/js?id={mid}"></script>
@@ -442,6 +805,39 @@ def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
         (soup.find("head") or soup.find("body") or soup).append(style)
 
 
+# Auto-annotation: every text-leaf element that the agency didn't annotate gets
+# a ``data-edit="auto.nN"`` id at render time, so it becomes editable/styleable
+# through the normal pipeline — the lp-cms "everything is editable" idea expressed
+# as our own annotations. Purely additive (only adds attributes); ids are assigned
+# in document order and applied on BOTH preview and public renders so they line up.
+_AUTO_TEXT_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote",
+                   "figcaption", "td", "th", "dt", "dd", "caption", "cite", "address")
+# If a candidate contains one of these it's a container, not a text leaf — skip it
+# so we annotate the innermost text element (mirrors lp-cms's leaf detection).
+_AUTO_BLOCK_CHILD = ("div", "ul", "ol", "li", "table", "thead", "tbody", "tfoot",
+                     "tr", "figure", "form", "section", "article", "nav", "aside",
+                     "header", "footer", "main", "dl", "hr", "h1", "h2", "h3", "h4",
+                     "h5", "h6", "p", "blockquote")
+
+
+def _auto_annotate(soup) -> None:
+    body = soup.find("body") or soup
+    n = 0
+    for el in body.find_all(_AUTO_TEXT_TAGS):
+        if el.has_attr("data-edit"):
+            continue  # already annotated by the agency
+        if el.find_parent(attrs={"data-edit": True}) is not None:
+            continue  # inside an existing field — outermost wins
+        if not el.get_text(strip=True):
+            continue  # no visible text
+        if el.find(_AUTO_BLOCK_CHILD):
+            continue  # container, not a text leaf
+        el["data-edit"] = f"auto.n{n}"
+        el["data-type"] = "text"
+        el["data-label"] = "Text"
+        n += 1
+
+
 def render_site(
     template_html: str,
     content: dict[str, Any],
@@ -454,6 +850,7 @@ def render_site(
         return ""
 
     soup = BeautifulSoup(template_html, "lxml")
+    _auto_annotate(soup)
 
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})
@@ -472,6 +869,14 @@ def render_site(
 
         ftype = el.get("data-type", "text").strip() or "text"
         _apply_field(el, section_data[field], ftype)
+
+    if isinstance(content, dict) and isinstance(content.get("_styles"), dict):
+        _apply_styles(soup, content["_styles"])
+    if isinstance(content, dict) and isinstance(content.get("_global"), dict):
+        _apply_global_styles(soup, content["_global"])
+    if isinstance(content, dict) and isinstance(content.get("_tokens"), dict):
+        _apply_tokens(soup, content["_tokens"])
+    _inject_font_links(soup, _collect_font_families(content if isinstance(content, dict) else {}))
 
     if isinstance(content, dict) and content.get("_hidden"):
         _apply_hidden(soup, content["_hidden"], preview=preview)
