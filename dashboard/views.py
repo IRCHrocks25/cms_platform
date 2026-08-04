@@ -3509,6 +3509,29 @@ def integrations_bind(request):
 
 @agency_admin_required
 @require_POST
+def integrations_bind_orphan(request):
+    install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
+    tenant = get_object_or_404(Tenant, pk=request.POST.get("tenant_id"))
+    if install.agency_id:
+        messages.error(request, "This install belongs to an agency — use the agency bind flow instead.")
+        return redirect("dashboard:integrations")
+    clash = (
+        Tenant.objects.filter(ghl_location_id=install.location_id).exclude(pk=tenant.pk).exists()
+        or (install.tenant_id and install.tenant_id != tenant.pk)
+    )
+    if clash:
+        messages.error(request, "That sub-account is already linked to another site.")
+        return redirect("dashboard:integrations")
+    try:
+        ghl_connect.bind_orphan_install(install=install, tenant=tenant)
+        messages.success(request, f"Connected '{tenant.name}' to sub-account {install.location_id}.")
+    except IntegrityError:
+        messages.error(request, "That sub-account is already linked to another site.")
+    return redirect("dashboard:integrations")
+
+
+@agency_admin_required
+@require_POST
 def integrations_reconnect(request):
     install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
     try:
