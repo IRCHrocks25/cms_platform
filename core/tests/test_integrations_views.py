@@ -298,3 +298,29 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Delta")
         self.assertNotContains(resp, reverse("dashboard:integrations_bind_orphan"))
+
+    def test_connected_banner_says_agency_for_agency_connect(self):
+        resp = self.client.get(reverse("dashboard:integrations"), {"connected": "agency"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Agency connected")
+        self.assertNotContains(resp, "Sub-account connected")
+
+    def test_connected_banner_says_sub_account_for_location_connect_with_name(self):
+        GhlInstall.objects.create(
+            location_id="loc_named", location_name="Willow Tree Recruiting",
+            access_token=encrypt_token("x"),
+        )
+        resp = self.client.get(reverse("dashboard:integrations"),
+                                {"connected": "location", "location_id": "loc_named"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Sub-account connected")
+        self.assertContains(resp, "Willow Tree Recruiting")
+        self.assertNotContains(resp, "Agency connected")
+
+    def test_connected_banner_falls_back_to_raw_id_when_location_name_blank(self):
+        GhlInstall.objects.create(location_id="loc_blank_name", access_token=encrypt_token("x"))
+        resp = self.client.get(reverse("dashboard:integrations"),
+                                {"connected": "location", "location_id": "loc_blank_name"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Sub-account connected")
+        self.assertContains(resp, "loc_blank_name")

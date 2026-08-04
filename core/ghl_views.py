@@ -207,7 +207,7 @@ def oauth_callback(request):
             },
         )
         logger.info("GHL agency install: company=%s locations=%d", company_id, len(locations))
-        return redirect(f"{reverse('dashboard:integrations')}?connected=1")
+        return redirect(f"{reverse('dashboard:integrations')}?connected=agency")
 
     if not location_id:
         return HttpResponse("Token response missing locationId.", status=502)
@@ -229,7 +229,9 @@ def oauth_callback(request):
         install.tenant = tenant
         install.save(update_fields=["tenant", "updated_at"])
     logger.info("GHL install %s: location=%s", "created" if created else "refreshed", location_id)
-    return redirect(f"{reverse('dashboard:integrations')}?connected=1")
+    return redirect(
+        f"{reverse('dashboard:integrations')}?connected=location&location_id={location_id}"
+    )
 
 
 @csrf_exempt

@@ -3468,12 +3468,20 @@ def integrations(request):
     }
     agency_cards = [{"agency": a, "installs": by_agency.get(a.pk, [])} for a in agencies]
     tenants = Tenant.objects.order_by("name")
+    connected_type = request.GET.get("connected")
+    connected_label = ""
+    if connected_type == "location":
+        loc_id = request.GET.get("location_id", "")
+        match = next((i for i in installs if i.location_id == loc_id), None)
+        connected_label = (match.location_name if match else "") or loc_id
     return render(request, "dashboard/integrations.html", {
         "agency_cards": agency_cards,
         "orphan_installs": orphan_installs,
         "bound_location_ids": bound_location_ids,
         "tenants": tenants,
-        "just_connected": request.GET.get("connected") == "1",
+        "just_connected": connected_type in ("agency", "location"),
+        "connected_type": connected_type,
+        "connected_label": connected_label,
         "nav_section": "integrations",
     })
 

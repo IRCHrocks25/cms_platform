@@ -13,7 +13,11 @@
 
   {% if just_connected %}
     <div class="flash flash-success" style="margin-bottom: var(--space-6);">
-      Agency connected — choose sub-accounts to bind below.
+      {% if connected_type == "location" %}
+        Sub-account connected: {{ connected_label }}
+      {% else %}
+        Agency connected — choose sub-accounts to bind below.
+      {% endif %}
     </div>
   {% endif %}
 
