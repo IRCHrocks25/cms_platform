@@ -107,13 +107,23 @@ def oauth_install(request):
     "Invalid state: Signature has expired" on reinstall. Going through
     /connect/install/ lets us sign our own state with a 30-minute TTL we
     control end-to-end.
+
+    ?variant=standard uses marketplace.gohighlevel.com instead of the
+    default whitelabel host (marketplace.leadconnectorhq.com) — needed
+    when the target sub-account doesn't belong to a whitelabeled/branded
+    agency and so doesn't show up in the default chooser. See
+    ghl_oauth.py module docstring for the full story.
     """
     if not settings.GHL_CLIENT_ID:
         return HttpResponse("GHL_CLIENT_ID not configured.", status=503)
+    variant = request.GET.get("variant", "whitelabel")
+    if variant not in ("whitelabel", "standard"):
+        return HttpResponseBadRequest("invalid variant")
     state = ghl_oauth.sign_state({"source": "install"})
     url = ghl_oauth.build_install_url(
         state=state,
         redirect_uri=_build_redirect_uri(request),
+        variant=variant,
     )
     return redirect(url)
 

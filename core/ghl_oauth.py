@@ -1,9 +1,26 @@
 """GHL marketplace OAuth — install URL building, signed state tokens,
 and authorization-code → access-token exchange.
 
-The endpoints below moved to ``leadconnectorhq.com`` in 2025; the legacy
-``marketplace.gohighlevel.com/oauth/...`` host returns "no integration found"
-for newer client IDs. (Pattern from IRCHrocks25/Intelligent_Busines_Center.)
+The install/consent (chooselocation) step has TWO valid hosts, not one —
+picked via ``build_install_url(..., variant=...)``:
+
+  - "whitelabel" (default): ``marketplace.leadconnectorhq.com/v2/...`` —
+    GHL's branded/SaaS-Mode marketplace.
+  - "standard": ``marketplace.gohighlevel.com/v2/...`` — the classic
+    marketplace UI.
+
+Confirmed 2026-08-06 (Willow Tree / Stephanie Yee install): the
+``leadconnectorhq.com`` chooser silently omits sub-accounts that aren't
+under a whitelabeled/branded agency (or have no agency at all) from the
+account list. The ``gohighlevel.com`` chooser shows every location the
+installing user has access to. Both keep the ``/v2/`` path — this is
+NOT the same URL as the legacy, genuinely-broken
+``marketplace.gohighlevel.com/oauth/chooselocation`` (no ``/v2/``), which
+returns "no integration found" for newer client IDs and is why the code
+moved off that host in 2025 (pattern from
+IRCHrocks25/Intelligent_Busines_Center). When in doubt which one a given
+sub-account needs, try "whitelabel" first and fall back to "standard" if
+the target account doesn't appear in the chooser.
 
 Why the state token is signed by US, not GHL:
     GHL's own ``state`` parameter has a short TTL (a few minutes) and lives
@@ -24,10 +41,16 @@ from django.core import signing
 logger = logging.getLogger(__name__)
 
 # --- GHL endpoints --------------------------------------------------------- #
-# Default install/consent endpoint. GHL flips which path renders it vs.
-# bouncing to the agency home; /v2/ is current. Override via
+# Default (whitelabel) install/consent endpoint. GHL flips which path renders
+# it vs. bouncing to the agency home; /v2/ is current. Override via
 # settings.GHL_CHOOSELOCATION_URL (env GHL_CHOOSELOCATION_URL).
-AUTH_BASE = "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation"
+AUTH_BASE_WHITELABEL = "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation"
+# Standard (non-whitelabel) install/consent endpoint — see module docstring
+# for why this exists alongside AUTH_BASE_WHITELABEL. Override via
+# settings.GHL_CHOOSELOCATION_URL_STANDARD (env GHL_CHOOSELOCATION_URL_STANDARD).
+AUTH_BASE_STANDARD = "https://marketplace.gohighlevel.com/v2/oauth/chooselocation"
+# Back-compat alias — existing callers/tests importing AUTH_BASE keep working.
+AUTH_BASE = AUTH_BASE_WHITELABEL
 TOKEN_URL = "https://services.leadconnectorhq.com/oauth/token"
 LOCATION_TOKEN_URL = "https://services.leadconnectorhq.com/oauth/locationToken"
 INSTALLED_LOCATIONS_URL = (
@@ -78,13 +101,22 @@ def verify_state(token: str, max_age: int = STATE_TTL_SECONDS) -> dict[str, Any]
     return body
 
 
-def build_install_url(*, state: str, redirect_uri: str, scopes: list[str] | None = None) -> str:
+def build_install_url(
+    *,
+    state: str,
+    redirect_uri: str,
+    scopes: list[str] | None = None,
+    variant: str = "whitelabel",
+) -> str:
     """Construct the URL to redirect a user to in order to install the app.
 
     GHL marketplace client IDs are formatted ``<app_id>-<version_suffix>``
     (e.g. ``6a26a22d7ea963384e3e358a-mq5jclqk``). The chooselocation URL
     requires ``version_id`` — omitting it fails with noAppVersionIdFound.
     Default to the prefix; override with GHL_APP_VERSION_ID if needed.
+
+    ``variant`` picks the chooselocation host — "whitelabel" (default) or
+    "standard". See the module docstring for why both exist.
     """
     client_id = settings.GHL_CLIENT_ID
     if not client_id:
@@ -100,7 +132,12 @@ def build_install_url(*, state: str, redirect_uri: str, scopes: list[str] | None
         "state": state,
         "version_id": app_version_id,
     }
-    base = getattr(settings, "GHL_CHOOSELOCATION_URL", "") or AUTH_BASE
+    if variant == "standard":
+        base = getattr(settings, "GHL_CHOOSELOCATION_URL_STANDARD", "") or AUTH_BASE_STANDARD
+    elif variant == "whitelabel":
+        base = getattr(settings, "GHL_CHOOSELOCATION_URL", "") or AUTH_BASE_WHITELABEL
+    else:
+        raise ValueError(f"unknown chooselocation variant: {variant!r}")
     return f"{base}?{urlencode(params)}"
 
 

@@ -354,12 +354,22 @@ GHL_WEBHOOK_PUBLIC_KEY = os.environ.get("GHL_WEBHOOK_PUBLIC_KEY", "")
 GHL_TOKEN_ENCRYPTION_KEY = os.environ.get("GHL_TOKEN_ENCRYPTION_KEY", "")
 # Optional explicit app version id; falls back to GHL_CLIENT_ID prefix.
 GHL_APP_VERSION_ID = os.environ.get("GHL_APP_VERSION_ID", "")
-# GHL's install/consent (chooselocation) endpoint. GHL keeps flipping which
-# host/path renders the consent screen vs. bouncing to the agency home; the
-# /v2/ path is current. Override via env if it flips again (no code change).
+# GHL's install/consent (chooselocation) endpoint — whitelabel variant
+# (default). GHL keeps flipping which host/path renders the consent screen
+# vs. bouncing to the agency home; the /v2/ path is current. Override via
+# env if it flips again (no code change).
 GHL_CHOOSELOCATION_URL = os.environ.get(
     "GHL_CHOOSELOCATION_URL",
     "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation",
+)
+# Standard (non-whitelabel) chooselocation endpoint. Confirmed 2026-08-06
+# (Willow Tree / Stephanie Yee): sub-accounts without a whitelabeled/branded
+# agency don't appear in the GHL_CHOOSELOCATION_URL chooser above but do
+# appear here. /connect/install/?variant=standard uses this. See
+# core/ghl_oauth.py module docstring for details.
+GHL_CHOOSELOCATION_URL_STANDARD = os.environ.get(
+    "GHL_CHOOSELOCATION_URL_STANDARD",
+    "https://marketplace.gohighlevel.com/v2/oauth/chooselocation",
 )
 # Comma-separated list of origins allowed to embed us in a frame
 # (e.g. "https://app.industryrockstars.ch,https://app.daltoleadsystem.com").

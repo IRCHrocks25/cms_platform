@@ -8,7 +8,13 @@
       <h1 class="page-title">Integrations</h1>
       <p class="page-subtitle">Connect GoHighLevel agencies and bind sub-accounts to client sites.</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+      <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+      <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
+         title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
+        Sub-account missing? Use standard link
+      </a>
+    </div>
   </div>
 
   {% if just_connected %}
@@ -50,6 +56,10 @@
         </div>
         <div style="display: flex; gap: var(--space-2); align-items: center; flex-shrink: 0;">
           <a class="btn btn-secondary btn-sm" href="{% url 'ghl_oauth_install' %}">+ Add sub-accounts</a>
+          <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
+             title="Use this if the sub-account doesn't show up via '+ Add sub-accounts' — happens for accounts with no agency or no white-label/SaaS Mode.">
+            Standard link
+          </a>
           <form method="post" action="{% url 'dashboard:integrations_refresh_locations' %}" style="display: inline; margin: 0;">
             {% csrf_token %}
             <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
@@ -163,7 +173,13 @@
     <div class="empty">
       <h3>No GHL agency connected yet</h3>
       <p style="margin-bottom: var(--space-5);">Connect your first GoHighLevel agency to start linking sub-accounts to client sites.</p>
-      <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+        <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+        <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
+           title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
+          Sub-account missing? Use standard link
+        </a>
+      </div>
     </div>
     {% endfor %}
 

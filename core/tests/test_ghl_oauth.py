@@ -77,6 +77,29 @@ class InstallRedirectTests(TestCase):
         self.assertEqual(u.netloc, "example.com")
         self.assertEqual(u.path, "/custom/chooselocation")
 
+    def test_install_standard_variant_uses_gohighlevel_host(self):
+        # Some sub-accounts (no agency, or no whitelabel/SaaS Mode) don't
+        # show up in the leadconnectorhq.com chooser — ?variant=standard
+        # routes to marketplace.gohighlevel.com/v2/... instead, which does
+        # show them (confirmed 2026-08-06, Willow Tree / Stephanie Yee).
+        r = Client().get("/connect/install/?variant=standard")
+        u = urlparse(r["Location"])
+        self.assertIn("gohighlevel.com", u.netloc)
+        self.assertEqual(u.path, "/v2/oauth/chooselocation")
+        q = parse_qs(u.query)
+        self.assertEqual(q["client_id"], [CLIENT_ID])
+
+    @override_settings(GHL_CHOOSELOCATION_URL_STANDARD="https://example.com/custom/standard")
+    def test_install_standard_variant_honors_configurable_url(self):
+        r = Client().get("/connect/install/?variant=standard")
+        u = urlparse(r["Location"])
+        self.assertEqual(u.netloc, "example.com")
+        self.assertEqual(u.path, "/custom/standard")
+
+    def test_install_rejects_unknown_variant(self):
+        r = Client().get("/connect/install/?variant=bogus")
+        self.assertEqual(r.status_code, 400)
+
     def test_callback_reachable_without_trailing_slash(self):
         # GHL redirects to the no-slash /connect/callback; it must hit the
         # handler directly (200/302/400/502), not an APPEND_SLASH 301.
