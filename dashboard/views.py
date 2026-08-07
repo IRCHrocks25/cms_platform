@@ -14,7 +14,6 @@ from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, Http
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
@@ -32,6 +31,11 @@ from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
 from core.services import blog_render
 from core.services import iceberg_media
+from core.services.accounts import (
+    create_scoped_login,
+    create_tenant_account,
+    generate_password,
+)
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
 from core import ghl_crypto
@@ -74,11 +78,6 @@ GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
-)
-PASSWORD_ALPHABET = (
-    "abcdefghjkmnpqrstuvwxyz"
-    "ABCDEFGHJKLMNPQRSTUVWXYZ"
-    "23456789"
 )
 SESSION_CREDS_KEY = "agency_one_time_creds"
 CREDS_TTL_MINUTES = 10
@@ -773,40 +772,24 @@ def tenant_create(request):
             status=400,
         )
 
-    password = _generate_password()
-
     try:
-        with transaction.atomic():
-            if inline_new_template:
-                template = Template.objects.create(
-                    name=new_template_name,
-                    description=new_template_description,
-                    html_source=new_template_html,
-                )
-
-            user = User.objects.create_user(
-                username=client_username,
-                email=client_email,
-                password=password,
-            )
-            user.is_active = True
-            user.is_staff = False
-            user.save(update_fields=["is_active", "is_staff"])
-
-            tenant = Tenant.objects.create(
-                name=name,
-                subdomain=subdomain,
-                custom_domain=custom_domain,
-                template=template,
-                owner=user,
-                content=template.schema.get("defaults", {}) or {},
-                is_published=True,
-            )
-            TenantMembership.objects.create(
-                tenant=tenant,
-                user=user,
-                role=TenantMembership.ROLE_OWNER,
-            )
+        tenant, user, password = create_tenant_account(
+            name=name,
+            subdomain=subdomain,
+            custom_domain=custom_domain,
+            template=template,
+            username=client_username,
+            email=client_email,
+            new_template=(
+                {
+                    "name": new_template_name,
+                    "description": new_template_description,
+                    "html_source": new_template_html,
+                }
+                if inline_new_template
+                else None
+            ),
+        )
     except Exception as exc:
         messages.error(
             request,
@@ -874,50 +857,6 @@ def _generate_unique_subdomain_from_name(name):
         candidate = f"{stem}{token}"
         suffix += 1
     return candidate
-
-
-def _generate_password():
-    return get_random_string(length=16, allowed_chars=PASSWORD_ALPHABET)
-
-
-def _create_scoped_login(tenant, *, username, email, role):
-    """Create a new non-staff User + a Membership on `tenant`.
-
-    This is the "add another login to an existing site" primitive shared by the
-    agency site-detail flow and the client-facing Team page. It deliberately
-    never touches Tenant rows (the site already exists) and never grants staff —
-    the new account can only ever reach this one tenant.
-
-    Returns ``(user, password, errors)``. On any validation failure ``user`` and
-    ``password`` are ``None`` and ``errors`` is a non-empty list of strings.
-    """
-    username = (username or "").strip()
-    email = (email or "").strip()
-    if role not in dict(TenantMembership.ROLE_CHOICES):
-        role = TenantMembership.ROLE_EDITOR
-
-    errors = []
-    if not username:
-        errors.append("A username is required.")
-    elif User.objects.filter(username__iexact=username).exists():
-        errors.append(f"A user named “{username}” already exists. Pick a different username.")
-    if errors:
-        return None, None, errors
-
-    password = _generate_password()
-    with transaction.atomic():
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-        )
-        # Belt-and-suspenders: a scoped login is never agency staff.
-        user.is_active = True
-        user.is_staff = False
-        user.is_superuser = False
-        user.save(update_fields=["is_active", "is_staff", "is_superuser"])
-        TenantMembership.objects.create(tenant=tenant, user=user, role=role)
-    return user, password, []
 
 
 # --------------------------------------------------------------------------- #
@@ -1207,7 +1146,7 @@ def tenant_member_create(request, pk):
     creates the User + Membership in one shot and reveals one-time credentials.
     """
     tenant = get_object_or_404(Tenant, pk=pk)
-    user, password, errors = _create_scoped_login(
+    user, password, errors = create_scoped_login(
         tenant,
         username=request.POST.get("username"),
         email=request.POST.get("email"),
@@ -1343,7 +1282,7 @@ def user_create_login(request, pk):
         messages.error(request, "Pick one of this client's sites.")
         return redirect("dashboard:user_detail", pk=user_obj.pk)
 
-    new_user, password, errors = _create_scoped_login(
+    new_user, password, errors = create_scoped_login(
         tenant,
         username=request.POST.get("username"),
         email=request.POST.get("email"),
@@ -1365,7 +1304,7 @@ def user_create_login(request, pk):
 @require_POST
 def user_reset_password(request, pk):
     user_obj = get_object_or_404(User, pk=pk)
-    password = _generate_password()
+    password = generate_password()
     user_obj.set_password(password)
     user_obj.save(update_fields=["password"])
     token = _stash_credentials_in_session(request, user_obj, password)
@@ -1572,7 +1511,7 @@ def team_self(request):
 @tenant_member_required
 @require_POST
 def team_member_create_self(request):
-    user, password, errors = _create_scoped_login(
+    user, password, errors = create_scoped_login(
         request.tenant,
         username=request.POST.get("username"),
         email=request.POST.get("email"),
