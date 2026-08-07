@@ -67,6 +67,27 @@ class BuildConsentContextsTests(TestCase):
         self.assertEqual(contexts[0]["role"], "superadmin")
         self.assertIsNone(contexts[0]["tenant_name"])
 
+    def test_staff_context_shows_memberships_only(self):
+        from api.auth import build_consent_contexts
+
+        owner = User.objects.create_user("owner", "o@ex.com", "x")
+        staff = User.objects.create_user("ops", "ops@ex.com", "x", is_staff=True)
+        tpl = Template.objects.create(name="T", html_source="<div></div>")
+        tenant = Tenant.objects.create(
+            name="Acme Cafe", subdomain="acme", template=tpl, owner=owner
+        )
+        TenantMembership.objects.create(
+            tenant=tenant, user=staff, role=TenantMembership.ROLE_EDITOR
+        )
+
+        contexts = build_consent_contexts(staff)
+
+        self.assertEqual(len(contexts), 1)
+        self.assertFalse(contexts[0]["platform"])
+        self.assertEqual(contexts[0]["tenant_name"], "Acme Cafe")
+        self.assertEqual(contexts[0]["role"], TenantMembership.ROLE_EDITOR)
+        self.assertFalse(any(c.get("platform") for c in contexts))
+
 
 @override_settings(
     STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage",

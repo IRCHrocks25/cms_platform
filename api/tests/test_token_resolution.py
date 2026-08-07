@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from oauth2_provider.models import AccessToken, Application
 
@@ -9,6 +9,8 @@ from core.models import Template, Tenant, TenantMembership
 
 
 User = get_user_model()
+
+CLAUDE_CLIENT_ID = "claude-test"
 
 
 def _make_tenant(owner, *, name, subdomain):
@@ -21,25 +23,37 @@ def _make_tenant(owner, *, name, subdomain):
     )
 
 
-def _make_token(user, *, expires_delta=timedelta(hours=1), token="tok-test"):
-    app, _ = Application.objects.get_or_create(
-        name="Claude",
-        defaults={
-            "client_id": "claude-test",
-            "client_type": Application.CLIENT_CONFIDENTIAL,
-            "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
-            "redirect_uris": "https://example.test/callback",
-        },
-    )
+def _make_token(
+    user,
+    *,
+    expires_delta=timedelta(hours=1),
+    token="tok-test",
+    application=None,
+):
+    if application is None:
+        app, _ = Application.objects.get_or_create(
+            name="Claude",
+            defaults={
+                "client_id": CLAUDE_CLIENT_ID,
+                "client_type": Application.CLIENT_CONFIDENTIAL,
+                "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://example.test/callback",
+            },
+        )
+        if app.client_id != CLAUDE_CLIENT_ID:
+            app.client_id = CLAUDE_CLIENT_ID
+            app.save(update_fields=["client_id"])
+        application = app
     return AccessToken.objects.create(
         user=user,
-        application=app,
+        application=application,
         token=token,
         expires=timezone.now() + expires_delta,
         scope="read write",
     )
 
 
+@override_settings(CLAUDE_OAUTH_CLIENT_ID=CLAUDE_CLIENT_ID)
 class ResolveAccessTokenTests(TestCase):
     def test_superuser_resolves_platform_wide(self):
         from api.auth import resolve_access_token
@@ -54,17 +68,71 @@ class ResolveAccessTokenTests(TestCase):
         self.assertEqual(principal.platform_role, "superadmin")
         self.assertEqual(principal.scopes, ())
 
-    def test_staff_resolves_platform_wide(self):
+    def test_staff_without_membership_resolves_to_nothing(self):
         from api.auth import resolve_access_token
 
         user = User.objects.create_user("ops", "o@ex.com", "x", is_staff=True)
-        _make_token(user, token="tok-staff")
+        _make_token(user, token="tok-staff-none")
 
-        principal = resolve_access_token("tok-staff")
+        self.assertIsNone(resolve_access_token("tok-staff-none"))
+
+    def test_staff_with_membership_resolves_only_that_tenant(self):
+        from api.auth import resolve_access_token
+
+        owner = User.objects.create_user("owner", "own@ex.com", "x")
+        staff = User.objects.create_user("ops", "o@ex.com", "x", is_staff=True)
+        a = _make_tenant(owner, name="Alpha", subdomain="alpha")
+        b = _make_tenant(owner, name="Beta", subdomain="beta")
+        TenantMembership.objects.create(
+            tenant=a, user=staff, role=TenantMembership.ROLE_EDITOR
+        )
+        _make_token(staff, token="tok-staff-a")
+
+        principal = resolve_access_token("tok-staff-a")
 
         self.assertIsNotNone(principal)
-        self.assertEqual(principal.platform_role, "staff")
+        self.assertIsNone(principal.platform_role)
+        self.assertEqual(len(principal.scopes), 1)
+        self.assertEqual(principal.scopes[0].tenant, a)
+        self.assertIsNotNone(principal.for_tenant(a))
+        self.assertIsNone(principal.for_tenant(b))
+
+    def test_superuser_without_membership_still_resolves_any_tenant(self):
+        from api.auth import resolve_access_token
+
+        owner = User.objects.create_user("owner", "own@ex.com", "x")
+        admin = User.objects.create_superuser("admin", "a@ex.com", "x")
+        tenant = _make_tenant(owner, name="Acme", subdomain="acme")
+        _make_token(admin, token="tok-super-any")
+
+        principal = resolve_access_token("tok-super-any")
+
+        self.assertIsNotNone(principal)
+        self.assertEqual(principal.platform_role, "superadmin")
         self.assertEqual(principal.scopes, ())
+        scope = principal.for_tenant(tenant)
+        self.assertIsNotNone(scope)
+        self.assertEqual(scope.role, "superadmin")
+
+    def test_token_from_other_oauth_application_rejected(self):
+        from api.auth import resolve_access_token
+
+        owner = User.objects.create_user("owner", "own@ex.com", "x")
+        member = User.objects.create_user("editor", "e@ex.com", "x")
+        tenant = _make_tenant(owner, name="Acme", subdomain="acme")
+        TenantMembership.objects.create(
+            tenant=tenant, user=member, role=TenantMembership.ROLE_EDITOR
+        )
+        other_app = Application.objects.create(
+            name="Other Client",
+            client_id="other-client",
+            client_type=Application.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.test/callback",
+        )
+        _make_token(member, token="tok-other-app", application=other_app)
+
+        self.assertIsNone(resolve_access_token("tok-other-app"))
 
     def test_single_tenant_member_resolves_membership(self):
         from api.auth import resolve_access_token
@@ -160,6 +228,7 @@ class ResolveAccessTokenTests(TestCase):
         self.assertIsNone(resolve_access_token("does-not-exist"))
 
 
+@override_settings(CLAUDE_OAUTH_CLIENT_ID=CLAUDE_CLIENT_ID)
 class CmsBearerAuthTests(TestCase):
     def test_bearer_returns_resolved_principal(self):
         from api.auth import CmsBearerAuth
