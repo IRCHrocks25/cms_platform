@@ -6,6 +6,8 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from api.api import api
+
 
 def healthz(request):
     """Container health check. Verifies the DB is reachable so an orchestrator
@@ -74,6 +76,9 @@ urlpatterns = [
     path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),
     path("privacy/", ghl_views.privacy, name="privacy"),
     path("terms/", ghl_views.terms, name="terms"),
+
+    path("api/", api.urls),
+    path("", include("api.oauth_urls")),
 
     path("dashboard/", include("dashboard.urls")),
 
