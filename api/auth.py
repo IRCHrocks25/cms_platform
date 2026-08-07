@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from ninja.security import HttpBearer
 from oauth2_provider.models import AccessToken
@@ -23,9 +24,10 @@ class TenantScope:
 class ResolvedAuth:
     """Concrete principal derived from an OAuth access token.
 
-    Mirrors ``core.permissions``: staff/superuser are platform-wide; everyone
-    else is scoped strictly to their ``TenantMembership`` rows. A missing
-    membership never falls back to a default tenant.
+    Superusers are platform-wide. Everyone else (including staff) is scoped
+    strictly to their ``TenantMembership`` rows. A missing membership never
+    falls back to a default tenant. Tokens must be issued by the configured
+    Claude OAuth application.
     """
 
     user: object
@@ -53,15 +55,6 @@ def build_consent_contexts(user) -> list[dict]:
                 "platform": True,
             }
         )
-    elif user.is_staff:
-        contexts.append(
-            {
-                "tenant_name": None,
-                "tenant_subdomain": None,
-                "role": "staff",
-                "platform": True,
-            }
-        )
 
     memberships = (
         TenantMembership.objects.select_related("tenant")
@@ -80,17 +73,30 @@ def build_consent_contexts(user) -> list[dict]:
     return contexts
 
 
+def _issued_by_claude_client(access: AccessToken) -> bool:
+    expected = (settings.CLAUDE_OAUTH_CLIENT_ID or "").strip()
+    if not expected:
+        return False
+    application = access.application
+    if application is None:
+        return False
+    return application.client_id == expected
+
+
 def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     """Resolve a bearer token to ``(user, role, tenant)`` scopes, or ``None``."""
     if not token:
         return None
 
     access = (
-        AccessToken.objects.select_related("user")
+        AccessToken.objects.select_related("user", "application")
         .filter(token=token)
         .first()
     )
     if access is None or not access.is_valid():
+        return None
+
+    if not _issued_by_claude_client(access):
         return None
 
     user = access.user
@@ -99,8 +105,6 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
 
     if user.is_superuser:
         return ResolvedAuth(user=user, platform_role="superadmin", scopes=())
-    if user.is_staff:
-        return ResolvedAuth(user=user, platform_role="staff", scopes=())
 
     memberships = list(
         TenantMembership.objects.select_related("tenant")
