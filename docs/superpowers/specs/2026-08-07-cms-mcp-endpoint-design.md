@@ -479,22 +479,27 @@ Each line is a test unless marked otherwise.
 | `create_client_account`, one-time secret return | CMS-11 + CMS-8 |
 | Media tools — Claude calls Iceberg's MCP directly | CMS-12 |
 | Restricting advertised OAuth grants | CMS-20 |
-| Tenant picker on the consent screen | Unfiled; needed before client self-service |
+| Tenant picker on the consent screen | **CMS-21**, filed out of this session |
 
 ### Plane changes this session files
 
 - **CMS-7** — comment narrowing it to the write half; CMS-9 owns read and etag.
 - **CMS-13** — comment recording the error-shape boundary.
 - **CMS-9** — summary comment linking this spec's PR.
+- **CMS-21** — new ticket: tenant picker on the OAuth consent screen.
+
+CMS-7's *description* still needs editing by a PM to match the re-scope; a comment records the
+decision but the ticket text still claims both halves.
 
 ---
 
 ## 15. Open items and risks
 
 1. **The audit fork is revisitable** (§3.5) — recorded at the owner's request.
-2. **No tenant picker at consent.** A token still grants every membership the user holds. Fine
-   while the surface is operator-driven; needs resolving before client self-service. Not filed
-   as a ticket yet — raised by the PM on CMS-4 and still open.
+2. **No tenant picker at consent.** A token still grants every membership the user holds.
+   Per-call checks bound what a token may *do*, not what it may *reach*. Fine while the surface
+   is operator-driven; must be resolved before client self-service. Filed out of this session as
+   **CMS-21**, rather than widening CMS-9.
 3. **`for_tenant` returns a synthetic `superadmin` role** that is not in
    `TenantMembership.ROLE_CHOICES`. `list_sites` will surface it. Callers switching on role must
    handle it. Carried from the CMS-4/5 review; not fixed here.
