@@ -49,6 +49,21 @@ python manage.py runserver
 
 Then open <http://localhost:8000/login/>.
 
+### Register the Claude OAuth client
+
+Set `CLAUDE_OAUTH_CLIENT_ID`, `CLAUDE_OAUTH_CLIENT_SECRET`, and the
+space-separated `CLAUDE_OAUTH_REDIRECT_URIS` in the environment, then run:
+
+```bash
+python manage.py migrate
+python manage.py register_claude_oauth_client
+```
+
+The command is idempotent, creates one confidential authorization-code client,
+requires PKCE, and never prints the client secret. OAuth discovery is available
+at `/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource`; the Ninja API starts at `/api/`.
+
 ### First run, in order
 
 1. Sign in with the superuser you just created.

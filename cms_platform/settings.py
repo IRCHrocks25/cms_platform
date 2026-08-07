@@ -147,7 +147,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.humanize",
+    "oauth2_provider",
 
+    "api",
     "core",
     "dashboard",
 ]
@@ -241,6 +243,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/login/"
+
+OAUTH2_PROVIDER = {
+    "DCR_ENABLED": False,
+    "PKCE_REQUIRED": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
+}
+CLAUDE_OAUTH_CLIENT_ID = os.environ.get("CLAUDE_OAUTH_CLIENT_ID", "")
+CLAUDE_OAUTH_CLIENT_SECRET = os.environ.get("CLAUDE_OAUTH_CLIENT_SECRET", "")
+CLAUDE_OAUTH_REDIRECT_URIS = os.environ.get("CLAUDE_OAUTH_REDIRECT_URIS", "")
 
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
