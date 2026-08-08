@@ -6,6 +6,7 @@ import logging
 from typing import Any, Optional
 
 from api.auth import ResolvedAuth
+from api.models import McpAuditLog
 from api.mcp import tools as tools_mod
 from api.mcp.errors import INVALID_PARAMS, METHOD_NOT_FOUND, rpc_error
 
@@ -21,18 +22,29 @@ def record_mcp_call(
     actor,
     tenant,
     tool: str,
-    performed_via: str = "MCP",
+    performed_via: str = McpAuditLog.VIA_MCP,
 ) -> None:
-    """Audit seam. CMS-6 swaps a model backend in; do not log arguments verbatim."""
-    tenant_key = getattr(tenant, "subdomain", None) if tenant is not None else None
-    actor_key = getattr(actor, "pk", None)
-    logger.info(
-        "mcp_call actor_id=%s tenant=%s tool=%s performed_via=%s",
-        actor_key,
-        tenant_key,
-        tool,
-        performed_via,
-    )
+    """Persist one audit row per tools/call. Never raises into the read path.
+
+    Bound: exactly one insert per call (no per-field / per-site fan-out).
+    Arguments and field values are never stored. Insert failures are logged
+    and swallowed so an audit outage cannot take down MCP reads.
+    """
+    try:
+        McpAuditLog.objects.create(
+            actor=actor if getattr(actor, "pk", None) else None,
+            tenant=tenant,
+            action=tool,
+            performed_via=performed_via or McpAuditLog.VIA_MCP,
+        )
+    except Exception:
+        logger.exception(
+            "mcp_audit_write_failed actor_id=%s tenant=%s tool=%s via=%s",
+            getattr(actor, "pk", None),
+            getattr(tenant, "subdomain", None) if tenant is not None else None,
+            tool,
+            performed_via,
+        )
 
 
 def _initialize_result() -> dict[str, Any]:
@@ -77,7 +89,8 @@ def dispatch(
         if not isinstance(arguments, dict):
             return None, rpc_error(INVALID_PARAMS, "arguments must be an object")
 
-        # Audit after we know the tool name; tenant resolved when site is present.
+        # One audit row per call. Tenant stamped only when the principal may
+        # reach it — denials and list_sites leave tenant NULL.
         site = arguments.get("site")
         tenant = None
         if isinstance(site, str) and site:

@@ -591,7 +591,7 @@ class McpEndpointTests(TestCase):
         if r.status_code == 200:
             self.assertIn(b"reserved", r.content.lower())
 
-    def test_ac34_no_migrations(self):
+    def test_ac34_migrations_in_sync(self):
         from django.core.management import call_command
         from io import StringIO
 
@@ -600,3 +600,46 @@ class McpEndpointTests(TestCase):
             call_command("makemigrations", "--check", "--dry-run", stdout=out, stderr=out)
         except SystemExit as exc:
             self.assertEqual(exc.code, 0, out.getvalue())
+
+    def test_audit_one_row_per_tools_call(self):
+        from api.models import McpAuditLog
+
+        self.assertEqual(McpAuditLog.objects.count(), 0)
+        self._result(
+            self._call(
+                "get_page", {"site": "alpha"}, token="tok-member"
+            )
+        )
+        self.assertEqual(McpAuditLog.objects.count(), 1)
+        row = McpAuditLog.objects.get()
+        self.assertEqual(row.actor_id, self.member.pk)
+        self.assertEqual(row.tenant_id, self.tenant_a.pk)
+        self.assertEqual(row.action, "get_page")
+        self.assertEqual(row.performed_via, "MCP")
+        self.assertIsNotNone(row.timestamp)
+
+    def test_audit_list_sites_is_single_row_not_per_site(self):
+        from api.models import McpAuditLog
+
+        self._result(self._call("list_sites", token="tok-admin"))
+        self.assertEqual(McpAuditLog.objects.count(), 1)
+        row = McpAuditLog.objects.get()
+        self.assertEqual(row.action, "list_sites")
+        self.assertIsNone(row.tenant_id)
+
+    def test_audit_failure_does_not_break_read(self):
+        from unittest import mock
+
+        with mock.patch(
+            "api.mcp.dispatch.McpAuditLog.objects.create",
+            side_effect=RuntimeError("db down"),
+        ):
+            result = self._result(
+                self._call(
+                    "get_content",
+                    {"site": "alpha", "field": "hero.title"},
+                    token="tok-member",
+                )
+            )
+        self.assertFalse(result.get("isError", False))
+        self.assertEqual(result["structuredContent"]["value"], "A")

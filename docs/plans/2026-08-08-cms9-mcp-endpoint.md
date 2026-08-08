@@ -8,7 +8,7 @@
 
 **Architecture:** Plain Django view (not ninja). Package `api/mcp/` with transport,
 dispatch, tools, content/etag, errors. Auth via `resolve_access_token` directly.
-Audit seam is logger-backed `record_mcp_call`.
+Audit is `McpAuditLog` via `record_mcp_call` (CMS-6 absorbed 2026-08-08).
 
 **Tech Stack:** Django 5.1.2, Python 3.12, django-oauth-toolkit, existing models.
 
