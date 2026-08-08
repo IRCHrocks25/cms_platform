@@ -233,8 +233,11 @@ class McpView(View):
             "jsonrpc": "2.0",
             "id": payload.get("id"),
         }
+        http_status = 200
         if error is not None:
             response_body["error"] = error
         else:
+            if isinstance(result, dict) and result.get("_http_status"):
+                http_status = int(result.pop("_http_status"))
             response_body["result"] = result
-        return _write_rpc(request, 200, response_body)
+        return _write_rpc(request, http_status, response_body)

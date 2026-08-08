@@ -1,0 +1,140 @@
+"""CMS-7: shared snapshot-then-save + MCP retention isolation."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from django.utils import timezone
+
+from core.models import ContentVersion, Template, Tenant
+from core.services import content_versions as cv
+
+
+User = get_user_model()
+
+SAMPLE_HTML = """
+<section data-section="hero" data-label="Hero" data-group="Home">
+  <h1 data-edit="hero.title" data-type="text" data-label="Headline">Welcome</h1>
+</section>
+"""
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class ContentVersionServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("editor", "e@ex.com", "x")
+        self.other = User.objects.create_user("other", "o@ex.com", "x")
+        tpl = Template.objects.create(name="tpl", html_source=SAMPLE_HTML)
+        self.tenant = Tenant.objects.create(
+            name="Alpha",
+            subdomain="alpha",
+            template=tpl,
+            owner=self.user,
+            content={"hero": {"title": "A"}},
+        )
+
+    def test_dashboard_save_creates_snapshot_of_previous(self):
+        before = dict(self.tenant.content)
+        cv.save_tenant_content(
+            self.tenant,
+            {"hero": {"title": "B"}},
+            user=self.user,
+            source=cv.SOURCE_DASHBOARD,
+        )
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "B"}})
+        versions = list(self.tenant.versions.order_by("-saved_at"))
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0].snapshot, before)
+        self.assertEqual(versions[0].source, cv.SOURCE_DASHBOARD)
+        self.assertEqual(versions[0].saved_by_id, self.user.pk)
+
+    def test_mcp_burst_coalesces_into_one_snapshot(self):
+        """Rapid MCP patches must not create one version per field write."""
+        cv.save_tenant_content(
+            self.tenant,
+            {"hero": {"title": "M1"}},
+            user=self.user,
+            source=cv.SOURCE_MCP,
+        )
+        cv.save_tenant_content(
+            self.tenant,
+            {"hero": {"title": "M2"}},
+            user=self.user,
+            source=cv.SOURCE_MCP,
+        )
+        cv.save_tenant_content(
+            self.tenant,
+            {"hero": {"title": "M3"}},
+            user=self.user,
+            source=cv.SOURCE_MCP,
+        )
+        self.assertEqual(self.tenant.versions.filter(source=cv.SOURCE_MCP).count(), 1)
+        snap = self.tenant.versions.get(source=cv.SOURCE_MCP).snapshot
+        self.assertEqual(snap, {"hero": {"title": "A"}})
+
+    def test_mcp_versions_do_not_flush_dashboard_undo_history(self):
+        """Separate retention: many MCP snapshots must not evict human ones.
+
+        Fails under a single rolling-10 that mixes sources.
+        """
+        # Seed 10 dashboard (human) undo points.
+        for i in range(10):
+            cv.save_tenant_content(
+                self.tenant,
+                {"hero": {"title": f"H{i}"}},
+                user=self.user,
+                source=cv.SOURCE_DASHBOARD,
+            )
+        human_ids = set(
+            self.tenant.versions.filter(source=cv.SOURCE_DASHBOARD).values_list(
+                "id", flat=True
+            )
+        )
+        self.assertEqual(len(human_ids), 10)
+
+        # Force non-coalesced MCP saves (different users / outside window).
+        for i in range(12):
+            # Advance clock past coalesce window between MCP bursts.
+            latest = self.tenant.versions.filter(source=cv.SOURCE_MCP).first()
+            if latest is not None:
+                ContentVersion.objects.filter(pk=latest.pk).update(
+                    saved_at=timezone.now() - timedelta(minutes=30)
+                )
+            cv.save_tenant_content(
+                self.tenant,
+                {"hero": {"title": f"M{i}"}},
+                user=self.user,
+                source=cv.SOURCE_MCP,
+            )
+
+        remaining_human = set(
+            self.tenant.versions.filter(source=cv.SOURCE_DASHBOARD).values_list(
+                "id", flat=True
+            )
+        )
+        self.assertEqual(remaining_human, human_ids)
+        self.assertEqual(
+            self.tenant.versions.filter(source=cv.SOURCE_DASHBOARD).count(), 10
+        )
+        self.assertLessEqual(
+            self.tenant.versions.filter(source=cv.SOURCE_MCP).count(),
+            cv.MCP_KEEP,
+        )
+
+    def test_restore_uses_shared_path(self):
+        cv.save_tenant_content(
+            self.tenant,
+            {"hero": {"title": "B"}},
+            user=self.user,
+            source=cv.SOURCE_DASHBOARD,
+        )
+        version = self.tenant.versions.get()
+        cv.restore_tenant_content(self.tenant, version, user=self.other)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "A"}})
+        # Restore itself is undoable — current was snapshotted first.
+        newest = self.tenant.versions.order_by("-saved_at").first()
+        self.assertEqual(newest.snapshot, {"hero": {"title": "B"}})
