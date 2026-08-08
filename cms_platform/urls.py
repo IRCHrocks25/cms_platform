@@ -7,6 +7,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from api.api import api
+from api.mcp.views import McpView
 
 
 def healthz(request):
@@ -78,6 +79,8 @@ urlpatterns = [
     path("terms/", ghl_views.terms, name="terms"),
 
     path("api/", api.urls),
+    # MCP Streamable HTTP — no trailing slash (APPEND_SLASH 301 breaks POST clients).
+    path("mcp", McpView.as_view(), name="mcp"),
     path("", include("api.oauth_urls")),
 
     path("dashboard/", include("dashboard.urls")),
