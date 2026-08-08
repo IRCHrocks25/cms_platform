@@ -38,6 +38,13 @@ class ApiScaffoldTests(TestCase):
         self.assertTrue(settings.OAUTH2_PROVIDER["PKCE_REQUIRED"])
         self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_PKCE_METHOD"])
         self.assertFalse(settings.OAUTH2_PROVIDER["DCR_ENABLED"])
+        self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_PASSWORD_GRANT"])
+        self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT"])
+        self.assertEqual(
+            settings.OAUTH2_PROVIDER["OAUTH2_GRANT_TYPES_SUPPORTED"],
+            ["authorization_code", "refresh_token"],
+        )
+        self.assertEqual(settings.OAUTH2_PROVIDER["OAUTH2_RESPONSE_TYPES_SUPPORTED"], ["code"])
 
     def test_only_static_oauth_client_registration_is_routed(self):
         for registration_path in ("/register/", "/applications/register/"):
