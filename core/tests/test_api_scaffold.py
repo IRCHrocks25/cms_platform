@@ -34,10 +34,10 @@ class ApiScaffoldTests(TestCase):
         self.assertEqual(response.json()["resource"], "http://testserver")
         self.assertEqual(response.json()["authorization_servers"], ["http://testserver"])
 
-    def test_oauth_provider_enforces_pkce_and_disables_dynamic_registration(self):
+    def test_oauth_provider_enforces_pkce_and_enables_dynamic_registration(self):
         self.assertTrue(settings.OAUTH2_PROVIDER["PKCE_REQUIRED"])
         self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_PKCE_METHOD"])
-        self.assertFalse(settings.OAUTH2_PROVIDER["DCR_ENABLED"])
+        self.assertTrue(settings.OAUTH2_PROVIDER["DCR_ENABLED"])
         self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_PASSWORD_GRANT"])
         self.assertTrue(settings.OAUTH2_PROVIDER["COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT"])
         self.assertEqual(
@@ -45,15 +45,20 @@ class ApiScaffoldTests(TestCase):
             ["authorization_code", "refresh_token"],
         )
         self.assertEqual(settings.OAUTH2_PROVIDER["OAUTH2_RESPONSE_TYPES_SUPPORTED"], ["code"])
+        self.assertEqual(
+            settings.OAUTH2_PROVIDER["OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED"],
+            ["none"],
+        )
 
-    def test_only_static_oauth_client_registration_is_routed(self):
-        for registration_path in ("/register/", "/applications/register/"):
-            with self.subTest(path=registration_path):
-                try:
-                    match = resolve(registration_path)
-                except Resolver404:
-                    continue
-                self.assertNotIn(match.url_name, {"dcr-register", "register"})
+    def test_dcr_registration_is_routed_under_oauth_register(self):
+        match = resolve("/oauth/register")
+        self.assertEqual(match.url_name, "dcr-register")
+        # Session-based DOT application-management UI stays unmounted.
+        try:
+            match = resolve("/applications/register/")
+        except Resolver404:
+            return
+        self.assertNotEqual(match.url_name, "register")
 
     def test_oauth_provider_binds_tokens_to_rfc8707_resource(self):
         token = AccessToken(resource=["https://sites.example/api"])

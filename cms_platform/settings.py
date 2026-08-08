@@ -245,7 +245,12 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/login/"
 
 OAUTH2_PROVIDER = {
-    "DCR_ENABLED": False,
+    # CMS-24: open RFC 7591 registration (claude.ai self-registers, matching
+    # IBC). Constrained in api.oauth_dcr to authorization_code + public clients.
+    "DCR_ENABLED": True,
+    "DCR_REGISTRATION_PERMISSION_CLASSES": (
+        "oauth2_provider.dcr.AllowAllDCRPermission",
+    ),
     "PKCE_REQUIRED": True,
     "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
     "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
@@ -259,6 +264,8 @@ OAUTH2_PROVIDER = {
         "refresh_token",
     ],
     "OAUTH2_RESPONSE_TYPES_SUPPORTED": ["code"],
+    # Public DCR clients authenticate at the token endpoint with PKCE only.
+    "OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED": ["none"],
 }
 CLAUDE_OAUTH_CLIENT_ID = os.environ.get("CLAUDE_OAUTH_CLIENT_ID", "")
 CLAUDE_OAUTH_CLIENT_SECRET = os.environ.get("CLAUDE_OAUTH_CLIENT_SECRET", "")
