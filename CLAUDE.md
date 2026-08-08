@@ -399,14 +399,52 @@ All postMessages have `source: "cms-editor"` (parent) or `"cms-preview"`
 
 ## Running locally
 
+**Python 3.12 — not 3.13, not 3.14.** `.python-version` pins it, the Dockerfile
+base image is `python:3.12-slim`, and both `uv` and `pyenv` read that file, so
+you don't have to name the version yourself:
+
 ```bash
-python -m venv .venv
-.venv/Scripts/activate          # Windows
+# with uv
+uv venv && source .venv/bin/activate
+
+# or with pyenv
+pyenv install -s 3.12 && pyenv exec python -m venv .venv && source .venv/bin/activate
+
+# then, either way
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
+
+On Windows the activate path is `.venv\Scripts\activate` instead.
+
+### Why the interpreter is pinned
+
+`requirements.txt` pins `Django==5.1.2`, which supports Python 3.10–3.13. On
+3.14 it still *imports* cleanly — it breaks later, in
+`django/template/context.py`, with `AttributeError: 'super' object has no
+attribute 'dicts'` on every test-client request that renders a template. That
+reads as a hundred-odd broken tests scattered across the suite rather than
+"wrong Python" (measured 2026-08-08 on `main`: 102 errors out of 614), and it
+has already cost one debugging session chasing code that was fine.
+
+A fresh venv can't even be *built* on 3.14, incidentally — `psycopg[binary]==3.2.3`
+has no cp314 wheel. The hundred-error mode shows up when an existing venv gets
+the pinned Django dropped into it.
+
+So `cms_platform/python_version.py` refuses to run on anything but 3.12 and
+says why. It's called from `manage.py` before Django is imported, and from
+`cms_platform/__init__.py` so wsgi/asgi/gunicorn are covered too.
+
+**Changing the target Python means changing three things together:**
+`.python-version`, the `FROM python:X.Y-slim` line in the `Dockerfile`, and
+`REQUIRED_PYTHON` in `cms_platform/python_version.py`.
+`cms_platform/tests/test_python_version.py` fails if they disagree.
+
+A venv that predates this pin will not be caught by `pip install` — the guard
+is what catches it. If you see the WRONG PYTHON banner, delete `.venv` and
+rebuild it with the commands above.
 
 Migration files **are** committed (`0001_initial`,
 `0002_tenantmembership`, `0003_tenant_custom_domain`). A fresh clone

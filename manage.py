@@ -2,6 +2,14 @@
 import os
 import sys
 
+# Before anything else, and before Django is imported: refuse to run on an
+# interpreter the pinned stack doesn't target. On the wrong Python the pinned
+# Django imports fine and only falls apart later, in template rendering — see
+# cms_platform/python_version.py.
+from cms_platform.python_version import enforce_python_version  # noqa: E402
+
+enforce_python_version()
+
 
 def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "cms_platform.settings")
