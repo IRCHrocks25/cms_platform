@@ -27,12 +27,16 @@ def create_tenant_account(
     username,
     email,
     new_template=None,
+    is_published=True,
 ):
     """Create a tenant, owner login, and owner membership atomically.
 
     ``new_template`` may contain the keyword arguments for an inline Template
     creation. The generated password is returned to the caller and is never
     persisted outside Django's password hash.
+
+    ``is_published`` defaults to True for the dashboard new-client flow.
+    MCP ``create_client_account`` passes False so chat-created sites stay draft.
     """
     password = generate_password()
 
@@ -56,7 +60,7 @@ def create_tenant_account(
             template=template,
             owner=user,
             content=template.schema.get("defaults", {}) or {},
-            is_published=True,
+            is_published=is_published,
         )
         TenantMembership.objects.create(
             tenant=tenant,
