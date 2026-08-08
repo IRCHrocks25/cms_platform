@@ -40,15 +40,39 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_ANNOTATE_MODEL: ${OPENAI_ANNOTATE_MODEL:-gpt-4o-mini}
       OPENAI_TIMEOUT: ${OPENAI_TIMEOUT:-120}
+      # Annotation size/parallelism knobs. Defaults are safe; forwarding lets
+      # prod tune chunking without a rebuild. See settings.py::ANNOTATE_*.
+      ANNOTATE_MAX_INPUT_CHARS: ${ANNOTATE_MAX_INPUT_CHARS:-500000}
+      ANNOTATE_CHUNK_TARGET_CHARS: ${ANNOTATE_CHUNK_TARGET_CHARS:-40000}
+      ANNOTATE_MAX_WORKERS: ${ANNOTATE_MAX_WORKERS:-5}
+      ANNOTATE_CHUNK_RETRIES: ${ANNOTATE_CHUNK_RETRIES:-2}
+      # Claude OAuth + MCP. api/auth.py fails closed when CLIENT_ID is empty
+      # (silent 401 on every token) and register_claude_oauth_client aborts.
+      # Dokploy holds the values but compose only passes vars listed here.
+      CLAUDE_OAUTH_CLIENT_ID: ${CLAUDE_OAUTH_CLIENT_ID:-}
+      CLAUDE_OAUTH_CLIENT_SECRET: ${CLAUDE_OAUTH_CLIENT_SECRET:-}
+      CLAUDE_OAUTH_REDIRECT_URIS: ${CLAUDE_OAUTH_REDIRECT_URIS:-}
+      # Comma-separated browser Origins allowed to call /mcp. Empty denies
+      # every browser Origin (non-browser clients that omit Origin still ok).
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      # Optional GHL marketplace app version id; falls back to CLIENT_ID prefix.
+      GHL_APP_VERSION_ID: ${GHL_APP_VERSION_ID:-}
       # Transactional email (Resend).
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      # Password-reset token TTL (seconds). Default 3600; forward so prod can
+      # tighten/loosen without a code change.
+      PASSWORD_RESET_TIMEOUT: ${PASSWORD_RESET_TIMEOUT:-3600}
       # Media uploads (Iceberg — cdn.katalyst-crm.com).
       ICEBERG_API_URL: ${ICEBERG_API_URL:-}
       ICEBERG_TOKEN: ${ICEBERG_TOKEN:-}
       ICEBERG_CDN: ${ICEBERG_CDN:-https://cdn.katalyst-crm.com}
       ICEBERG_TENANT: ${ICEBERG_TENANT:-t1}
+      # Upload size/duration limits (bytes / seconds). Defaults match settings.py.
+      MEDIA_MAX_IMAGE_BYTES: ${MEDIA_MAX_IMAGE_BYTES:-10485760}
+      MEDIA_MAX_VIDEO_BYTES: ${MEDIA_MAX_VIDEO_BYTES:-209715200}
+      MEDIA_MAX_VIDEO_DURATION: ${MEDIA_MAX_VIDEO_DURATION:-180}
     volumes:
       - media:/app/media
     healthcheck:
