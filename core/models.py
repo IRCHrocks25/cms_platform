@@ -173,7 +173,7 @@ class EmbeddableAssistant(models.Model):
 # addressed at `/<slug>/` shares the URL namespace with these, so we refuse them.
 RESERVED_PAGE_SLUGS = {
     "blog", "dashboard", "login", "logout", "admin", "static", "media",
-    "site", "password-reset", "reset", "debug-headers", "api",
+    "site", "password-reset", "reset", "debug-headers", "api", "mcp",
 }
 
 

@@ -254,6 +254,10 @@ CLAUDE_OAUTH_CLIENT_ID = os.environ.get("CLAUDE_OAUTH_CLIENT_ID", "")
 CLAUDE_OAUTH_CLIENT_SECRET = os.environ.get("CLAUDE_OAUTH_CLIENT_SECRET", "")
 CLAUDE_OAUTH_REDIRECT_URIS = os.environ.get("CLAUDE_OAUTH_REDIRECT_URIS", "")
 
+# Comma-separated browser Origins allowed to call POST/GET /mcp. Empty (default)
+# denies every browser Origin; non-browser clients that omit Origin are allowed.
+MCP_ALLOWED_ORIGINS = os.environ.get("MCP_ALLOWED_ORIGINS", "")
+
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
