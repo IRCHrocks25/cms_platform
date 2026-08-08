@@ -33,9 +33,15 @@ idea end-to-end on one machine.
 
 ## Run it
 
+Requires **Python 3.12** — `.python-version` pins it and the app refuses to
+start on anything else (see "Running locally" in `CLAUDE.md` for why). Both
+`uv` and `pyenv` read that file, so you don't have to name the version.
+
 ```bash
 cd cms_platform
-python -m venv .venv
+
+uv venv                                    # or: pyenv install -s 3.12 \
+                                           #     && pyenv exec python -m venv .venv
 . .venv/Scripts/activate          # Windows
 # source .venv/bin/activate       # macOS/Linux
 
