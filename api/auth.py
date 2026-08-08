@@ -26,8 +26,8 @@ class ResolvedAuth:
 
     Superusers are platform-wide. Everyone else (including staff) is scoped
     strictly to their ``TenantMembership`` rows. A missing membership never
-    falls back to a default tenant. Tokens must be issued by the configured
-    Claude OAuth application.
+    falls back to a default tenant. Tokens must be issued by an allowed
+    OAuth application (configured static Claude client, or a DCR client).
     """
 
     user: object
@@ -73,12 +73,20 @@ def build_consent_contexts(user) -> list[dict]:
     return contexts
 
 
-def _issued_by_claude_client(access: AccessToken) -> bool:
-    expected = (settings.CLAUDE_OAUTH_CLIENT_ID or "").strip()
-    if not expected:
-        return False
+def _issued_by_allowed_client(access: AccessToken) -> bool:
+    """CMS-16 + CMS-24: accept the static Claude client and DCR clients.
+
+    Manual Applications that are neither the configured
+    ``CLAUDE_OAUTH_CLIENT_ID`` nor ``registration_source=dcr`` stay rejected.
+    Membership scoping (CMS-17) still gates what a resolved token can reach.
+    """
     application = access.application
     if application is None:
+        return False
+    if application.registration_source == application.RegistrationSource.DCR:
+        return True
+    expected = (settings.CLAUDE_OAUTH_CLIENT_ID or "").strip()
+    if not expected:
         return False
     return application.client_id == expected
 
@@ -96,7 +104,7 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     if access is None or not access.is_valid():
         return None
 
-    if not _issued_by_claude_client(access):
+    if not _issued_by_allowed_client(access):
         return None
 
     user = access.user

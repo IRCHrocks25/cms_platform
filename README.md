@@ -66,8 +66,10 @@ python manage.py register_claude_oauth_client
 ```
 
 The command is idempotent, creates one confidential authorization-code client,
-requires PKCE, and never prints the client secret. OAuth discovery is available
-at `/.well-known/oauth-authorization-server` and
+requires PKCE, and never prints the client secret. Claude.ai (and other MCP
+clients) can also self-register via RFC 7591 at `/oauth/register` — advertised
+as `registration_endpoint` on `/.well-known/oauth-authorization-server`.
+OAuth discovery is at that well-known URL and
 `/.well-known/oauth-protected-resource`; the Ninja API starts at `/api/`.
 
 ### First run, in order
