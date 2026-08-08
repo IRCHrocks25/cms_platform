@@ -249,6 +249,16 @@ OAUTH2_PROVIDER = {
     "PKCE_REQUIRED": True,
     "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
     "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
+    # CMS-20: only authorization_code (+ PKCE) and refresh_token. Advertise
+    # exactly those grants and refuse password/implicit even if an Application
+    # row is mis-registered for them (RFC 9700 gates).
+    "COMPLIANT_BCP_RFC9700_PASSWORD_GRANT": True,
+    "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
+    "OAUTH2_GRANT_TYPES_SUPPORTED": [
+        "authorization_code",
+        "refresh_token",
+    ],
+    "OAUTH2_RESPONSE_TYPES_SUPPORTED": ["code"],
 }
 CLAUDE_OAUTH_CLIENT_ID = os.environ.get("CLAUDE_OAUTH_CLIENT_ID", "")
 CLAUDE_OAUTH_CLIENT_SECRET = os.environ.get("CLAUDE_OAUTH_CLIENT_SECRET", "")
