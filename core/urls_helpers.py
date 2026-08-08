@@ -60,6 +60,29 @@ def is_local_request(request):
     )
 
 
+def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
+    """Absolute public URL from TENANT_BASE_DOMAIN (no request).
+
+    Used by MCP write tools so callers get a link to inspect. Builds
+    ``{scheme}://{subdomain}.{TENANT_BASE_DOMAIN}/`` — never hardcodes a
+    production hostname. Falls back to ``Tenant.custom_domain`` when set.
+    """
+    custom = (getattr(tenant, "custom_domain", None) or "").strip().lower()
+    if custom:
+        base_url = f"https://{custom}/"
+    else:
+        base = _base_domain()
+        if is_using_local_dev_base() or not base:
+            host = f"{tenant.subdomain}.{base}" if base else tenant.subdomain
+            base_url = f"http://{host}/"
+        else:
+            base_url = f"https://{tenant.subdomain}.{base}/"
+
+    if page_slug:
+        return f"{base_url.rstrip('/')}/{page_slug.strip('/')}/"
+    return base_url
+
+
 def tenant_public_url(request, tenant):
     """
     Absolute base URL where visitors will see the site, e.g.

@@ -296,6 +296,13 @@ class MediaAsset(models.Model):
 
 
 class ContentVersion(models.Model):
+    SOURCE_DASHBOARD = "dashboard"
+    SOURCE_MCP = "mcp"
+    SOURCE_CHOICES = (
+        (SOURCE_DASHBOARD, "Dashboard"),
+        (SOURCE_MCP, "MCP"),
+    )
+
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name="versions"
     )
@@ -307,6 +314,14 @@ class ContentVersion(models.Model):
         blank=True,
     )
     saved_at = models.DateTimeField(auto_now_add=True)
+    # Separates human editor undo from MCP/AI patches so a write burst cannot
+    # flush the client's rolling-10 dashboard history (CMS-7).
+    source = models.CharField(
+        max_length=16,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_DASHBOARD,
+        db_index=True,
+    )
 
     class Meta:
         ordering = ["-saved_at"]
