@@ -91,6 +91,27 @@ def dispatch(
 
         # One audit row per call. Tenant stamped only when the principal may
         # reach it — denials and list_sites leave tenant NULL.
+        # create_client_account mints the tenant inside the tool, so audit
+        # after the call and stamp the newly created subdomain.
+        if name == "create_client_account":
+            result, err = tools_mod.call_tool(auth, name, arguments)
+            tenant = None
+            if (
+                err is None
+                and isinstance(result, dict)
+                and not result.get("isError")
+            ):
+                from core.models import Tenant
+
+                sc = result.get("structuredContent") or {}
+                sub = sc.get("subdomain")
+                if isinstance(sub, str) and sub:
+                    tenant = Tenant.objects.filter(subdomain=sub).first()
+            record_mcp_call(actor=auth.user, tenant=tenant, tool=name)
+            if err is not None:
+                return None, err
+            return result, None
+
         site = arguments.get("site")
         tenant = None
         if isinstance(site, str) and site:

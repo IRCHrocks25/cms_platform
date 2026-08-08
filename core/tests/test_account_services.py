@@ -39,6 +39,18 @@ class AccountServiceTests(TestCase):
             ).exists()
         )
 
+    def test_creates_tenant_account_unpublished_when_requested(self):
+        tenant, _, _ = create_tenant_account(
+            name="Draft Co",
+            subdomain="draftco",
+            custom_domain="",
+            template=self.template,
+            username="draft-owner",
+            email="draft@example.com",
+            is_published=False,
+        )
+        self.assertFalse(tenant.is_published)
+
     def test_creates_scoped_login_without_request(self):
         tenant, _, _ = create_tenant_account(
             name="Acme",
@@ -67,3 +79,4 @@ class AccountServiceTests(TestCase):
                 role=TenantMembership.ROLE_EDITOR,
             ).exists()
         )
+
