@@ -66,7 +66,7 @@ class ResolveAccessTokenTests(TestCase):
         self.assertIsNotNone(principal)
         self.assertEqual(principal.user, user)
         self.assertEqual(principal.platform_role, "superadmin")
-        self.assertEqual(principal.scopes, ())
+        self.assertEqual(principal.tenant_scopes, ())
 
     def test_staff_without_membership_resolves_to_nothing(self):
         from api.auth import resolve_access_token
@@ -92,8 +92,8 @@ class ResolveAccessTokenTests(TestCase):
 
         self.assertIsNotNone(principal)
         self.assertIsNone(principal.platform_role)
-        self.assertEqual(len(principal.scopes), 1)
-        self.assertEqual(principal.scopes[0].tenant, a)
+        self.assertEqual(len(principal.tenant_scopes), 1)
+        self.assertEqual(principal.tenant_scopes[0].tenant, a)
         self.assertIsNotNone(principal.for_tenant(a))
         self.assertIsNone(principal.for_tenant(b))
 
@@ -109,7 +109,7 @@ class ResolveAccessTokenTests(TestCase):
 
         self.assertIsNotNone(principal)
         self.assertEqual(principal.platform_role, "superadmin")
-        self.assertEqual(principal.scopes, ())
+        self.assertEqual(principal.tenant_scopes, ())
         scope = principal.for_tenant(tenant)
         self.assertIsNotNone(scope)
         self.assertEqual(scope.role, "superadmin")
@@ -149,9 +149,9 @@ class ResolveAccessTokenTests(TestCase):
 
         self.assertIsNotNone(principal)
         self.assertIsNone(principal.platform_role)
-        self.assertEqual(len(principal.scopes), 1)
-        self.assertEqual(principal.scopes[0].tenant, tenant)
-        self.assertEqual(principal.scopes[0].role, TenantMembership.ROLE_EDITOR)
+        self.assertEqual(len(principal.tenant_scopes), 1)
+        self.assertEqual(principal.tenant_scopes[0].tenant, tenant)
+        self.assertEqual(principal.tenant_scopes[0].role, TenantMembership.ROLE_EDITOR)
         scope = principal.for_tenant(tenant)
         self.assertIsNotNone(scope)
         self.assertEqual(scope.role, TenantMembership.ROLE_EDITOR)
@@ -174,7 +174,7 @@ class ResolveAccessTokenTests(TestCase):
         principal = resolve_access_token("tok-multi")
 
         self.assertIsNotNone(principal)
-        roles_by_sub = {s.tenant.subdomain: s.role for s in principal.scopes}
+        roles_by_sub = {s.tenant.subdomain: s.role for s in principal.tenant_scopes}
         self.assertEqual(
             roles_by_sub,
             {"alpha": TenantMembership.ROLE_OWNER, "beta": TenantMembership.ROLE_EDITOR},

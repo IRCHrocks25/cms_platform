@@ -32,12 +32,12 @@ class ResolvedAuth:
 
     user: object
     platform_role: Optional[str]
-    scopes: tuple[TenantScope, ...]
+    tenant_scopes: tuple[TenantScope, ...]
 
     def for_tenant(self, tenant: Tenant) -> Optional[TenantScope]:
         if self.platform_role:
             return TenantScope(tenant=tenant, role=self.platform_role)
-        for scope in self.scopes:
+        for scope in self.tenant_scopes:
             if scope.tenant.pk == tenant.pk:
                 return scope
         return None
@@ -104,7 +104,7 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
         return None
 
     if user.is_superuser:
-        return ResolvedAuth(user=user, platform_role="superadmin", scopes=())
+        return ResolvedAuth(user=user, platform_role="superadmin", tenant_scopes=())
 
     memberships = list(
         TenantMembership.objects.select_related("tenant")
@@ -114,10 +114,10 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     if not memberships:
         return None
 
-    scopes = tuple(
+    tenant_scopes = tuple(
         TenantScope(tenant=m.tenant, role=m.role) for m in memberships
     )
-    return ResolvedAuth(user=user, platform_role=None, scopes=scopes)
+    return ResolvedAuth(user=user, platform_role=None, tenant_scopes=tenant_scopes)
 
 
 class CmsBearerAuth(HttpBearer):
