@@ -435,7 +435,7 @@ class McpEndpointTests(TestCase):
     def test_ac22_tools_list_includes_write_tools(self):
         result = self._result(self._rpc("tools/list"))
         tools = result["tools"]
-        self.assertEqual(len(tools), 11)
+        self.assertEqual(len(tools), 12)
         names = {t["name"] for t in tools}
         self.assertEqual(
             names,
@@ -445,6 +445,7 @@ class McpEndpointTests(TestCase):
                 "get_page",
                 "get_page_html",
                 "get_content",
+                "list_templates",
                 "create_client_account",
                 "publish_site",
                 "publish_page",
