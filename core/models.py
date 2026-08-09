@@ -185,6 +185,15 @@ class TemplateVersion(models.Model):
 class Tenant(models.Model):
     name = models.CharField(max_length=120)
     subdomain = models.SlugField(max_length=80, unique=True)
+    # Display-only hint for core/urls_helpers.py (site_created page, tenant
+    # detail header) — NOT the source of truth for routing or TLS. Real
+    # custom-domain resolution and the route-syncer key off the CustomDomain
+    # table (`related_name="custom_domains"` below), which also tracks
+    # verification. create_tenant_account() (CMS-37) writes both this field
+    # and an unverified CustomDomain row so the two stay in sync at creation
+    # time; nothing enforces that afterward (e.g. the per-tenant "Custom
+    # Domain" panel only touches CustomDomain). Kept for the display call
+    # sites rather than dropped outright — see CMS-37 for the audit.
     custom_domain = models.CharField(max_length=253, blank=True, default="")
 
     template = models.ForeignKey(
