@@ -6,9 +6,12 @@ from typing import Any, Callable, Optional
 
 from django.conf import settings
 
-from core.models import Template, Tenant
+from django.db import transaction
+
+from core.models import Page, RESERVED_PAGE_SLUGS, Template, Tenant
 from core.services import content_versions as cv
 from core.services.accounts import create_tenant_account
+from core.services.templates import FieldLossError, save_template_version
 from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
@@ -292,6 +295,244 @@ def patch_content(
     return tool_success({"etag": new_etag, "url": url})
 
 
+# Indistinguishable denial for missing / foreign template_id (no enumeration).
+_TEMPLATE_DENIED = tool_error(
+    "No accessible template for this site. "
+    "Omit template_id to create or update the page's own template."
+)
+
+
+def _ensure_tenant_owned_template(
+    tenant: Tenant,
+    template: Template,
+    *,
+    user,
+) -> Template:
+    """Return a template owned by ``tenant``. Refuse foreign owners; fork library."""
+    if template.tenant_id == tenant.pk:
+        return template
+    if template.tenant_id is None:
+        return template.clone_for(tenant, user=user)
+    raise LookupError("foreign template")
+
+
+def _push_html_onto_template(
+    template: Template,
+    html: str,
+    *,
+    user,
+    allow_field_loss: bool,
+    if_match: Optional[str],
+    label: str,
+) -> tuple[Optional[dict], Optional[Any]]:
+    """Apply if_match + save_template_version. Returns (error_result, SaveTemplateResult)."""
+    current_etag = content_mod.html_etag(template.html_source)
+    if if_match is not None and if_match != current_etag:
+        return (
+            tool_conflict(
+                "Conflict (409): template has changed since if_match. "
+                "Re-read and retry with the current etag."
+            ),
+            None,
+        )
+    try:
+        result = save_template_version(
+            template,
+            html,
+            user=user,
+            allow_field_loss=bool(allow_field_loss),
+            label=label,
+        )
+    except FieldLossError as exc:
+        return tool_error(str(exc)), None
+    return None, result
+
+
+def push_page(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    html: str,
+    page: Optional[str] = None,
+    title: str = "",
+    allow_field_loss: bool = False,
+    if_match: Optional[str] = None,
+    template_id: Optional[int] = None,
+) -> dict[str, Any]:
+    """CMS-10: create or whole-HTML re-push a page (or the site home).
+
+    Constraints (§9):
+    - New templates are tenant-owned and ``editing_mode=raw``.
+    - Re-push goes through ``save_template_version`` (appends TemplateVersion).
+    - Field loss on published content requires ``allow_field_loss=true``.
+    - ``if_match`` (html etag) guards concurrent writes; orthogonal to field loss.
+    """
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+
+    tenant = scope.tenant
+    html = html if isinstance(html, str) else ""
+    if not html.strip():
+        return tool_error("html is required.")
+
+    page_slug = (page or "").strip().lower() or None
+    title = (title or "").strip()
+    label = "MCP push_page"
+
+    explicit_tpl: Optional[Template] = None
+    if template_id is not None:
+        explicit_tpl = Template.objects.filter(pk=template_id).first()
+        if explicit_tpl is None or explicit_tpl.tenant_id != tenant.pk:
+            return _TEMPLATE_DENIED
+
+    if page_slug is not None and page_slug in RESERVED_PAGE_SLUGS:
+        return tool_error(
+            f"Slug '{page_slug}' is reserved by the CMS and cannot be used "
+            f"as a page path."
+        )
+
+    # ---- Home (page omitted) ----
+    if page_slug is None:
+        if explicit_tpl is not None:
+            tpl = explicit_tpl
+        else:
+            try:
+                tpl = _ensure_tenant_owned_template(
+                    tenant, tenant.template, user=auth.user
+                )
+            except LookupError:
+                return _TEMPLATE_DENIED
+            if tpl.pk != tenant.template_id:
+                tenant.template = tpl
+                tenant.save(update_fields=["template", "updated_at"])
+
+        err, result = _push_html_onto_template(
+            tpl,
+            html,
+            user=auth.user,
+            allow_field_loss=allow_field_loss,
+            if_match=if_match,
+            label=label,
+        )
+        if err is not None:
+            return err
+        return tool_success(
+            {
+                "url": tenant_canonical_public_url(tenant),
+                "etag": content_mod.html_etag(result.template.html_source),
+                "page": None,
+                "template_id": result.template.pk,
+                "version": result.version.number,
+                "editing_mode": result.template.editing_mode,
+            }
+        )
+
+    # ---- Inner page ----
+    existing = (
+        Page.objects.filter(tenant=tenant, slug=page_slug)
+        .select_related("template")
+        .first()
+    )
+    page_title = title or page_slug.replace("-", " ").title()
+
+    if existing is None:
+        with transaction.atomic():
+            if explicit_tpl is not None:
+                tpl = explicit_tpl
+                err, result = _push_html_onto_template(
+                    tpl,
+                    html,
+                    user=auth.user,
+                    allow_field_loss=allow_field_loss,
+                    if_match=if_match,
+                    label=label,
+                )
+                if err is not None:
+                    transaction.set_rollback(True)
+                    return err
+            else:
+                tpl = Template(
+                    name=page_title[:120],
+                    html_source="<!--pending push_page-->",
+                    tenant=tenant,
+                    editing_mode=Template.EDITING_RAW,
+                )
+                tpl.save()
+                err, result = _push_html_onto_template(
+                    tpl,
+                    html,
+                    user=auth.user,
+                    allow_field_loss=allow_field_loss,
+                    if_match=None,  # new row; no concurrent peer yet
+                    label=label,
+                )
+                if err is not None:
+                    transaction.set_rollback(True)
+                    return err
+
+            page_row = Page.objects.create(
+                tenant=tenant,
+                template=result.template,
+                title=page_title[:120],
+                slug=page_slug,
+                content={},
+                is_published=False,
+            )
+
+        return tool_success(
+            {
+                "url": tenant_canonical_public_url(tenant, page_slug=page_row.slug),
+                "etag": content_mod.html_etag(result.template.html_source),
+                "page": page_row.slug,
+                "template_id": result.template.pk,
+                "version": result.version.number,
+                "editing_mode": result.template.editing_mode,
+            }
+        )
+
+    # Re-push existing page.
+    if explicit_tpl is not None:
+        tpl = explicit_tpl
+    else:
+        try:
+            tpl = _ensure_tenant_owned_template(
+                tenant, existing.template, user=auth.user
+            )
+        except LookupError:
+            return _TEMPLATE_DENIED
+
+    if tpl.pk != existing.template_id:
+        existing.template = tpl
+        existing.save(update_fields=["template", "updated_at"])
+
+    err, result = _push_html_onto_template(
+        tpl,
+        html,
+        user=auth.user,
+        allow_field_loss=allow_field_loss,
+        if_match=if_match,
+        label=label,
+    )
+    if err is not None:
+        return err
+
+    if title:
+        existing.title = title[:120]
+        existing.save(update_fields=["title", "updated_at"])
+
+    return tool_success(
+        {
+            "url": tenant_canonical_public_url(tenant, page_slug=existing.slug),
+            "etag": content_mod.html_etag(result.template.html_source),
+            "page": existing.slug,
+            "template_id": result.template.pk,
+            "version": result.version.number,
+            "editing_mode": result.template.editing_mode,
+        }
+    )
+
+
 # list_sites returns a plain dict; wrap at call site for MCP envelope.
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
@@ -300,6 +541,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_content": get_content,
     "create_client_account": create_client_account,
     "patch_content": patch_content,
+    "push_page": push_page,
 }
 
 
@@ -514,6 +756,75 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "annotations": WRITE_ANNOTATIONS,
     },
+    {
+        "name": "push_page",
+        "description": (
+            "Create or replace a page's HTML for a site. Omit page (or pass null) "
+            "to push the site home. New pages get a tenant-owned template in "
+            "editing_mode=raw. Re-pushes append a TemplateVersion. Use if_match "
+            "(html etag from a prior push) to guard concurrent writes; use "
+            "allow_field_loss=true when a re-push drops fields a published page "
+            "still holds. Reserved slugs (privacy, terms, …) are refused."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site", "html"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string", "description": "Tenant subdomain"},
+                "html": {
+                    "type": "string",
+                    "description": "Full page HTML to store as the template source",
+                },
+                "page": {
+                    "type": ["string", "null"],
+                    "description": "Page slug; omit/null for home",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Page title (create / optional update)",
+                },
+                "allow_field_loss": {
+                    "type": "boolean",
+                    "description": (
+                        "Confirm dropping fields that published content still uses"
+                    ),
+                },
+                "if_match": {
+                    "type": "string",
+                    "description": "Current html etag; required to avoid clobbering",
+                },
+                "template_id": {
+                    "type": "integer",
+                    "description": (
+                        "Optional tenant-owned template pk; foreign/missing ids "
+                        "are refused indistinguishably"
+                    ),
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": [
+                "url",
+                "etag",
+                "page",
+                "template_id",
+                "version",
+                "editing_mode",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "url": {"type": "string"},
+                "etag": {"type": "string"},
+                "page": {"type": ["string", "null"]},
+                "template_id": {"type": "integer"},
+                "version": {"type": "integer"},
+                "editing_mode": {"type": "string"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
 ]
 
 
@@ -588,4 +899,12 @@ def call_tool(
         args.pop("page")
     if "custom_domain" in args and args["custom_domain"] in (None, ""):
         args.pop("custom_domain")
+    if "title" in args and args["title"] in (None, ""):
+        args.pop("title")
+    if "if_match" in args and args["if_match"] in (None, ""):
+        args.pop("if_match")
+    if "template_id" in args and args["template_id"] is None:
+        args.pop("template_id")
+    if "allow_field_loss" in args and args["allow_field_loss"] is None:
+        args.pop("allow_field_loss")
     return handler(auth, **args), None
