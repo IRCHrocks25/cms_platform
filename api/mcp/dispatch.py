@@ -93,7 +93,9 @@ def dispatch(
         # reach it — denials and list_sites leave tenant NULL.
         # create_client_account mints the tenant inside the tool, so audit
         # after the call and stamp the newly created subdomain.
-        if name == "create_client_account":
+        # publish_site is superuser-only; audit after so member denials never
+        # stamp a tenant they could otherwise for_tenant().
+        if name in ("create_client_account", "publish_site"):
             result, err = tools_mod.call_tool(auth, name, arguments)
             tenant = None
             if (
@@ -105,6 +107,10 @@ def dispatch(
 
                 sc = result.get("structuredContent") or {}
                 sub = sc.get("subdomain")
+                if not isinstance(sub, str) or not sub:
+                    site_arg = arguments.get("site")
+                    if isinstance(site_arg, str) and site_arg:
+                        sub = site_arg.strip().lower()
                 if isinstance(sub, str) and sub:
                     tenant = Tenant.objects.filter(subdomain=sub).first()
             record_mcp_call(actor=auth.user, tenant=tenant, tool=name)
