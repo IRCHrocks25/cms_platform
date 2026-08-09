@@ -52,6 +52,12 @@ ALLOWED_HOSTS = ["*"]
 # knows requests are HTTPS even though the inner hop is plain HTTP.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
+# DCR rate limiting (api/oauth_dcr.py) reads CF-Connecting-IP / X-Forwarded-For
+# only when REMOTE_ADDR is in these CIDRs (Traefik on the docker network).
+# Override via env only if the ingress topology changes; default matches
+# _DEFAULT_TRUSTED_PROXY_NETWORKS in oauth_dcr.py.
+# DCR_TRUSTED_PROXY_IPS = ["10.0.0.0/8", "172.16.0.0/12", ...]
+
 
 TENANT_RESERVED_SUBDOMAINS = {
     "www", "app", "api",

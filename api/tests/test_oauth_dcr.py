@@ -201,6 +201,58 @@ class OAuthDcrRegistrationTests(TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.json().get("error"), "temporarily_unavailable")
 
+    def test_rate_limit_is_independent_per_forwarded_client_ip(self):
+        """Two clients behind the same trusted proxy get separate budgets."""
+        for i in range(10):
+            response = self.client.post(
+                "/oauth/register",
+                data=_register_body(client_name=f"a-{i}"),
+                content_type="application/json",
+                HTTP_X_FORWARDED_FOR="203.0.113.10",
+                REMOTE_ADDR="10.0.0.2",
+            )
+            self.assertEqual(response.status_code, 201, msg=response.content)
+
+        blocked = self.client.post(
+            "/oauth/register",
+            data=_register_body(client_name="a-blocked"),
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR="203.0.113.10",
+            REMOTE_ADDR="10.0.0.2",
+        )
+        self.assertEqual(blocked.status_code, 429)
+
+        other = self.client.post(
+            "/oauth/register",
+            data=_register_body(client_name="b-ok"),
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR="203.0.113.20",
+            REMOTE_ADDR="10.0.0.2",
+        )
+        self.assertEqual(other.status_code, 201, msg=other.content)
+
+    def test_spoofed_forwarded_ip_from_untrusted_source_cannot_evade_limit(self):
+        """Ignore client-IP headers unless REMOTE_ADDR is a known proxy."""
+        for i in range(10):
+            response = self.client.post(
+                "/oauth/register",
+                data=_register_body(client_name=f"spoof-{i}"),
+                content_type="application/json",
+                HTTP_X_FORWARDED_FOR="198.51.100.1",
+                REMOTE_ADDR="203.0.113.50",
+            )
+            self.assertEqual(response.status_code, 201, msg=response.content)
+
+        still_limited = self.client.post(
+            "/oauth/register",
+            data=_register_body(client_name="spoof-new-xff"),
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR="198.51.100.99",
+            REMOTE_ADDR="203.0.113.50",
+        )
+        self.assertEqual(still_limited.status_code, 429)
+        self.assertEqual(still_limited.json().get("error"), "temporarily_unavailable")
+
 
 @override_settings(
     STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage",
