@@ -38,28 +38,71 @@ DEFAULT_BLOG_STRIP = BLOG_STRIP_CARDS
 
 
 class Template(models.Model):
+    EDITING_RAW = "raw"
+    EDITING_EDITABLE = "editable"
+    EDITING_MODE_CHOICES = [
+        (EDITING_RAW, "Raw — not client-editable"),
+        (EDITING_EDITABLE, "Editable — released to the client"),
+    ]
+
     name = models.CharField(max_length=120)
-    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    slug = models.SlugField(max_length=140, blank=True)
     description = models.CharField(max_length=240, blank=True)
 
     html_source = models.TextField()
     schema = models.JSONField(default=dict, blank=True)
+
+    tenant = models.ForeignKey(
+        "core.Tenant",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="templates",
+        help_text="Owning tenant. NULL means the agency library.",
+    )
+    cloned_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="clones",
+    )
+    editing_mode = models.CharField(
+        max_length=16, choices=EDITING_MODE_CHOICES, default=EDITING_RAW
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "slug"],
+                condition=models.Q(tenant__isnull=False),
+                name="uniq_template_slug_per_tenant",
+            ),
+            models.UniqueConstraint(
+                fields=["slug"],
+                condition=models.Q(tenant__isnull=True),
+                name="uniq_library_template_slug",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            # Auto-unique the slug: inline-created templates frequently share
-            # names ("Acme", "Sarah's Salon") across clients, so a single
-            # slugify() collides. Append -2, -3, ... until free.
+            # Auto-unique within the same owner (library or one tenant).
             base = slugify(self.name)[:140] or "template"
             slug = base
             i = 2
-            while Template.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+            while True:
+                qs = Template.objects.filter(slug=slug).exclude(pk=self.pk)
+                if self.tenant_id is None:
+                    qs = qs.filter(tenant__isnull=True)
+                else:
+                    qs = qs.filter(tenant_id=self.tenant_id)
+                if not qs.exists():
+                    break
                 suffix = f"-{i}"
                 slug = base[: 140 - len(suffix)] + suffix
                 i += 1
@@ -67,8 +110,76 @@ class Template(models.Model):
         self.schema = build_schema(self.html_source)
         super().save(*args, **kwargs)
 
+    @property
+    def has_editable_schema(self) -> bool:
+        return bool((self.schema or {}).get("sections"))
+
+    @property
+    def is_client_editable(self) -> bool:
+        return (
+            self.editing_mode == self.EDITING_EDITABLE and self.has_editable_schema
+        )
+
+    @property
+    def annotation_status(self) -> str:
+        """raw | annotation_pending | annotated_not_released | editable"""
+        has = self.has_editable_schema
+        if self.editing_mode == self.EDITING_EDITABLE:
+            return "editable" if has else "annotation_pending"
+        return "annotated_not_released" if has else "raw"
+
+    def clone_for(self, tenant, *, user=None):
+        """Copy this template into ``tenant``'s ownership; history starts at v1."""
+        clone = Template(
+            name=self.name,
+            description=self.description,
+            html_source=self.html_source,
+            editing_mode=self.editing_mode,
+            tenant=tenant,
+            cloned_from=self,
+        )
+        clone.save()
+        TemplateVersion.objects.create(
+            template=clone,
+            number=1,
+            html_source=clone.html_source,
+            schema=clone.schema or {},
+            saved_by=user if getattr(user, "pk", None) else None,
+            label="Initial clone",
+        )
+        return clone
+
     def __str__(self):
         return self.name
+
+
+class TemplateVersion(models.Model):
+    template = models.ForeignKey(
+        Template, on_delete=models.CASCADE, related_name="versions"
+    )
+    number = models.PositiveIntegerField()
+    html_source = models.TextField()
+    schema = models.JSONField(default=dict, blank=True)
+    label = models.CharField(max_length=140, blank=True, default="")
+    saved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "number"],
+                name="uniq_template_version_number",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.template_id} v{self.number}"
 
 
 class Tenant(models.Model):
