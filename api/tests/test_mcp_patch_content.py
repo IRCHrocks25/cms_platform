@@ -152,9 +152,9 @@ class PatchContentTests(TestCase):
         sc = result["structuredContent"]
         self.tenant_a.refresh_from_db()
         self.assertEqual(self.tenant_a.content["hero"]["title"], "Patched")
-        self.assertEqual(sc["etag"], content_etag(self.tenant_a.content))
+        self.assertEqual(sc["content_etag"], content_etag(self.tenant_a.content))
         self.assertEqual(sc["url"], "https://alpha.sites.katek.app/")
-        self.assertNotEqual(sc["etag"], etag)
+        self.assertNotEqual(sc["content_etag"], etag)
 
     def test_stale_if_match_returns_409_and_writes_nothing(self):
         before = copy.deepcopy(self.tenant_a.content)

@@ -435,7 +435,7 @@ class McpEndpointTests(TestCase):
     def test_ac22_tools_list_includes_write_tools(self):
         result = self._result(self._rpc("tools/list"))
         tools = result["tools"]
-        self.assertEqual(len(tools), 7)
+        self.assertEqual(len(tools), 8)
         names = {t["name"] for t in tools}
         self.assertEqual(
             names,
@@ -443,6 +443,7 @@ class McpEndpointTests(TestCase):
                 "list_sites",
                 "list_pages",
                 "get_page",
+                "get_page_html",
                 "get_content",
                 "create_client_account",
                 "patch_content",
@@ -517,7 +518,7 @@ class McpEndpointTests(TestCase):
             self._call("get_page", {"site": "alpha"}, token="tok-member")
         )
         self.assertEqual(
-            a["structuredContent"]["etag"], b["structuredContent"]["etag"]
+            a["structuredContent"]["content_etag"], b["structuredContent"]["content_etag"]
         )
         self.tenant_a.content = {"hero": {"title": "Changed"}}
         self.tenant_a.save(update_fields=["content"])
@@ -525,20 +526,20 @@ class McpEndpointTests(TestCase):
             self._call("get_page", {"site": "alpha"}, token="tok-member")
         )
         self.assertNotEqual(
-            a["structuredContent"]["etag"], c["structuredContent"]["etag"]
+            a["structuredContent"]["content_etag"], c["structuredContent"]["content_etag"]
         )
 
     def test_ac28_template_default_change_does_not_change_etag(self):
         before = self._result(
             self._call("get_page", {"site": "alpha"}, token="tok-member")
-        )["structuredContent"]["etag"]
+        )["structuredContent"]["content_etag"]
         self.assertEqual(before, _sha_stored(self.tenant_a.content))
         tpl = self.tenant_a.template
         tpl.html_source = SAMPLE_HTML.replace("Welcome", "Changed default")
         tpl.save()
         after = self._result(
             self._call("get_page", {"site": "alpha"}, token="tok-member")
-        )["structuredContent"]["etag"]
+        )["structuredContent"]["content_etag"]
         self.assertEqual(before, after)
 
     def test_ac29_unknown_tool_and_bad_args(self):
