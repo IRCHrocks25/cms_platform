@@ -2255,19 +2255,19 @@ def _save_content(request, editable):
 
     # Version history is the tenant home's rolling-10 snapshots. Inner pages
     # don't have undo yet (backlog), so only snapshot when editing the home.
+    # Shared with MCP patch_content via core.services.content_versions.
     if isinstance(editable, Tenant):
-        ContentVersion.objects.create(
-            tenant=editable,
-            snapshot=editable.content,
-            saved_by=request.user,
-        )
-        keep_ids = list(
-            editable.versions.values_list("id", flat=True).order_by("-saved_at")[:10]
-        )
-        editable.versions.exclude(id__in=keep_ids).delete()
+        from core.services import content_versions as cv
 
-    editable.content = content
-    editable.save(update_fields=["content", "updated_at"])
+        cv.save_tenant_content(
+            editable,
+            content,
+            user=request.user,
+            source=cv.SOURCE_DASHBOARD,
+        )
+    else:
+        editable.content = content
+        editable.save(update_fields=["content", "updated_at"])
 
     return JsonResponse({"ok": True, "updated_at": editable.updated_at.isoformat()})
 
@@ -2303,18 +2303,11 @@ def _version_restore(request, tenant):
     if version is None:
         return JsonResponse({"ok": False, "error": "That version no longer exists."}, status=404)
 
-    restored = version.snapshot
     # Snapshot the CURRENT content first, so the restore is itself undoable.
-    ContentVersion.objects.create(
-        tenant=tenant, snapshot=tenant.content, saved_by=request.user
-    )
-    keep_ids = list(
-        tenant.versions.values_list("id", flat=True).order_by("-saved_at")[:10]
-    )
-    tenant.versions.exclude(id__in=keep_ids).delete()
+    # Shared path with editor saves / MCP writes.
+    from core.services import content_versions as cv
 
-    tenant.content = restored
-    tenant.save(update_fields=["content", "updated_at"])
+    cv.restore_tenant_content(tenant, version, user=request.user)
     return JsonResponse({"ok": True})
 
 

@@ -7,7 +7,9 @@ from typing import Any, Callable, Optional
 from django.conf import settings
 
 from core.models import Template, Tenant
+from core.services import content_versions as cv
 from core.services.accounts import create_tenant_account
+from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
 from api.mcp import content as content_mod
@@ -16,6 +18,7 @@ from api.mcp.errors import (
     METHOD_NOT_FOUND,
     page_access_denied,
     site_access_denied,
+    tool_conflict,
     tool_error,
     tool_success,
 )
@@ -210,6 +213,64 @@ def create_client_account(
     )
 
 
+def patch_content(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    field: str,
+    value: Any,
+    if_match: str,
+    page: Optional[str] = None,
+) -> dict[str, Any]:
+    """Write one home-page field by dotted id. Inner pages are refused."""
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+
+    # Inner Page content has no ContentVersion undo — refuse rather than
+    # silently write unversioned data (CMS-7 decision).
+    if page is not None and page != "":
+        return tool_error(
+            "patch_content only supports the home page until page versioning "
+            "exists. Omit 'page' (or pass null) to edit the site home."
+        )
+
+    try:
+        editable, schema, stored = content_mod.resolve_editable(
+            scope.tenant, None
+        )
+    except LookupError:
+        return page_access_denied(site, page or "")
+
+    current_etag = content_mod.content_etag(stored)
+    if if_match != current_etag:
+        return tool_conflict(
+            "Conflict (409): content has changed since if_match. "
+            "Re-read with get_content and retry."
+        )
+
+    try:
+        content_mod.read_field(schema, stored, field)
+    except KeyError:
+        return tool_error(f"Unknown field '{field}'.")
+
+    try:
+        new_content = content_mod.write_field(stored, field, value)
+    except ValueError as exc:
+        return tool_error(str(exc))
+
+    cv.save_tenant_content(
+        editable,
+        new_content,
+        user=auth.user,
+        source=cv.SOURCE_MCP,
+    )
+    editable.refresh_from_db()
+    new_etag = content_mod.content_etag(editable.content or {})
+    url = tenant_canonical_public_url(editable)
+    return tool_success({"etag": new_etag, "url": url})
+
+
 # list_sites returns a plain dict; wrap at call site for MCP envelope.
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
@@ -217,6 +278,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_page": get_page,
     "get_content": get_content,
     "create_client_account": create_client_account,
+    "patch_content": patch_content,
 }
 
 
@@ -398,6 +460,39 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "annotations": WRITE_ANNOTATIONS,
     },
+    {
+        "name": "patch_content",
+        "description": (
+            "Write one home-page field by dotted id. Requires a current "
+            "if_match etag from get_content/get_page. Inner pages are not "
+            "supported until page versioning exists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site", "field", "value", "if_match"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "field": {"type": "string"},
+                "value": {},
+                "if_match": {"type": "string"},
+                "page": {
+                    "type": ["string", "null"],
+                    "description": "Must be omitted/null (home only)",
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["etag", "url"],
+            "additionalProperties": False,
+            "properties": {
+                "etag": {"type": "string"},
+                "url": {"type": "string"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
 ]
 
 
@@ -408,8 +503,9 @@ def _validate_arguments(tool_name: str, arguments: dict) -> Optional[str]:
     schema = tool["inputSchema"]
     required = schema.get("required") or []
     for key in required:
-        if key not in arguments or arguments[key] in (None, ""):
-            # page may be null for get_page; only enforce non-null for required site/field
+        if key not in arguments:
+            return f"Missing required argument '{key}'"
+        if arguments[key] in (None, "") and key != "value":
             if key == "page":
                 continue
             return f"Missing required argument '{key}'"
@@ -429,8 +525,6 @@ def _validate_arguments(tool_name: str, arguments: dict) -> Optional[str]:
             if value is None and "null" in expected:
                 continue
             if "string" in expected and isinstance(value, str):
-                continue
-            if value is None and "null" in expected:
                 continue
             if not any(
                 (t == "string" and isinstance(value, str))
@@ -469,7 +563,6 @@ def call_tool(
         return _CREATE_DENIED, None
 
     handler = HANDLERS[name]
-    # Drop unknown optional nulls cleanly
     if "page" in args and args["page"] is None:
         args.pop("page")
     if "custom_domain" in args and args["custom_domain"] in (None, ""):

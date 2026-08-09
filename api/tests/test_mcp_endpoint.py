@@ -432,10 +432,10 @@ class McpEndpointTests(TestCase):
 
     # --- Tools ---
 
-    def test_ac22_tools_list_includes_create_client_account(self):
+    def test_ac22_tools_list_includes_write_tools(self):
         result = self._result(self._rpc("tools/list"))
         tools = result["tools"]
-        self.assertEqual(len(tools), 5)
+        self.assertEqual(len(tools), 6)
         names = {t["name"] for t in tools}
         self.assertEqual(
             names,
@@ -445,16 +445,17 @@ class McpEndpointTests(TestCase):
                 "get_page",
                 "get_content",
                 "create_client_account",
+                "patch_content",
             },
         )
+        write_tools = {"create_client_account", "patch_content"}
         for t in tools:
             self.assertIn("inputSchema", t)
             self.assertIn("outputSchema", t)
-            if t["name"] == "create_client_account":
+            if t["name"] in write_tools:
                 self.assertFalse(t["annotations"]["readOnlyHint"])
             else:
                 self.assertTrue(t["annotations"]["readOnlyHint"])
-
     def test_ac23_content_and_structured_content(self):
         result = self._result(self._call("list_sites", token="tok-member"))
         self.assertIn("content", result)

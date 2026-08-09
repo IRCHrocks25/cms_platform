@@ -38,6 +38,13 @@ def tool_success(structured: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_conflict(text: str) -> dict[str, Any]:
+    """Etag mismatch — caller should treat as HTTP 409."""
+    body = tool_error(text)
+    body["_http_status"] = 409
+    return body
+
+
 def site_access_denied(site: str) -> dict[str, Any]:
     return tool_error(
         f"No accessible site '{site}'. Call list_sites to see available sites."

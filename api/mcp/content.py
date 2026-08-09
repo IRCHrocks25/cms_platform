@@ -91,3 +91,35 @@ def read_field(
         raise KeyError(field_id)
     entry = fields[field_id]
     return entry["value"], entry["is_default"]
+
+
+def split_field_id(field_id: str) -> tuple[str, str]:
+    """Require a dotted ``section.field`` id; never a flat top-level key."""
+    if not isinstance(field_id, str) or "." not in field_id:
+        raise ValueError("field must be a dotted section.field id")
+    section, field = field_id.split(".", 1)
+    if not section or not field or section.startswith("_"):
+        raise ValueError("field must be a dotted section.field id")
+    return section, field
+
+
+def write_field(stored: dict, field_id: str, value: Any) -> dict:
+    """Return a new nested content blob with ``field_id`` set.
+
+    Always writes ``content[section][field]``. Never stores a flat dotted key
+    at the top level — that shape makes ``merge_with_defaults`` raise on
+    render (CMS outage 2026-08-06).
+    """
+    from copy import deepcopy
+
+    section, field = split_field_id(field_id)
+    new_content = deepcopy(stored) if stored else {}
+    # Drop a corrupt flat key if one somehow exists.
+    new_content.pop(field_id, None)
+    section_data = new_content.get(section)
+    if not isinstance(section_data, dict):
+        section_data = {}
+    section_data = dict(section_data)
+    section_data[field] = value
+    new_content[section] = section_data
+    return new_content
