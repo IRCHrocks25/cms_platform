@@ -44,6 +44,7 @@ WRITE_ANNOTATIONS = {
 # Privileged-tool denial — identical for every non-superuser principal so the
 # response does not reveal whether inputs were valid or what exists.
 _CREATE_DENIED = tool_error("Not permitted.")
+_PUBLISH_DENIED = _CREATE_DENIED
 
 
 def _site_row(tenant: Tenant, role: str) -> dict[str, Any]:
@@ -203,6 +204,78 @@ def _public_site_url(subdomain: str) -> str:
     if not base or base == "localhost" or base.endswith(".local"):
         return f"http://{subdomain}.{base or 'localhost'}/"
     return f"https://{subdomain}.{base}/"
+
+
+def _content_still_template_defaults(tenant: Tenant) -> bool:
+    """True when stored content equals the template's schema defaults.
+
+    Fresh ``create_client_account`` sites seed ``tenant.content`` from
+    defaults, so every field is *present* in storage (``is_default`` is
+    False). Comparing the blobs catches the "never edited" case the
+    publish guard is meant for.
+    """
+    defaults = (tenant.template.schema or {}).get("defaults") or {}
+    content = tenant.content or {}
+
+    def _public(value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {
+            key: _public(child)
+            for key, child in value.items()
+            if not str(key).startswith("_")
+        }
+
+    public_defaults = _public(defaults)
+    public_content = _public(content)
+    if not public_defaults:
+        # No editable defaults to compare — treat empty content as untouched.
+        return public_content == {} or public_content == public_defaults
+    return public_content == public_defaults
+
+
+def publish_site(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    force: bool = False,
+) -> dict[str, Any]:
+    """CMS-31: flip a tenant live. Superuser only; no unpublish counterpart."""
+    if not getattr(auth.user, "is_superuser", False):
+        return _PUBLISH_DENIED
+
+    site = (site or "").strip().lower()
+    if not site:
+        return tool_error("site is required.")
+
+    tenant = Tenant.objects.filter(subdomain=site).select_related("template").first()
+    if tenant is None:
+        return _PUBLISH_DENIED
+
+    html = (tenant.template.html_source or "").strip()
+    if not html and not force:
+        return tool_error(
+            "Site has no HTML yet. Push a page first, or pass force=true "
+            "to publish anyway."
+        )
+
+    if _content_still_template_defaults(tenant) and not force:
+        return tool_error(
+            "Site content is still the template defaults. Edit content "
+            "first, or pass force=true to publish anyway."
+        )
+
+    if not tenant.is_published:
+        tenant.is_published = True
+        tenant.save(update_fields=["is_published", "updated_at"])
+
+    return tool_success(
+        {
+            "url": _public_site_url(tenant.subdomain),
+            "published": True,
+            "subdomain": tenant.subdomain,
+        }
+    )
 
 
 def create_client_account(
@@ -591,6 +664,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_page_html": get_page_html,
     "get_content": get_content,
     "create_client_account": create_client_account,
+    "publish_site": publish_site,
     "patch_content": patch_content,
     "push_page": push_page,
 }
@@ -842,6 +916,44 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "annotations": WRITE_ANNOTATIONS,
     },
     {
+        "name": "publish_site",
+        "description": (
+            "Publish a site to the public internet. Superuser only. Sites "
+            "created via create_client_account start unpublished — call this "
+            "after content is ready. Refuses when every editable field is "
+            "still the template default (or HTML is empty) unless force=true. "
+            "There is no unpublish tool; take a site offline from the dashboard."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {
+                    "type": "string",
+                    "description": "Tenant subdomain to publish",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Bypass the empty-HTML / still-defaults guard"
+                    ),
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["url", "published", "subdomain"],
+            "additionalProperties": False,
+            "properties": {
+                "url": {"type": "string"},
+                "published": {"type": "boolean"},
+                "subdomain": {"type": "string"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
+    {
         "name": "patch_content",
         "description": (
             "Write one home-page field by dotted id. Requires a current "
@@ -1008,7 +1120,7 @@ def call_tool(
         return tool_success(list_sites(auth)), None
 
     # Privileged tools: deny non-superusers before any lookup that could leak.
-    if name == "create_client_account" and not getattr(
+    if name in ("create_client_account", "publish_site") and not getattr(
         auth.user, "is_superuser", False
     ):
         return _CREATE_DENIED, None
@@ -1028,4 +1140,6 @@ def call_tool(
         args.pop("allow_field_loss")
     if "version" in args and args["version"] is None:
         args.pop("version")
+    if "force" in args and args["force"] is None:
+        args.pop("force")
     return handler(auth, **args), None
