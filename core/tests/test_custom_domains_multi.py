@@ -70,7 +70,9 @@ class MultiCustomDomainTests(TestCase):
         b = CustomDomain.objects.create(
             tenant=self.tenant, domain="second-site.net", is_verified=False
         )
-        with patch("dashboard.views._resolve_a_records", return_value=[TARGET_IP]):
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=[TARGET_IP]
+        ):
             resp = self._client().post(
                 reverse(
                     "dashboard:tenant_custom_domain_verify",
@@ -87,7 +89,9 @@ class MultiCustomDomainTests(TestCase):
         foreign = CustomDomain.objects.create(
             tenant=self.other, domain="foreign-site.com", is_verified=False
         )
-        with patch("dashboard.views._resolve_a_records", return_value=[TARGET_IP]):
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=[TARGET_IP]
+        ):
             resp = self._client().post(
                 reverse(
                     "dashboard:tenant_custom_domain_verify",

@@ -31,6 +31,7 @@ from core.permissions import agency_operator_required, agency_admin_required, te
 from core.renderer import render_site, merge_with_defaults
 from core.parser import build_schema
 from core.services import blog_render
+from core.services import custom_domains
 from core.services import iceberg_media
 from core.services.accounts import (
     create_scoped_login,
@@ -95,9 +96,6 @@ STARTER_TEMPLATE_HTML = """\
 
 GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-DOMAIN_RE = re.compile(
-    r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
-)
 SESSION_CREDS_KEY = "agency_one_time_creds"
 CREDS_TTL_MINUTES = 10
 
@@ -2935,18 +2933,6 @@ def _dns_name_for_domain(domain: str) -> str:
     return labels[0]
 
 
-def _resolve_a_records(domain: str) -> list:
-    """Best-effort A-record lookup for ``domain``. Returns the resolved IPv4
-    addresses (empty list on any failure — NXDOMAIN, timeout, no A record)."""
-    import socket
-
-    try:
-        infos = socket.getaddrinfo(domain, None, family=socket.AF_INET)
-    except OSError:
-        return []
-    return sorted({info[4][0] for info in infos})
-
-
 def _custom_domain_context(tenant):
     """Shared context for the custom-domain panel. Returns every one of the
     tenant's domains (oldest first, stable order) with its DNS record name, plus
@@ -2982,27 +2968,11 @@ def tenant_custom_domain_section(request, pk):
 @require_POST
 def tenant_custom_domain_add(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    domain = (request.POST.get("domain") or "").strip().lower().rstrip(".")
-
-    if not domain:
-        return _render_custom_domain_partial(
-            request, tenant, error="Enter a domain to add."
-        )
-    if not DOMAIN_RE.match(domain):
-        return _render_custom_domain_partial(
-            request, tenant,
-            error="That doesn't look like a valid domain (e.g. training.acme.com).",
-        )
-    if CustomDomain.objects.filter(domain=domain).exists():
-        return _render_custom_domain_partial(
-            request, tenant, error=f"“{domain}” is already in use."
-        )
-
-    # No external registration step: the client just points an A record at our
-    # origin. The row starts unverified; "Check verification" confirms the DNS
-    # resolves to us before the route-syncer emits the Traefik router (which is
-    # what triggers Let's Encrypt issuance).
-    CustomDomain.objects.create(tenant=tenant, domain=domain, is_verified=False)
+    _created, error = custom_domains.add_custom_domain(
+        tenant, request.POST.get("domain") or ""
+    )
+    if error:
+        return _render_custom_domain_partial(request, tenant, error=error)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -3014,13 +2984,9 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
     # than letting one tenant's page act on another tenant's domain.
     custom_domain = get_object_or_404(CustomDomain, pk=domain_pk, tenant=tenant)
 
-    target_ip = settings.CUSTOM_DOMAIN_TARGET_IP
-    resolved = _resolve_a_records(custom_domain.domain)
+    verified, resolved = custom_domains.verify_custom_domain(custom_domain)
 
-    if target_ip in resolved:
-        if not custom_domain.is_verified:
-            custom_domain.is_verified = True
-            custom_domain.save(update_fields=["is_verified", "updated_at"])
+    if verified:
         return _render_custom_domain_partial(
             request, tenant,
             info="DNS verified. Your SSL certificate is issued automatically "
@@ -3035,8 +3001,8 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
         request, tenant,
         info=(
             f"Not verified yet — {custom_domain.domain} should point at "
-            f"{target_ip}, but {detail}. Add the A record at your registrar, "
-            "then check again."
+            f"{settings.CUSTOM_DOMAIN_TARGET_IP}, but {detail}. Add the A "
+            "record at your registrar, then check again."
         ),
     )
 
