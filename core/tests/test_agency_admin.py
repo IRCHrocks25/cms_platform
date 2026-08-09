@@ -230,6 +230,79 @@ class NewClientFlowTests(TestCase):
         self.assertFalse(User.objects.filter(username="alice").exists())
         self.assertEqual(Tenant.objects.filter(subdomain="bellas").count(), 1)
 
+    def test_valid_custom_domain_creates_unverified_row(self):
+        """CMS-37: the dashboard's new-client flow shares create_tenant_account,
+        so a custom domain supplied here now produces a real CustomDomain row."""
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Domain Co",
+                "subdomain": "domainco",
+                "template": str(self.template.pk),
+                "custom_domain": "www.domainco.com",
+                "client_username": "domainco-owner",
+                "client_email": "",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        tenant = Tenant.objects.get(subdomain="domainco")
+        row = CustomDomain.objects.get(domain="www.domainco.com")
+        self.assertEqual(row.tenant_id, tenant.pk)
+        self.assertFalse(row.is_verified)
+
+    def test_invalid_custom_domain_rolls_back_whole_creation(self):
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Bad Domain Co",
+                "subdomain": "baddomainco",
+                "template": str(self.template.pk),
+                "custom_domain": "not a domain",
+                "client_username": "baddomainco-owner",
+                "client_email": "",
+            },
+        )
+        # The generic exception handler in tenant_create re-renders the form
+        # (400) rather than 500ing — see dashboard/views.py's `except Exception`.
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Tenant.objects.filter(subdomain="baddomainco").exists())
+        self.assertFalse(
+            User.objects.filter(username="baddomainco-owner").exists()
+        )
+        self.assertFalse(CustomDomain.objects.exists())
+
+    def test_domain_taken_by_another_tenant_rolls_back_whole_creation(self):
+        other = Tenant.objects.create(
+            name="Other", subdomain="other-site",
+            template=self.template, owner=self.staff,
+        )
+        CustomDomain.objects.create(
+            tenant=other, domain="taken.com", is_verified=True
+        )
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Late Co",
+                "subdomain": "lateco",
+                "template": str(self.template.pk),
+                "custom_domain": "taken.com",
+                "client_username": "lateco-owner",
+                "client_email": "",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Tenant.objects.filter(subdomain="lateco").exists())
+        self.assertFalse(User.objects.filter(username="lateco-owner").exists())
+        self.assertEqual(
+            CustomDomain.objects.filter(domain="taken.com").count(), 1
+        )
+        self.assertEqual(
+            CustomDomain.objects.get(domain="taken.com").tenant_id, other.pk
+        )
+
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class CheckSubdomainEndpointTests(TestCase):
