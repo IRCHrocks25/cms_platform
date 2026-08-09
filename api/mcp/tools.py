@@ -11,7 +11,7 @@ from django.db import transaction
 from core.models import CustomDomain, Page, RESERVED_PAGE_SLUGS, Template, Tenant
 from core.services import content_versions as cv
 from core.services import custom_domains as custom_domains_svc
-from core.services.accounts import create_tenant_account
+from core.services.accounts import CustomDomainError, create_tenant_account
 from core.services.templates import FieldLossError, save_template_version
 from core.urls_helpers import tenant_canonical_public_url
 
@@ -377,7 +377,11 @@ def create_client_account(
     template_id: int,
     custom_domain: str = "",
 ) -> dict[str, Any]:
-    """CMS-11 + CMS-8: mint tenant + owner login; password returned once only."""
+    """CMS-11 + CMS-8: mint tenant + owner login; password returned once only.
+
+    ``custom_domain``, if given, becomes a real unverified CustomDomain row
+    (CMS-37) — see the tool description for what the caller still has to do.
+    """
     if not getattr(auth.user, "is_superuser", False):
         return _CREATE_DENIED
 
@@ -425,6 +429,8 @@ def create_client_account(
             is_published=False,
         )
     except CrossTenantTemplateError as exc:
+        return tool_error(str(exc))
+    except CustomDomainError as exc:
         return tool_error(str(exc))
 
     return tool_success(
@@ -1189,7 +1195,17 @@ TOOLS_LIST: list[dict[str, Any]] = [
                 },
                 "custom_domain": {
                     "type": "string",
-                    "description": "Optional custom domain hostname",
+                    "description": (
+                        "Optional custom domain hostname (e.g. www.acme.com). "
+                        "Attached to the new site immediately but starts "
+                        "UNVERIFIED — nothing serves on it yet. Point an A "
+                        "record at settings.CUSTOM_DOMAIN_TARGET_IP, DNS-only "
+                        "(a Cloudflare-proxied/orange-cloud record resolves to "
+                        "Cloudflare's IPs and can never verify), then call "
+                        "verify_custom_domain. An invalid or already-registered "
+                        "domain fails the whole account creation — no user or "
+                        "site is left behind."
+                    ),
                 },
             },
         },

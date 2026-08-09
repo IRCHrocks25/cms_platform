@@ -427,3 +427,24 @@ class CustomDomainToolsTests(TestCase):
         self.assertIn("dns-only", description)
         self.assertIn("cloudflare", description)
         self.assertIn("proxied", description)
+
+    # ------------------------------------------------------------------ #
+    # create_client_account's custom_domain param (CMS-37)               #
+    # ------------------------------------------------------------------ #
+
+    def test_create_client_account_domain_param_describes_unverified_state(self):
+        """CMS-37: create_tenant_account now attaches a real but unverified
+        CustomDomain row — the tool description must say so, and must repeat
+        the DNS-only warning so callers don't wait forever on a proxied
+        record (same failure mode as verify_custom_domain)."""
+        r = self._post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        tools = r.json()["result"]["tools"]
+        tool = next(t for t in tools if t["name"] == "create_client_account")
+        description = tool["inputSchema"]["properties"]["custom_domain"][
+            "description"
+        ].lower()
+        self.assertIn("unverified", description)
+        self.assertIn("dns-only", description)
+        self.assertIn("cloudflare", description)
+        self.assertIn("proxied", description)
+        self.assertIn("custom_domain_target_ip", description)

@@ -12,7 +12,7 @@ from django.utils import timezone
 from oauth2_provider.models import AccessToken, Application
 
 from api.models import McpAuditLog
-from core.models import Template, Tenant, TenantMembership
+from core.models import CustomDomain, Template, Tenant, TenantMembership
 
 
 User = get_user_model()
@@ -256,3 +256,67 @@ class CreateClientAccountToolTests(TestCase):
         tenant = Tenant.objects.get(subdomain="clone-me")
         self.assertEqual(tenant.template.cloned_from_id, self.template.pk)
         self.assertIsNone(self.template.tenant_id)
+
+    # ------------------------------------------------------------------ #
+    # custom_domain at creation (CMS-37)                                  #
+    # ------------------------------------------------------------------ #
+
+    def test_custom_domain_creates_unverified_row_linked_to_new_tenant(self):
+        r = self._call(
+            self._valid_args(
+                subdomain="withdomain",
+                username="withdomain-owner",
+                custom_domain="www.withdomain.com",
+            )
+        )
+        self.assertFalse(r.json()["result"].get("isError", False), r.json())
+        tenant = Tenant.objects.get(subdomain="withdomain")
+
+        row = CustomDomain.objects.get(domain="www.withdomain.com")
+        self.assertEqual(row.tenant_id, tenant.pk)
+        self.assertFalse(row.is_verified)
+
+    def test_no_custom_domain_creates_no_row(self):
+        r = self._call(
+            self._valid_args(subdomain="nodomain", username="nodomain-owner")
+        )
+        self.assertFalse(r.json()["result"].get("isError", False), r.json())
+        self.assertFalse(CustomDomain.objects.exists())
+
+    def test_invalid_custom_domain_refuses_whole_creation(self):
+        r = self._call(
+            self._valid_args(
+                subdomain="baddomain",
+                username="baddomain-owner",
+                custom_domain="not a domain",
+            )
+        )
+        self.assertEqual(r.status_code, 200)
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="baddomain").exists())
+        self.assertFalse(User.objects.filter(username="baddomain-owner").exists())
+        self.assertFalse(CustomDomain.objects.exists())
+
+    def test_domain_registered_to_another_tenant_refuses_whole_creation(self):
+        CustomDomain.objects.create(
+            tenant=self.existing, domain="taken.com", is_verified=True
+        )
+        r = self._call(
+            self._valid_args(
+                subdomain="latecomer",
+                username="latecomer-owner",
+                custom_domain="taken.com",
+            )
+        )
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="latecomer").exists())
+        self.assertFalse(User.objects.filter(username="latecomer-owner").exists())
+        self.assertEqual(
+            CustomDomain.objects.filter(domain="taken.com").count(), 1
+        )
+        self.assertEqual(
+            CustomDomain.objects.get(domain="taken.com").tenant_id,
+            self.existing.pk,
+        )

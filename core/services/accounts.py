@@ -2,7 +2,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.crypto import get_random_string
 
-from core.models import Template, TemplateVersion, Tenant, TenantMembership
+from core.models import CustomDomain, Template, TemplateVersion, Tenant, TenantMembership
+from core.services import custom_domains
 from core.services.templates import assign_template
 
 
@@ -13,6 +14,11 @@ PASSWORD_ALPHABET = (
     "ABCDEFGHJKLMNPQRSTUVWXYZ"
     "23456789"
 )
+
+
+class CustomDomainError(Exception):
+    """Raised when a custom domain passed to ``create_tenant_account`` is
+    invalid or already registered (CMS-37)."""
 
 
 def generate_password():
@@ -38,8 +44,25 @@ def create_tenant_account(
 
     ``is_published`` defaults to True for the dashboard new-client flow.
     MCP ``create_client_account`` passes False so chat-created sites stay draft.
+
+    If ``custom_domain`` is supplied, a real (unverified) ``CustomDomain`` row
+    is created for it via ``core.services.custom_domains.add_custom_domain`` —
+    that's the table the middleware and route-syncer actually key off, so a
+    domain passed here now does something (CMS-37). The domain is checked
+    *before* any row is created so an invalid/taken domain raises
+    ``CustomDomainError`` and leaves no partial user/tenant behind, rather
+    than failing deep inside the transaction after the expensive work (inline
+    template parsing, password hashing) is already done.
     """
     password = generate_password()
+
+    domain = custom_domains.normalize_domain(custom_domain) if custom_domain else ""
+    if domain and not custom_domains.DOMAIN_RE.match(domain):
+        raise CustomDomainError(
+            "That doesn't look like a valid domain (e.g. training.acme.com)."
+        )
+    if domain and CustomDomain.objects.filter(domain=domain).exists():
+        raise CustomDomainError(f"“{domain}” is already in use.")
 
     with transaction.atomic():
         inline = new_template is not None
@@ -69,6 +92,14 @@ def create_tenant_account(
             user=user,
             role=TenantMembership.ROLE_OWNER,
         )
+
+        if domain:
+            # Re-checked here (not just above) so a same-domain race between
+            # the pre-check and this point still fails atomically instead of
+            # tripping the DB's unique constraint mid-transaction.
+            _custom_domain, error = custom_domains.add_custom_domain(tenant, domain)
+            if error:
+                raise CustomDomainError(error)
 
         if inline:
             template.tenant = tenant
