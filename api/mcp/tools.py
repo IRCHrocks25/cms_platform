@@ -45,6 +45,7 @@ WRITE_ANNOTATIONS = {
 # response does not reveal whether inputs were valid or what exists.
 _CREATE_DENIED = tool_error("Not permitted.")
 _PUBLISH_DENIED = _CREATE_DENIED
+_DELETE_DENIED = _CREATE_DENIED
 
 
 def _site_row(tenant: Tenant, role: str) -> dict[str, Any]:
@@ -274,6 +275,68 @@ def publish_site(
             "url": _public_site_url(tenant.subdomain),
             "published": True,
             "subdomain": tenant.subdomain,
+        }
+    )
+
+
+def publish_page(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    page: str = "",
+    force: bool = False,
+) -> dict[str, Any]:
+    """CMS-34: flip an inner Page live. Superuser only; no unpublish counterpart.
+
+    ``publish_site`` only flips ``Tenant.is_published`` — nothing sets
+    ``Page.is_published``, so a page created by ``push_page`` 404s forever
+    unless this is called. A page's public reachability
+    (``core.views.page_render`` / ``page_render_public``) gates solely on
+    ``Page.is_published``, independent of the tenant's ``is_published`` — so
+    this does not also require the site to be published first.
+    """
+    if not getattr(auth.user, "is_superuser", False):
+        return _PUBLISH_DENIED
+
+    site = (site or "").strip().lower()
+    page = (page or "").strip().lower()
+    if not site:
+        return tool_error("site is required.")
+    if not page:
+        return tool_error(
+            "page is required to publish an inner page. Use publish_site "
+            "to publish the site home."
+        )
+
+    tenant = Tenant.objects.filter(subdomain=site).first()
+    if tenant is None:
+        return _PUBLISH_DENIED
+
+    page_row = (
+        Page.objects.filter(tenant=tenant, slug=page)
+        .select_related("template")
+        .first()
+    )
+    if page_row is None:
+        return _PUBLISH_DENIED
+
+    html = (page_row.template.html_source or "").strip()
+    if not html and not force:
+        return tool_error(
+            "Page has no HTML yet. Push it with push_page first, or pass "
+            "force=true to publish anyway."
+        )
+
+    if not page_row.is_published:
+        page_row.is_published = True
+        page_row.save(update_fields=["is_published", "updated_at"])
+
+    return tool_success(
+        {
+            "url": tenant_canonical_public_url(tenant, page_slug=page_row.slug),
+            "published": True,
+            "site": tenant.subdomain,
+            "page": page_row.slug,
         }
     )
 
@@ -656,6 +719,83 @@ def push_page(
     )
 
 
+def _template_still_needed(template: Template) -> bool:
+    """True if the tenant home, a clone lineage, or another page still needs it.
+
+    Call after the page being deleted is already gone, so the check reflects
+    only *other* referrers: ``Tenant.template`` (the site home),
+    ``Template.cloned_from`` (a clone's lineage pointer), or any remaining
+    ``Page.template``.
+    """
+    if Tenant.objects.filter(template_id=template.pk).exists():
+        return True
+    if Template.objects.filter(cloned_from_id=template.pk).exists():
+        return True
+    if Page.objects.filter(template_id=template.pk).exists():
+        return True
+    return False
+
+
+def delete_page(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    page: str = "",
+) -> dict[str, Any]:
+    """CMS-36: remove an inner Page and its now-orphaned tenant-owned template.
+
+    A page created by ``push_page`` owns its Template 1:1 in the common
+    case, so deleting only the Page row would orphan that Template (and its
+    TemplateVersion history) forever. Deletes ``core_page`` first, then
+    ``core_template`` if nothing else still needs it — ``TemplateVersion``
+    cascades automatically off the Template FK (``on_delete=CASCADE``), no
+    manual step required. Kept, not deleted, when the template is still the
+    site home (``Tenant.template``), a clone's lineage (``cloned_from``), or
+    used by another Page. One transaction. Refuses outright when ``page`` is
+    omitted/null — the site home isn't a Page row and can't be deleted here.
+    """
+    if not getattr(auth.user, "is_superuser", False):
+        return _DELETE_DENIED
+
+    site = (site or "").strip().lower()
+    page = (page or "").strip().lower()
+    if not site:
+        return tool_error("site is required.")
+    if not page:
+        return tool_error(
+            "Cannot delete the site home — it isn't a Page row. delete_page "
+            "only removes additional pages created by push_page."
+        )
+
+    tenant = Tenant.objects.filter(subdomain=site).first()
+    if tenant is None:
+        return _DELETE_DENIED
+
+    page_row = (
+        Page.objects.filter(tenant=tenant, slug=page)
+        .select_related("template")
+        .first()
+    )
+    if page_row is None:
+        return _DELETE_DENIED
+
+    template = page_row.template
+    with transaction.atomic():
+        page_row.delete()
+        template_deleted = not _template_still_needed(template)
+        if template_deleted:
+            template.delete()
+
+    return tool_success(
+        {
+            "site": tenant.subdomain,
+            "page": page,
+            "deleted": True,
+            "template_deleted": template_deleted,
+        }
+    )
+
+
 # list_sites returns a plain dict; wrap at call site for MCP envelope.
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
@@ -665,8 +805,10 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_content": get_content,
     "create_client_account": create_client_account,
     "publish_site": publish_site,
+    "publish_page": publish_page,
     "patch_content": patch_content,
     "push_page": push_page,
+    "delete_page": delete_page,
 }
 
 
@@ -954,6 +1096,53 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "annotations": WRITE_ANNOTATIONS,
     },
     {
+        "name": "publish_page",
+        "description": (
+            "Publish an inner page to the public internet. Superuser only. "
+            "Pages created via push_page start unpublished — publish_site "
+            "only flips the tenant, never a Page — so call this after the "
+            "page has content. Refuses when the page's template has no HTML "
+            "yet unless force=true. Independent of the site's publish state: "
+            "a page's own URL is reachable once published even if the site "
+            "home isn't. There is no unpublish counterpart — same as "
+            "publish_site."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {
+                    "type": "string",
+                    "description": "Tenant subdomain",
+                },
+                "page": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Page slug to publish. Required — there is no "
+                        "site-home shortcut; use publish_site for that."
+                    ),
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Bypass the empty-HTML guard",
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["url", "published", "site", "page"],
+            "additionalProperties": False,
+            "properties": {
+                "url": {"type": "string"},
+                "published": {"type": "boolean"},
+                "site": {"type": "string"},
+                "page": {"type": "string"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
+    {
         "name": "patch_content",
         "description": (
             "Write one home-page field by dotted id. Requires a current "
@@ -1056,6 +1245,47 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "annotations": WRITE_ANNOTATIONS,
     },
+    {
+        "name": "delete_page",
+        "description": (
+            "Delete an inner page created by push_page, and its now-orphaned "
+            "tenant-owned template (with that template's version history). "
+            "Superuser only. The template is kept — only the page is removed "
+            "— when it's still used by the site home, a template clone, or "
+            "another page. Refuses to delete the site home; that isn't a "
+            "Page row (use the dashboard to take a whole site down)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {
+                    "type": "string",
+                    "description": "Tenant subdomain",
+                },
+                "page": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Page slug to delete. Required — omitting it "
+                        "(the site home) is refused."
+                    ),
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "page", "deleted", "template_deleted"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {"type": "string"},
+                "deleted": {"type": "boolean"},
+                "template_deleted": {"type": "boolean"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
 ]
 
 
@@ -1120,9 +1350,12 @@ def call_tool(
         return tool_success(list_sites(auth)), None
 
     # Privileged tools: deny non-superusers before any lookup that could leak.
-    if name in ("create_client_account", "publish_site") and not getattr(
-        auth.user, "is_superuser", False
-    ):
+    if name in (
+        "create_client_account",
+        "publish_site",
+        "publish_page",
+        "delete_page",
+    ) and not getattr(auth.user, "is_superuser", False):
         return _CREATE_DENIED, None
 
     handler = HANDLERS[name]

@@ -93,9 +93,15 @@ def dispatch(
         # reach it — denials and list_sites leave tenant NULL.
         # create_client_account mints the tenant inside the tool, so audit
         # after the call and stamp the newly created subdomain.
-        # publish_site is superuser-only; audit after so member denials never
-        # stamp a tenant they could otherwise for_tenant().
-        if name in ("create_client_account", "publish_site"):
+        # publish_site, publish_page, and delete_page are superuser-only;
+        # audit after so member denials never stamp a tenant they could
+        # otherwise for_tenant() (same reasoning as publish_site).
+        if name in (
+            "create_client_account",
+            "publish_site",
+            "publish_page",
+            "delete_page",
+        ):
             result, err = tools_mod.call_tool(auth, name, arguments)
             tenant = None
             if (
