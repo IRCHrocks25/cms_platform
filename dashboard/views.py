@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Q
+from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1196,7 +1197,34 @@ def tenant_delete(request, pk):
         )
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
     site_name = tenant.name
-    tenant.delete()
+    try:
+        tenant.delete()
+    except ProtectedError:
+        logger.exception(
+            "tenant_delete blocked by ProtectedError (tenant_id=%s subdomain=%s)",
+            tenant.pk,
+            tenant.subdomain,
+        )
+        messages.error(
+            request,
+            "Could not delete this site because another record still references "
+            "one of its templates. Remove or reassign those pages/templates "
+            "first, then try again.",
+        )
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    except IntegrityError:
+        logger.exception(
+            "tenant_delete blocked by IntegrityError (tenant_id=%s subdomain=%s)",
+            tenant.pk,
+            tenant.subdomain,
+        )
+        messages.error(
+            request,
+            "Could not delete this site due to a template slug conflict when "
+            "returning its templates to the library. Contact an engineer if "
+            "this keeps happening.",
+        )
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
     messages.success(request, f"Site “{site_name}” deleted.")
     return redirect("dashboard:tenant_list")
 
