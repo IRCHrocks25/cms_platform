@@ -8,6 +8,9 @@ registrant cannot opt into grants/auth methods CMS-20 disabled.
 
 from __future__ import annotations
 
+import ipaddress
+
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -31,12 +34,84 @@ from oauth2_provider.views.dynamic_client_registration import (
 
 
 # Unauthenticated writes → cheap flood target. Cache-backed, best-effort.
+# Per real client IP (not the Traefik hop): 10/hour is generous for MCP
+# connectors (one registration) and still blocks floods once the key is correct.
 _DCR_RATE_LIMIT = 10
 _DCR_RATE_WINDOW = 60 * 60
 
+# Same posture as SECURE_PROXY_SSL_HEADER / USE_X_FORWARDED_HOST: the app is
+# only reachable via Traefik on the docker network (see deploy/DOKPLOY.md), so
+# private/loopback REMOTE_ADDR means the peer is our edge proxy and we may
+# read CF-Connecting-IP / X-Forwarded-For. A public REMOTE_ADDR is not that
+# peer — treat client-IP headers as spoofable and ignore them.
+_DEFAULT_TRUSTED_PROXY_NETWORKS = (
+    "127.0.0.0/8",
+    "::1/128",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "fc00::/7",
+)
+
+
+def _trusted_proxy_networks():
+    raw = getattr(settings, "DCR_TRUSTED_PROXY_IPS", None)
+    if raw is None:
+        raw = _DEFAULT_TRUSTED_PROXY_NETWORKS
+    return tuple(ipaddress.ip_network(n, strict=False) for n in raw)
+
+
+def _parse_ip(value: str):
+    value = (value or "").strip()
+    if not value:
+        return None
+    # XFF / REMOTE_ADDR may be "ip:port" (IPv4) — strip a trailing :port.
+    if value.count(":") == 1 and "." in value:
+        value = value.rsplit(":", 1)[0]
+    try:
+        return ipaddress.ip_address(value)
+    except ValueError:
+        return None
+
+
+def _remote_addr_is_trusted_proxy(remote: str) -> bool:
+    addr = _parse_ip(remote)
+    if addr is None:
+        return False
+    return any(addr in net for net in _trusted_proxy_networks())
+
+
+def _client_ip(request) -> str:
+    """Real client IP for DCR rate limiting.
+
+    Prefer ``CF-Connecting-IP``, else the left-most ``X-Forwarded-For`` entry,
+    else ``REMOTE_ADDR`` — but only when ``REMOTE_ADDR`` is a known proxy
+    (private/loopback by default). Matches the project's existing proxy-header
+    trust (``SECURE_PROXY_SSL_HEADER``, ``USE_X_FORWARDED_HOST``): those headers
+    are meaningful only because Traefik is the sole public ingress.
+    """
+    remote = (request.META.get("REMOTE_ADDR") or "").strip() or "unknown"
+    if not _remote_addr_is_trusted_proxy(remote):
+        return remote
+
+    cf = (request.META.get("HTTP_CF_CONNECTING_IP") or "").strip()
+    if cf:
+        parsed = _parse_ip(cf)
+        if parsed is not None:
+            return str(parsed)
+
+    xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if xff:
+        leftmost = xff.split(",", 1)[0].strip()
+        parsed = _parse_ip(leftmost)
+        if parsed is not None:
+            return str(parsed)
+
+    return remote
+
 
 def _dcr_rate_limited(request) -> bool:
-    ip = request.META.get("REMOTE_ADDR", "") or "unknown"
+    ip = _client_ip(request)
     key = f"oauth-dcr:ip:{ip}"
     try:
         count = cache.get(key, 0)
