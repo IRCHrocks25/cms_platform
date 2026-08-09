@@ -8,8 +8,9 @@ from django.conf import settings
 
 from django.db import transaction
 
-from core.models import Page, RESERVED_PAGE_SLUGS, Template, Tenant
+from core.models import CustomDomain, Page, RESERVED_PAGE_SLUGS, Template, Tenant
 from core.services import content_versions as cv
+from core.services import custom_domains as custom_domains_svc
 from core.services.accounts import create_tenant_account
 from core.services.templates import FieldLossError, save_template_version
 from core.urls_helpers import tenant_canonical_public_url
@@ -47,6 +48,7 @@ _CREATE_DENIED = tool_error("Not permitted.")
 _PUBLISH_DENIED = _CREATE_DENIED
 _DELETE_DENIED = _CREATE_DENIED
 _LIST_TEMPLATES_DENIED = _CREATE_DENIED
+_CUSTOM_DOMAIN_DENIED = _CREATE_DENIED
 
 
 def _site_row(tenant: Tenant, role: str) -> dict[str, Any]:
@@ -820,6 +822,88 @@ def delete_page(
     )
 
 
+def add_custom_domain(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    domain: str,
+) -> dict[str, Any]:
+    """CMS-32: register a custom domain for a site. Superuser only.
+
+    Shares normalisation/validation with the dashboard's
+    ``tenant_custom_domain_add`` via ``core.services.custom_domains`` so the
+    two surfaces can't drift on what counts as a valid, available domain.
+    """
+    if not getattr(auth.user, "is_superuser", False):
+        return _CUSTOM_DOMAIN_DENIED
+
+    site = (site or "").strip().lower()
+    if not site:
+        return tool_error("site is required.")
+
+    tenant = Tenant.objects.filter(subdomain=site).first()
+    if tenant is None:
+        return _CUSTOM_DOMAIN_DENIED
+
+    custom_domain, error = custom_domains_svc.add_custom_domain(tenant, domain)
+    if error:
+        return tool_error(error)
+
+    return tool_success(
+        {
+            "site": tenant.subdomain,
+            "domain": custom_domain.domain,
+            "is_verified": custom_domain.is_verified,
+        }
+    )
+
+
+def verify_custom_domain(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    domain: str,
+) -> dict[str, Any]:
+    """CMS-32: check a custom domain's DNS and mark it verified if it matches.
+
+    Shares the resolve-and-compare logic with the dashboard's
+    ``tenant_custom_domain_verify`` via ``core.services.custom_domains``. On a
+    non-match, ``resolved`` carries whatever the domain currently points at —
+    the actionable detail for fixing DNS, not just "not verified".
+    """
+    if not getattr(auth.user, "is_superuser", False):
+        return _CUSTOM_DOMAIN_DENIED
+
+    site = (site or "").strip().lower()
+    if not site:
+        return tool_error("site is required.")
+
+    tenant = Tenant.objects.filter(subdomain=site).first()
+    if tenant is None:
+        return _CUSTOM_DOMAIN_DENIED
+
+    normalized = custom_domains_svc.normalize_domain(domain)
+    custom_domain = CustomDomain.objects.filter(
+        tenant=tenant, domain=normalized
+    ).first()
+    if custom_domain is None:
+        return tool_error(
+            f"No custom domain '{normalized}' registered for site '{site}'. "
+            "Call add_custom_domain first."
+        )
+
+    verified, resolved = custom_domains_svc.verify_custom_domain(custom_domain)
+    return tool_success(
+        {
+            "site": tenant.subdomain,
+            "domain": custom_domain.domain,
+            "is_verified": verified,
+            "resolved": resolved,
+            "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
+        }
+    )
+
+
 # list_sites returns a plain dict; wrap at call site for MCP envelope.
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
@@ -834,6 +918,8 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "patch_content": patch_content,
     "push_page": push_page,
     "delete_page": delete_page,
+    "add_custom_domain": add_custom_domain,
+    "verify_custom_domain": verify_custom_domain,
 }
 
 
@@ -1360,6 +1446,86 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "annotations": WRITE_ANNOTATIONS,
     },
+    {
+        "name": "add_custom_domain",
+        "description": (
+            "Register a custom domain for a site. Superuser only. Normalises "
+            "the hostname (lowercase, trailing dot stripped) and validates its "
+            "format; refuses a domain already registered to any tenant. The "
+            "domain starts unverified — call verify_custom_domain once its "
+            "A record is pointed at this platform's origin IP."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site", "domain"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string", "description": "Tenant subdomain"},
+                "domain": {
+                    "type": "string",
+                    "description": "Hostname to register, e.g. www.acme.com",
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "domain", "is_verified"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "domain": {"type": "string"},
+                "is_verified": {"type": "boolean"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
+    {
+        "name": "verify_custom_domain",
+        "description": (
+            "Check whether a custom domain's A record resolves to this "
+            "platform's origin, and mark it verified if so. Superuser only. "
+            "IMPORTANT: the A record must be DNS-only. If the domain is "
+            "proxied (e.g. Cloudflare's orange cloud), resolution returns the "
+            "proxy's IPs instead of ours and verification can NEVER succeed no "
+            "matter how long you wait — that looks identical to normal DNS "
+            "propagation delay but isn't one; tell the user to disable the "
+            "proxy/orange-cloud for this record. On a non-match this returns "
+            "'resolved' — what the domain currently points at — which is the "
+            "actionable detail for fixing DNS, not just 'not verified'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site", "domain"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string", "description": "Tenant subdomain"},
+                "domain": {
+                    "type": "string",
+                    "description": "Previously registered hostname to check",
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "domain", "is_verified", "resolved", "target_ip"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "domain": {"type": "string"},
+                "is_verified": {"type": "boolean"},
+                "resolved": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "IPv4 addresses the domain currently resolves to",
+                },
+                "target_ip": {
+                    "type": "string",
+                    "description": "The IP the domain must resolve to for verification",
+                },
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
+    },
 ]
 
 
@@ -1430,6 +1596,8 @@ def call_tool(
         "publish_page",
         "delete_page",
         "list_templates",
+        "add_custom_domain",
+        "verify_custom_domain",
     ) and not getattr(auth.user, "is_superuser", False):
         return _CREATE_DENIED, None
 
