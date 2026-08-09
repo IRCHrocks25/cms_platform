@@ -46,6 +46,7 @@ WRITE_ANNOTATIONS = {
 _CREATE_DENIED = tool_error("Not permitted.")
 _PUBLISH_DENIED = _CREATE_DENIED
 _DELETE_DENIED = _CREATE_DENIED
+_LIST_TEMPLATES_DENIED = _CREATE_DENIED
 
 
 def _site_row(tenant: Tenant, role: str) -> dict[str, Any]:
@@ -339,6 +340,29 @@ def publish_page(
             "page": page_row.slug,
         }
     )
+
+
+def _template_row(template: Template) -> dict[str, Any]:
+    return {
+        "id": template.pk,
+        "name": template.name,
+        "slug": template.slug,
+        "description": template.description,
+        "editing_mode": template.editing_mode,
+    }
+
+
+def list_templates(auth: ResolvedAuth) -> dict[str, Any]:
+    """CMS-35: list agency-library templates. Superuser only — this exists to
+    feed create_client_account's template_id, which is itself superuser-only
+    and library-only (CMS-27 locked template assignment to `tenant IS NULL`
+    rows). No non-superuser principal can call create_client_account, so
+    there is no legitimate reason to expose the library to them either.
+    """
+    if not getattr(auth.user, "is_superuser", False):
+        return _LIST_TEMPLATES_DENIED
+    templates = Template.objects.filter(tenant__isnull=True).order_by("name")
+    return tool_success({"templates": [_template_row(t) for t in templates]})
 
 
 def create_client_account(
@@ -803,6 +827,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_page": get_page,
     "get_page_html": get_page_html,
     "get_content": get_content,
+    "list_templates": list_templates,
     "create_client_account": create_client_account,
     "publish_site": publish_site,
     "publish_page": publish_page,
@@ -1002,6 +1027,55 @@ TOOLS_LIST: list[dict[str, Any]] = [
                         "Use with patch_content if_match — not push_page."
                     ),
                 },
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "list_templates",
+        "description": (
+            "List agency-library templates (tenant IS NULL) — the set "
+            "create_client_account will accept. Superuser only. Each row's "
+            "'id' is the value to pass as create_client_account's "
+            "template_id, so the two calls can be chained directly."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["templates"],
+            "additionalProperties": False,
+            "properties": {
+                "templates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "name",
+                            "slug",
+                            "description",
+                            "editing_mode",
+                        ],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {
+                                "type": "integer",
+                                "description": (
+                                    "Pass as create_client_account's "
+                                    "template_id"
+                                ),
+                            },
+                            "name": {"type": "string"},
+                            "slug": {"type": "string"},
+                            "description": {"type": "string"},
+                            "editing_mode": {"type": "string"},
+                        },
+                    },
+                }
             },
         },
         "annotations": ANNOTATIONS,
@@ -1355,6 +1429,7 @@ def call_tool(
         "publish_site",
         "publish_page",
         "delete_page",
+        "list_templates",
     ) and not getattr(auth.user, "is_superuser", False):
         return _CREATE_DENIED, None
 
