@@ -38,6 +38,7 @@ from core.services.accounts import (
 )
 from core.services.annotator import annotate_html, AnnotatorError
 from core.services.sanitizer import sanitize_html
+from core.services import templates as template_svc
 from core import ghl_crypto
 from core import ghl_oauth
 from core.models import GhlAgencyInstall, GhlInstall
@@ -47,6 +48,23 @@ from core.urls_helpers import build_tenant_url_bundle, tenant_public_url
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _templates_available(*, tenant=None):
+    """Agency library templates, optionally plus one tenant's private copies."""
+    if tenant is None:
+        return Template.objects.filter(tenant__isnull=True).order_by("name")
+    return Template.objects.filter(
+        Q(tenant__isnull=True) | Q(tenant=tenant)
+    ).order_by("name")
+
+
+def _client_may_edit_content(request, editable) -> bool:
+    """Staff/superuser always; clients only when the template is released."""
+    if request.user.is_staff or request.user.is_superuser:
+        return True
+    tpl = getattr(editable, "template", None)
+    return bool(tpl and tpl.is_client_editable)
 
 
 # --------------------------------------------------------------------------- #
@@ -183,6 +201,15 @@ def template_create(request):
             description=description,
             html_source=html_source,
         )
+        if template.has_editable_schema:
+            template.editing_mode = Template.EDITING_EDITABLE
+            template.save(update_fields=["editing_mode", "updated_at"])
+        template_svc.save_template_version(
+            template,
+            template.html_source,
+            user=request.user,
+            label="Initial",
+        )
         messages.success(request, f"Template “{template.name}” created.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
@@ -194,6 +221,7 @@ def template_create(request):
                 "name": "",
                 "description": "",
                 "html_source": STARTER_TEMPLATE_HTML,
+                "editing_mode": Template.EDITING_EDITABLE,
             },
         },
     )
@@ -206,8 +234,44 @@ def template_detail(request, pk):
     if request.method == "POST":
         template.name = (request.POST.get("name") or template.name).strip()
         template.description = (request.POST.get("description") or "").strip()
-        template.html_source = request.POST.get("html_source") or template.html_source
-        template.save()
+        mode = (request.POST.get("editing_mode") or "").strip()
+        if mode in {Template.EDITING_RAW, Template.EDITING_EDITABLE}:
+            template.editing_mode = mode
+        html_source = request.POST.get("html_source") or template.html_source
+        allow_field_loss = request.POST.get("allow_field_loss") in (
+            "1",
+            "true",
+            "on",
+            "yes",
+        )
+        try:
+            template_svc.save_template_version(
+                template,
+                html_source,
+                user=request.user,
+                allow_field_loss=allow_field_loss,
+            )
+        except template_svc.FieldLossError as exc:
+            messages.error(request, str(exc))
+            tenants_using = list(
+                template.tenants.only("id", "name", "subdomain").order_by("name")
+            )
+            return render(
+                request,
+                "dashboard/template_form.html",
+                {
+                    "template": template,
+                    "tenants_using": tenants_using,
+                    "field_loss": exc,
+                    "form_data": {
+                        "name": template.name,
+                        "description": template.description,
+                        "html_source": html_source,
+                        "editing_mode": template.editing_mode,
+                    },
+                },
+                status=409,
+            )
         messages.success(request, "Template updated.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
@@ -218,7 +282,12 @@ def template_detail(request, pk):
         {
             "template": template,
             "tenants_using": tenants_using,
-            "form_data": {"name": "", "description": "", "html_source": ""},
+            "form_data": {
+                "name": "",
+                "description": "",
+                "html_source": "",
+                "editing_mode": template.editing_mode,
+            },
         },
     )
 
@@ -664,7 +733,7 @@ def tenant_create(request):
     in the template dropdown — the Template is created inside the same
     transaction so a partial failure leaks nothing.
     """
-    templates = Template.objects.all().order_by("name")
+    templates = _templates_available()
 
     form_data = {
         "name": "",
@@ -789,6 +858,18 @@ def tenant_create(request):
                 if inline_new_template
                 else None
             ),
+        )
+    except template_svc.CrossTenantTemplateError as exc:
+        messages.error(request, str(exc))
+        return render(
+            request,
+            "dashboard/tenant_form.html",
+            {
+                "templates": templates,
+                "form_data": posted,
+                "nav_section": "sites",
+            },
+            status=400,
         )
     except Exception as exc:
         messages.error(
@@ -982,7 +1063,7 @@ def tenant_detail(request, pk):
     activity = (
         tenant.versions.select_related("saved_by").order_by("-saved_at")[:20]
     )
-    available_templates = Template.objects.order_by("name")
+    available_templates = _templates_available(tenant=tenant)
     bound = set(
         GhlInstall.objects.exclude(tenant__isnull=True).values_list("location_id", flat=True)
     )
@@ -1085,12 +1166,18 @@ def tenant_template_swap(request, pk):
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
     old_template_name = tenant.template.name if tenant.template_id else "—"
-    tenant.template = new_template
-    tenant.save(update_fields=["template", "updated_at"])
+    try:
+        assigned = template_svc.assign_template(
+            tenant, new_template, user=request.user
+        )
+    except template_svc.CrossTenantTemplateError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+
     messages.success(
         request,
         f"Switched “{tenant.name}” from “{old_template_name}” to "
-        f"“{new_template.name}”. Existing content survives where field IDs "
+        f"“{assigned.name}”. Existing content survives where field IDs "
         "match the new template; the rest stays on the row and comes back "
         "if you switch back."
     )
@@ -1659,7 +1746,9 @@ def _page_list(request, tenant, scope):
             "nav_urls": _page_nav_urls(scope, tenant),
             "can_manage_pages": can_manage,
             # Don't leak the agency template catalog to clients.
-            "templates": Template.objects.order_by("name") if can_manage else [],
+            "templates": (
+                _templates_available(tenant=tenant) if can_manage else []
+            ),
             "reserved_slugs": ", ".join(sorted(RESERVED_PAGE_SLUGS)),
         },
     )
@@ -1694,6 +1783,13 @@ def _page_create(request, tenant, scope):
         template = Template.objects.create(
             name=f"{tenant.name} — {title}",
             html_source=html_source,
+            tenant=tenant,
+        )
+        if template.has_editable_schema:
+            template.editing_mode = Template.EDITING_EDITABLE
+            template.save(update_fields=["editing_mode", "updated_at"])
+        template_svc.save_template_version(
+            template, template.html_source, user=request.user, label="Initial"
         )
         page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
     messages.success(request, f"Page “{page.title}” created — start editing.")
@@ -1753,10 +1849,18 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         return
     try:
         template = Template.objects.get(pk=template_id)
-        template.html_source = annotated_html
-        # Template.save() rebuilds the schema from the new html_source, so the
-        # editor immediately surfaces editable fields the next time it loads.
-        template.save()
+        # Annotation usually adds fields; allow loss so a partial model
+        # rewrite cannot leave the row stuck mid-import.
+        template_svc.save_template_version(
+            template,
+            annotated_html,
+            user=None,
+            allow_field_loss=True,
+            label="AI annotation",
+        )
+        if template.has_editable_schema:
+            template.editing_mode = Template.EDITING_EDITABLE
+            template.save(update_fields=["editing_mode", "updated_at"])
         section_count = len((template.schema or {}).get("sections", []))
         logger.info(
             "Sibling annotation applied to template=%s (%d sections)",
@@ -1852,6 +1956,13 @@ def page_import_siblings(request, pk):
                 name=f"{tenant.name} — {title}",
                 description=f"Imported from {sibling['url']}",
                 html_source=sibling_html,
+                tenant=tenant,
+            )
+            template_svc.save_template_version(
+                template,
+                template.html_source,
+                user=request.user,
+                label="Import",
             )
             page = Page.objects.create(
                 tenant=tenant, template=template, title=title, slug=slug,
@@ -1892,8 +2003,33 @@ def page_edit_html(request, pk, page_pk):
         if not new_html.strip():
             messages.error(request, "Page HTML cannot be empty.")
         else:
-            page.template.html_source = new_html
-            page.template.save()  # Template.save() rebuilds the schema.
+            allow_field_loss = request.POST.get("allow_field_loss") in (
+                "1", "true", "on", "yes",
+            )
+            try:
+                template_svc.save_template_version(
+                    page.template,
+                    new_html,
+                    user=request.user,
+                    allow_field_loss=allow_field_loss,
+                )
+            except template_svc.FieldLossError as exc:
+                messages.error(request, str(exc))
+                return render(
+                    request,
+                    "dashboard/page_edit_html.html",
+                    {
+                        "tenant": tenant,
+                        "page": page,
+                        "html_source": new_html,
+                        "field_loss": exc,
+                        "save_url": reverse(
+                            "dashboard:page_edit_html", args=[tenant.pk, page.pk]
+                        ),
+                        "back_url": reverse("dashboard:page_list", args=[tenant.pk]),
+                    },
+                    status=409,
+                )
             messages.success(request, f"HTML updated for “{page.title}”.")
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
@@ -2122,6 +2258,10 @@ def _render_editor(request, tenant, *, scope, page=None):
     site_link_targets.append({"value": "/blog/", "label": "Blog"})
     link_targets = site_link_targets + schema.get("link_targets", [])
 
+    client_editable = True
+    if scope == "tenant":
+        client_editable = _client_may_edit_content(request, editable)
+
     return render(
         request,
         "dashboard/editor.html",
@@ -2161,6 +2301,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "team_url": team_url,
             "live_url": live_url,
             "scope": scope,
+            "client_editable": client_editable,
         },
     )
 
@@ -2231,6 +2372,17 @@ def _normalize_styles(content: dict) -> None:
 
 
 def _save_content(request, editable):
+    if not _client_may_edit_content(request, editable):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": (
+                    "This site isn't set up for editing yet — contact your agency."
+                ),
+            },
+            status=403,
+        )
+
     try:
         payload = json.loads(request.body or "{}")
     except json.JSONDecodeError:

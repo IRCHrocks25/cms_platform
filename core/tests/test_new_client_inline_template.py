@@ -151,8 +151,8 @@ class InlineTemplateCreatePlugAndForgetTests(TestCase):
         self.assertEqual(tenant.template.name, "Bella's Restaurant")
 
     def test_two_inline_templates_with_same_name_dont_collide_on_slug(self):
-        """Without a uniqueness loop in Template.save(), the second insert
-        would IntegrityError on the slug field."""
+        """CMS-27: slug uniqueness is per-owner. Two tenants may both hold
+        slug ``acme``; each still gets its own Template row."""
         r1 = self._post(
             name="Acme",
             subdomain="acme",
@@ -165,6 +165,7 @@ class InlineTemplateCreatePlugAndForgetTests(TestCase):
             client_username="acme2_owner",
         )
         self.assertIn(r2.status_code, (301, 302), msg=r2.content[:300])
-        slugs = list(Template.objects.filter(name="Acme").values_list("slug", flat=True))
-        self.assertEqual(len(slugs), 2)
-        self.assertEqual(len(set(slugs)), 2, f"slugs collided: {slugs}")
+        rows = list(Template.objects.filter(name="Acme"))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({r.slug for r in rows}, {"acme"})
+        self.assertEqual(len({r.tenant_id for r in rows}), 2)

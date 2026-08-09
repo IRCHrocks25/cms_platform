@@ -190,16 +190,28 @@ def create_client_account(
     template = Template.objects.filter(pk=template_id).first()
     if template is None:
         return tool_error(f"Unknown template_id {template_id}.")
+    if template.tenant_id is not None:
+        return tool_error(
+            f"template_id {template_id} is client-owned. "
+            "Pass a library template id (unowned), or duplicate that "
+            "template into the agency library first."
+        )
 
-    tenant, user, password = create_tenant_account(
-        name=name,
-        subdomain=subdomain,
-        custom_domain=custom_domain,
-        template=template,
-        username=username,
-        email=email,
-        is_published=False,
-    )
+    from core.services.templates import CrossTenantTemplateError
+
+    try:
+        tenant, user, password = create_tenant_account(
+            name=name,
+            subdomain=subdomain,
+            custom_domain=custom_domain,
+            template=template,
+            username=username,
+            email=email,
+            is_published=False,
+        )
+    except CrossTenantTemplateError as exc:
+        return tool_error(str(exc))
+
     return tool_success(
         {
             "subdomain": tenant.subdomain,
@@ -208,7 +220,7 @@ def create_client_account(
             "password": password,
             "site_url": _public_site_url(tenant.subdomain),
             "published": tenant.is_published,
-            "template_id": template.pk,
+            "template_id": tenant.template_id,
         }
     )
 
@@ -241,6 +253,15 @@ def patch_content(
         )
     except LookupError:
         return page_access_denied(site, page or "")
+
+    tpl = editable.template
+    if not tpl.is_client_editable and not (
+        getattr(auth.user, "is_superuser", False)
+        or getattr(auth.user, "is_staff", False)
+    ):
+        return tool_error(
+            "This site isn't set up for editing yet — contact your agency."
+        )
 
     current_etag = content_mod.content_etag(stored)
     if if_match != current_etag:

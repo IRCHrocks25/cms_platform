@@ -2,7 +2,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.crypto import get_random_string
 
-from core.models import Template, Tenant, TenantMembership
+from core.models import Template, TemplateVersion, Tenant, TenantMembership
+from core.services.templates import assign_template
 
 
 User = get_user_model()
@@ -41,7 +42,8 @@ def create_tenant_account(
     password = generate_password()
 
     with transaction.atomic():
-        if new_template is not None:
+        inline = new_template is not None
+        if inline:
             template = Template.objects.create(**new_template)
 
         user = User.objects.create_user(
@@ -67,6 +69,28 @@ def create_tenant_account(
             user=user,
             role=TenantMembership.ROLE_OWNER,
         )
+
+        if inline:
+            template.tenant = tenant
+            if template.has_editable_schema:
+                template.editing_mode = Template.EDITING_EDITABLE
+            template.save(update_fields=["tenant", "editing_mode", "updated_at"])
+            if not template.versions.filter(number=1).exists():
+                TemplateVersion.objects.create(
+                    template=template,
+                    number=1,
+                    html_source=template.html_source,
+                    schema=template.schema or {},
+                    label="Initial",
+                    saved_by=user,
+                )
+        else:
+            # Library → clone into the new tenant; cross-tenant is refused.
+            assign_template(tenant, template, user=user)
+            tenant.refresh_from_db()
+            # Defaults came from the library row; re-seed from the clone.
+            tenant.content = tenant.template.schema.get("defaults", {}) or {}
+            tenant.save(update_fields=["content", "updated_at"])
 
     return tenant, user, password
 

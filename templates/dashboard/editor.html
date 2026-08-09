@@ -57,7 +57,18 @@
     </div>
   </div>
 
-  <div class="editor-shell {{ layout_mode }}" id="editor-shell">
+  {% if scope == "tenant" and not client_editable %}
+    <div class="card page-section" role="status"
+         style="margin: 16px 24px 0; border-left: 4px solid var(--color-warning, #c67800); background: var(--color-surface-warning, #fff8eb); padding: 14px 16px;">
+      <strong style="display: block; margin-bottom: 4px;">Editing isn’t available yet</strong>
+      <div style="font-size: 13px; color: var(--color-text-soft, #555);">
+        This site isn’t set up for editing yet — contact your agency.
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="editor-shell {{ layout_mode }}{% if scope == 'tenant' and not client_editable %} is-readonly{% endif %}" id="editor-shell"
+       {% if scope == "tenant" and not client_editable %}aria-disabled="true"{% endif %}>
 
     <button type="button" class="sidebar-reopen" data-sidebar-toggle
             title="Show sections" aria-label="Show sections panel">
@@ -552,6 +563,7 @@
       settingsUrl: "{{ settings_url }}",
       csrfToken: "{{ csrf_token }}",
       content: {{ content_json|safe }},
+      readOnly: {% if scope == "tenant" and not client_editable %}true{% else %}false{% endif %},
     };
   </script>
   <script src="{% static_v 'js/editor.js' %}"></script>

@@ -57,8 +57,12 @@ def _make_token(user, *, token="tok-test"):
 
 
 def _make_tenant(owner, *, name, subdomain, content=None):
-    tpl = Template.objects.create(name=f"tpl-{subdomain}", html_source=SAMPLE_HTML)
-    return Tenant.objects.create(
+    tpl = Template.objects.create(
+        name=f"tpl-{subdomain}",
+        html_source=SAMPLE_HTML,
+        editing_mode=Template.EDITING_EDITABLE,
+    )
+    tenant = Tenant.objects.create(
         name=name,
         subdomain=subdomain,
         template=tpl,
@@ -66,6 +70,9 @@ def _make_tenant(owner, *, name, subdomain, content=None):
         content=content or {},
         is_published=True,
     )
+    tpl.tenant = tenant
+    tpl.save(update_fields=["tenant"])
+    return tenant
 
 
 @override_settings(
