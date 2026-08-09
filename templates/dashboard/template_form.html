@@ -53,6 +53,33 @@
                  value="{{ template.description|default:form_data.description|default_if_none:'' }}">
         </div>
 
+        <div class="field">
+          <label class="field-label" for="id_editing_mode">Client editing</label>
+          <select class="input" name="editing_mode" id="id_editing_mode">
+            {% with mode=template.editing_mode|default:form_data.editing_mode|default_if_none:'raw' %}
+              <option value="raw" {% if mode == "raw" %}selected{% endif %}>Raw — not client-editable</option>
+              <option value="editable" {% if mode == "editable" %}selected{% endif %}>Editable — released to the client</option>
+            {% endwith %}
+          </select>
+          <p class="field-hint" style="margin-top: 6px; font-size: 13px; color: var(--color-text-soft);">
+            Clients can edit only when this is “Editable” and the HTML has annotated sections.
+          </p>
+        </div>
+
+        {% if field_loss %}
+          <div class="card-tight warn-card" role="alert">
+            <strong>This save would drop fields used on a published site.</strong>
+            <p style="margin: 8px 0; font-size: 13px;">
+              Lost fields: {{ field_loss.lost_fields|join:", " }}.
+              Content is never deleted — confirm to proceed anyway.
+            </p>
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+              <input type="checkbox" name="allow_field_loss" value="1">
+              I understand — save anyway
+            </label>
+          </div>
+        {% endif %}
+
         <details class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
           <summary style="cursor: pointer; font-weight: 500;">How to annotate</summary>
           <div style="margin-top: 12px; font-size: 13px; color: var(--color-text-soft);">

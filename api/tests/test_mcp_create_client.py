@@ -150,7 +150,11 @@ class CreateClientAccountToolTests(TestCase):
         tenant = Tenant.objects.get(subdomain="newco")
         self.assertEqual(tenant.name, "New Co")
         self.assertFalse(tenant.is_published)
-        self.assertEqual(tenant.template_id, self.template.pk)
+        # Library templates are cloned into the new tenant (§8).
+        self.assertNotEqual(tenant.template_id, self.template.pk)
+        self.assertEqual(tenant.template.cloned_from_id, self.template.pk)
+        self.assertEqual(tenant.template.tenant_id, tenant.pk)
+        self.assertEqual(sc["template_id"], tenant.template_id)
         owner = User.objects.get(username="newco-owner")
         self.assertEqual(tenant.owner_id, owner.pk)
         self.assertTrue(owner.check_password(sc["password"]))
@@ -229,3 +233,26 @@ class CreateClientAccountToolTests(TestCase):
         tool = next(t for t in tools if t["name"] == "create_client_account")
         self.assertFalse(tool["annotations"]["readOnlyHint"])
         self.assertFalse(tool["annotations"]["idempotentHint"])
+
+    def test_rejects_client_owned_template_id(self):
+        owned = Template.objects.create(
+            name="Client private",
+            html_source=SAMPLE_HTML,
+            tenant=self.existing,
+        )
+        r = self._call(self._valid_args(template_id=owned.pk, subdomain="nope"))
+        self.assertEqual(r.status_code, 200)
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        text = " ".join(
+            c.get("text", "") for c in result.get("content", []) if isinstance(c, dict)
+        ).lower()
+        self.assertIn("client-owned", text)
+        self.assertFalse(Tenant.objects.filter(subdomain="nope").exists())
+
+    def test_clones_library_template_on_create(self):
+        r = self._call(self._valid_args(subdomain="clone-me", username="clone-owner"))
+        self.assertFalse(r.json()["result"].get("isError", False))
+        tenant = Tenant.objects.get(subdomain="clone-me")
+        self.assertEqual(tenant.template.cloned_from_id, self.template.pk)
+        self.assertIsNone(self.template.tenant_id)

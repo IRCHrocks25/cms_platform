@@ -32,6 +32,10 @@ class TenantTemplateSwapTests(TestCase):
             name="Acme", subdomain="acme",
             template=cls.template_a, owner=cls.staff,
         )
+        # Same-tenant ownership so swap assigns without cloning (§6.2).
+        Template.objects.filter(pk__in=[cls.template_a.pk, cls.template_b.pk]).update(
+            tenant_id=cls.tenant.pk
+        )
 
     def _agency_client(self):
         c = Client(HTTP_HOST="localhost")

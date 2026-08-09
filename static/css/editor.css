@@ -8,6 +8,11 @@
   background: var(--color-bg);
   position: relative;
 }
+.editor-shell.is-readonly .editor-form,
+.editor-shell.is-readonly .editor-sidebar {
+  pointer-events: none;
+  opacity: 0.55;
+}
 .editor-shell.compact { grid-template-columns: 0 400px 1fr; }
 /* Clip the sidebar to the 0-width column rather than display:none — removing it
    from the grid makes the form reflow into the empty first (0-width) track and

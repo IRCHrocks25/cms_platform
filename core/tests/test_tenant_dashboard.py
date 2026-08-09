@@ -8,7 +8,12 @@ from core.models import Template, Tenant, TenantMembership
 def _make_template(name="Bare"):
     return Template.objects.create(
         name=name,
-        html_source="<section data-section='hero' data-label='Hero'></section>",
+        html_source=(
+            "<section data-section='hero' data-label='Hero'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1>"
+            "</section>"
+        ),
+        editing_mode=Template.EDITING_EDITABLE,
     )
 
 
@@ -119,9 +124,9 @@ class TenantDashboardAccessTests(TestCase):
         c.force_login(self.member)
         response = c.post(
             reverse("dashboard:tenant_save_self"),
-            data='{"content": {"hero.title": "Hello"}}',
+            data='{"content": {"hero": {"title": "Hello"}}}',
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.tenant_a.refresh_from_db()
-        self.assertEqual(self.tenant_a.content, {"hero.title": "Hello"})
+        self.assertEqual(self.tenant_a.content, {"hero": {"title": "Hello"}})

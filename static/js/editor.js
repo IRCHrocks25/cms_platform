@@ -71,6 +71,7 @@
 
   // ---- save ------------------------------------------------------------
   function scheduleSave() {
+    if (window.CMS && window.CMS.readOnly) return;
     setStatus("dirty");
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 600);
