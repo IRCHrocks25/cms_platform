@@ -21,6 +21,11 @@ def content_etag(stored: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def html_etag(html: str) -> str:
+    """SHA-256 over template HTML — concurrent-write guard for push_page."""
+    return hashlib.sha256((html or "").encode("utf-8")).hexdigest()
+
+
 def resolve_editable(
     tenant: Tenant, page_slug: Optional[str]
 ) -> tuple[Any, dict, dict]:

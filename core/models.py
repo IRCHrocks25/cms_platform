@@ -285,6 +285,9 @@ class EmbeddableAssistant(models.Model):
 RESERVED_PAGE_SLUGS = {
     "blog", "dashboard", "login", "logout", "admin", "static", "media",
     "site", "password-reset", "reset", "debug-headers", "api", "mcp",
+    # Globally claimed by cms_platform.urls (legal pages) — a tenant Page with
+    # either slug is permanently unreachable, so refuse at create time.
+    "privacy", "terms",
 }
 
 
