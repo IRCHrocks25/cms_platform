@@ -114,7 +114,57 @@ def get_page(
         return page_access_denied(site, page or "")
     fields = content_mod.read_fields(schema, stored)
     return tool_success(
-        {"fields": fields, "etag": content_mod.content_etag(stored)}
+        {"fields": fields, "content_etag": content_mod.content_etag(stored)}
+    )
+
+
+def get_page_html(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    page: Optional[str] = None,
+    version: Optional[int] = None,
+) -> dict[str, Any]:
+    """CMS-30: return template HTML (latest or a specific TemplateVersion).
+
+    ``etag`` is always ``html_etag`` of the *live* ``template.html_source`` —
+    the same value ``push_page`` compares against ``if_match``. Historical
+    pulls still return that current etag so a restore-style re-push works.
+    """
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, _schema, _stored = content_mod.resolve_editable(
+            scope.tenant, page
+        )
+    except LookupError:
+        return page_access_denied(site, page or "")
+
+    template = editable.template
+    current_etag = content_mod.html_etag(template.html_source)
+    page_slug = None if isinstance(editable, Tenant) else editable.slug
+
+    if version is None:
+        latest = template.versions.order_by("-number").first()
+        html = template.html_source
+        number = latest.number if latest is not None else 1
+    else:
+        row = template.versions.filter(number=version).first()
+        if row is None:
+            return page_access_denied(site, page or "")
+        html = row.html_source
+        number = row.number
+
+    return tool_success(
+        {
+            "html_source": html,
+            "version": number,
+            "etag": current_etag,
+            "page": page_slug,
+            "template_id": template.pk,
+            "editing_mode": template.editing_mode,
+        }
     )
 
 
@@ -142,7 +192,7 @@ def get_content(
         {
             "value": value,
             "is_default": is_default,
-            "etag": content_mod.content_etag(stored),
+            "content_etag": content_mod.content_etag(stored),
         }
     )
 
@@ -292,7 +342,7 @@ def patch_content(
     editable.refresh_from_db()
     new_etag = content_mod.content_etag(editable.content or {})
     url = tenant_canonical_public_url(editable)
-    return tool_success({"etag": new_etag, "url": url})
+    return tool_success({"content_etag": new_etag, "url": url})
 
 
 # Indistinguishable denial for missing / foreign template_id (no enumeration).
@@ -538,6 +588,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
     "list_pages": list_pages,
     "get_page": get_page,
+    "get_page_html": get_page_html,
     "get_content": get_content,
     "create_client_account": create_client_account,
     "patch_content": patch_content,
@@ -628,7 +679,7 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "outputSchema": {
             "type": "object",
-            "required": ["fields", "etag"],
+            "required": ["fields", "content_etag"],
             "additionalProperties": False,
             "properties": {
                 "fields": {
@@ -642,7 +693,68 @@ TOOLS_LIST: list[dict[str, Any]] = [
                         },
                     },
                 },
-                "etag": {"type": "string"},
+                "content_etag": {
+                    "type": "string",
+                    "description": (
+                        "SHA-256 of the stored content blob (not HTML). "
+                        "Use with patch_content if_match — not push_page."
+                    ),
+                },
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "get_page_html",
+        "description": (
+            "Read a page's template HTML source (latest, or a specific "
+            "TemplateVersion via version=). Returns the live html etag that "
+            "push_page compares against if_match — even when pulling an older "
+            "version — so a restore-style re-push works. For field values use "
+            "get_page / get_content instead."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {
+                    "type": ["string", "null"],
+                    "description": "Page slug; omit/null for home",
+                },
+                "version": {
+                    "type": "integer",
+                    "description": (
+                        "Optional TemplateVersion number; omit for latest"
+                    ),
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": [
+                "html_source",
+                "version",
+                "etag",
+                "page",
+                "template_id",
+                "editing_mode",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "html_source": {"type": "string"},
+                "version": {"type": "integer"},
+                "etag": {
+                    "type": "string",
+                    "description": (
+                        "SHA-256 of the live template HTML — pass to "
+                        "push_page if_match"
+                    ),
+                },
+                "page": {"type": ["string", "null"]},
+                "template_id": {"type": "integer"},
+                "editing_mode": {"type": "string"},
             },
         },
         "annotations": ANNOTATIONS,
@@ -662,12 +774,18 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "outputSchema": {
             "type": "object",
-            "required": ["value", "is_default", "etag"],
+            "required": ["value", "is_default", "content_etag"],
             "additionalProperties": False,
             "properties": {
                 "value": {},
                 "is_default": {"type": "boolean"},
-                "etag": {"type": "string"},
+                "content_etag": {
+                    "type": "string",
+                    "description": (
+                        "SHA-256 of the stored content blob (not HTML). "
+                        "Use with patch_content if_match — not push_page."
+                    ),
+                },
             },
         },
         "annotations": ANNOTATIONS,
@@ -727,8 +845,8 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "name": "patch_content",
         "description": (
             "Write one home-page field by dotted id. Requires a current "
-            "if_match etag from get_content/get_page. Inner pages are not "
-            "supported until page versioning exists."
+            "if_match content_etag from get_content/get_page. Inner pages are "
+            "not supported until page versioning exists."
         ),
         "inputSchema": {
             "type": "object",
@@ -747,10 +865,10 @@ TOOLS_LIST: list[dict[str, Any]] = [
         },
         "outputSchema": {
             "type": "object",
-            "required": ["etag", "url"],
+            "required": ["content_etag", "url"],
             "additionalProperties": False,
             "properties": {
-                "etag": {"type": "string"},
+                "content_etag": {"type": "string"},
                 "url": {"type": "string"},
             },
         },
@@ -762,7 +880,8 @@ TOOLS_LIST: list[dict[str, Any]] = [
             "Create or replace a page's HTML for a site. Omit page (or pass null) "
             "to push the site home. New pages get a tenant-owned template in "
             "editing_mode=raw. Re-pushes append a TemplateVersion. Use if_match "
-            "(html etag from a prior push) to guard concurrent writes; use "
+            "(html etag from get_page_html or a prior push) to guard concurrent "
+            "writes; use "
             "allow_field_loss=true when a re-push drops fields a published page "
             "still holds. Reserved slugs (privacy, terms, …) are refused."
         ),
@@ -907,4 +1026,6 @@ def call_tool(
         args.pop("template_id")
     if "allow_field_loss" in args and args["allow_field_loss"] is None:
         args.pop("allow_field_loss")
+    if "version" in args and args["version"] is None:
+        args.pop("version")
     return handler(auth, **args), None
