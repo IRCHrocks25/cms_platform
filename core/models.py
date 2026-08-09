@@ -228,6 +228,15 @@ class Tenant(models.Model):
             return True
         return self.memberships.filter(user=user).exists()
 
+    def delete(self, using=None, keep_parents=False):
+        # CMS-29: re-slug owned clones before SET_NULL promotes them to the
+        # library, so uniq_library_template_slug cannot abort the delete.
+        # Imported here to avoid a models ↔ services cycle at import time.
+        from core.services.templates import prepare_owned_templates_for_tenant_delete
+
+        prepare_owned_templates_for_tenant_delete(self)
+        return super().delete(using=using, keep_parents=keep_parents)
+
 
 class EmbeddableAssistant(models.Model):
     """Configurable chat assistant profile for external iframe/script embeds."""

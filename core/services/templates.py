@@ -11,11 +11,66 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
 
 from django.db import transaction
+from django.utils.text import slugify
 
 from core.models import Page, Template, TemplateVersion, Tenant
 from core.parser import build_schema
 
 logger = logging.getLogger(__name__)
+
+
+def _next_unique_slug(base: str, taken: set[str]) -> str:
+    """Return ``base`` or ``base-2``, ``base-3``, … not present in ``taken``."""
+    base = slugify(base)[:140] or "template"
+    slug = base
+    i = 2
+    while slug in taken:
+        suffix = f"-{i}"
+        slug = base[: 140 - len(suffix)] + suffix
+        i += 1
+    return slug
+
+
+def prepare_owned_templates_for_tenant_delete(tenant: Tenant) -> int:
+    """Re-slug owned templates that would collide when SET_NULL promotes them.
+
+    CMS-27 intentionally uses ``on_delete=SET_NULL`` so a deleted site's
+    templates (and their ``TemplateVersion`` history) return to the library.
+    Clones from ``clone_for()`` share the library original's slug, which is
+    legal while tenant-owned but violates ``uniq_library_template_slug`` on
+    promotion (CMS-29). Call this before deleting ``tenant``.
+
+    Returns the number of templates whose slug was changed.
+    """
+    owned = list(Template.objects.filter(tenant_id=tenant.pk).only("pk", "slug"))
+    if not owned:
+        return 0
+
+    # Slugs already claimed by the library, plus every owned slug we will keep
+    # or assign — siblings promote together and must not collide with each other.
+    taken: set[str] = set(
+        Template.objects.filter(tenant__isnull=True).values_list("slug", flat=True)
+    )
+    changed = 0
+    for tmpl in owned:
+        if tmpl.slug not in taken:
+            taken.add(tmpl.slug)
+            continue
+        new_slug = _next_unique_slug(tmpl.slug, taken)
+        Template.objects.filter(pk=tmpl.pk).update(slug=new_slug)
+        taken.add(new_slug)
+        changed += 1
+        logger.info(
+            "CMS-29: re-slugged template pk=%s %r → %r before promoting to library "
+            "(tenant_id=%s subdomain=%s)",
+            tmpl.pk,
+            tmpl.slug,
+            new_slug,
+            tenant.pk,
+            getattr(tenant, "subdomain", ""),
+        )
+    return changed
+
 
 EditableTarget = Union[Tenant, Page]
 
