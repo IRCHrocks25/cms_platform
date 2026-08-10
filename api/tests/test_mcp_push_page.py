@@ -310,7 +310,9 @@ class PushPageTests(TestCase):
             Page.objects.filter(tenant=self.tenant_a, slug="about").exists()
         )
 
-    def test_reserved_slug_privacy_and_terms_refused(self):
+    def test_privacy_and_terms_slugs_allowed(self):
+        # CMS-40: platform legal pages are host-scoped; tenants may own
+        # these slugs. Genuinely reserved ones still refuse (api/mcp/…).
         for slug in ("privacy", "terms"):
             result = self._result(
                 self._call(
@@ -323,13 +325,28 @@ class PushPageTests(TestCase):
                     id=hash(slug) % 1000,
                 )
             )
-            self.assertTrue(result.get("isError"), slug)
-            text = result["content"][0]["text"].lower()
-            self.assertIn("reserved", text)
-            self.assertIn(slug, text)
-            self.assertFalse(
+            self.assertFalse(result.get("isError"), result)
+            self.assertTrue(
                 Page.objects.filter(tenant=self.tenant_a, slug=slug).exists()
             )
+
+    def test_reserved_slug_api_still_refused(self):
+        result = self._result(
+            self._call(
+                {
+                    "site": "alpha",
+                    "page": "api",
+                    "title": "Api",
+                    "html": HTML_RAW,
+                }
+            )
+        )
+        self.assertTrue(result.get("isError"))
+        text = result["content"][0]["text"].lower()
+        self.assertIn("reserved", text)
+        self.assertFalse(
+            Page.objects.filter(tenant=self.tenant_a, slug="api").exists()
+        )
 
     def test_returns_url_and_writes_audit_row(self):
         before = McpAuditLog.objects.count()
