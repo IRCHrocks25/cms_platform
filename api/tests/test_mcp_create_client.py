@@ -26,6 +26,8 @@ SAMPLE_HTML = """
 </section>
 """
 
+RAW_PAGE_HTML = "<html><body><h1>Hello from HTML</h1></body></html>"
+
 
 def _make_app():
     app, _ = Application.objects.get_or_create(
@@ -214,13 +216,52 @@ class CreateClientAccountToolTests(TestCase):
             self.assertEqual(row.action, "create_client_account")
             self.assertIsNone(row.tenant_id)
 
-    def test_requires_template_id_explicitly(self):
+    def test_requires_exactly_one_of_template_id_or_html(self):
+        """CMS-38: neither seed → refused; both → refused."""
+        neither = self._valid_args()
+        del neither["template_id"]
+        r = self._call(neither)
+        self.assertEqual(r.status_code, 200)
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="newco").exists())
+
+        both = self._valid_args(html=RAW_PAGE_HTML, subdomain="bothco", username="both-owner")
+        r = self._call(both)
+        self.assertEqual(r.status_code, 200)
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="bothco").exists())
+
+    def test_html_alone_creates_tenant_owned_raw_site(self):
+        """CMS-38: html seeds a tenant-owned template; no library clone."""
         args = self._valid_args()
         del args["template_id"]
+        args.update(
+            {
+                "html": RAW_PAGE_HTML,
+                "subdomain": "fromhtml",
+                "username": "fromhtml-owner",
+            }
+        )
         r = self._call(args)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["error"]["code"], -32602)
-        self.assertFalse(Tenant.objects.filter(subdomain="newco").exists())
+        self.assertEqual(r.status_code, 200, r.content)
+        result = r.json()["result"]
+        self.assertFalse(result.get("isError", False), result)
+        sc = result["structuredContent"]
+        self.assertEqual(sc["subdomain"], "fromhtml")
+        self.assertFalse(sc["published"])
+
+        tenant = Tenant.objects.get(subdomain="fromhtml")
+        self.assertFalse(tenant.is_published)
+        tpl = tenant.template
+        self.assertEqual(tpl.tenant_id, tenant.pk)
+        self.assertIsNone(tpl.cloned_from_id)
+        self.assertEqual(tpl.html_source, RAW_PAGE_HTML)
+        self.assertEqual(tpl.name, "New Co")
+        self.assertEqual(tpl.editing_mode, Template.EDITING_RAW)
+        self.assertEqual((tpl.schema or {}).get("sections") or [], [])
+        self.assertEqual(sc["template_id"], tpl.pk)
 
     def test_tools_list_advertises_create_client_account_as_write(self):
         r = self._post(
@@ -233,6 +274,13 @@ class CreateClientAccountToolTests(TestCase):
         tool = next(t for t in tools if t["name"] == "create_client_account")
         self.assertFalse(tool["annotations"]["readOnlyHint"])
         self.assertFalse(tool["annotations"]["idempotentHint"])
+        # CMS-38: html is an alternative to template_id; description says so.
+        self.assertIn("html", tool["inputSchema"]["properties"])
+        self.assertNotIn("template_id", tool["inputSchema"].get("required") or [])
+        self.assertNotIn("html", tool["inputSchema"].get("required") or [])
+        desc = tool["description"].lower()
+        self.assertIn("html", desc)
+        self.assertIn("raw", desc)
 
     def test_rejects_client_owned_template_id(self):
         owned = Template.objects.create(

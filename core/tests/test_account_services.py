@@ -3,6 +3,7 @@ from django.test import TestCase
 
 from core.models import CustomDomain, Template, Tenant, TenantMembership
 from core.services.accounts import (
+    AccountSeedError,
     CustomDomainError,
     create_scoped_login,
     create_tenant_account,
@@ -10,6 +11,8 @@ from core.services.accounts import (
 
 
 User = get_user_model()
+
+RAW_HTML = "<html><body><h1>Hello from HTML</h1></body></html>"
 
 
 class AccountServiceTests(TestCase):
@@ -87,6 +90,96 @@ class AccountServiceTests(TestCase):
                 role=TenantMembership.ROLE_EDITOR,
             ).exists()
         )
+
+
+class CreateFromHtmlTests(TestCase):
+    """CMS-38 — html as an alternative seed to a library template."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.template = Template.objects.create(
+            name="Library seed",
+            html_source=(
+                "<section data-section='hero' data-label='Hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Welcome</h1>"
+                "</section>"
+            ),
+        )
+
+    def test_html_alone_creates_tenant_owned_template_with_that_html(self):
+        tenant, owner, _password = create_tenant_account(
+            name="Html Co",
+            subdomain="htmlco",
+            custom_domain="",
+            username="htmlco-owner",
+            email="owner@htmlco.test",
+            html=RAW_HTML,
+            is_published=False,
+        )
+
+        self.assertFalse(tenant.is_published)
+        self.assertEqual(tenant.owner, owner)
+        tpl = tenant.template
+        self.assertIsNotNone(tpl)
+        self.assertEqual(tpl.tenant_id, tenant.pk)
+        self.assertIsNone(tpl.cloned_from_id)
+        self.assertEqual(tpl.html_source, RAW_HTML)
+        self.assertEqual(tpl.name, "Html Co")
+        self.assertTrue(tpl.slug)
+        self.assertEqual(tpl.editing_mode, Template.EDITING_RAW)
+        self.assertEqual((tpl.schema or {}).get("sections") or [], [])
+
+    def test_template_alone_still_clones_library_template(self):
+        tenant, _, _ = create_tenant_account(
+            name="Lib Co",
+            subdomain="libco",
+            custom_domain="",
+            template=self.template,
+            username="libco-owner",
+            email="owner@libco.test",
+            is_published=False,
+        )
+        self.assertNotEqual(tenant.template_id, self.template.pk)
+        self.assertEqual(tenant.template.cloned_from_id, self.template.pk)
+        self.assertEqual(tenant.template.tenant_id, tenant.pk)
+
+    def test_both_template_and_html_refused(self):
+        with self.assertRaises(AccountSeedError):
+            create_tenant_account(
+                name="Both Co",
+                subdomain="bothco",
+                custom_domain="",
+                template=self.template,
+                username="bothco-owner",
+                email="owner@bothco.test",
+                html=RAW_HTML,
+            )
+        self.assertFalse(Tenant.objects.filter(subdomain="bothco").exists())
+        self.assertFalse(User.objects.filter(username="bothco-owner").exists())
+
+    def test_neither_template_nor_html_refused(self):
+        with self.assertRaises(AccountSeedError):
+            create_tenant_account(
+                name="Neither Co",
+                subdomain="neitherco",
+                custom_domain="",
+                username="neitherco-owner",
+                email="owner@neitherco.test",
+            )
+        self.assertFalse(Tenant.objects.filter(subdomain="neitherco").exists())
+        self.assertFalse(User.objects.filter(username="neitherco-owner").exists())
+
+    def test_unannotated_html_yields_empty_schema_without_blowing_up(self):
+        tenant, _, _ = create_tenant_account(
+            name="Plain Co",
+            subdomain="plainco",
+            custom_domain="",
+            username="plainco-owner",
+            email="owner@plainco.test",
+            html="<div>no data-edit here</div>",
+        )
+        self.assertEqual((tenant.template.schema or {}).get("sections") or [], [])
+        self.assertEqual(tenant.content, {})
 
 
 class CustomDomainAtCreationTests(TestCase):
