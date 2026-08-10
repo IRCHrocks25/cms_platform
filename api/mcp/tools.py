@@ -1360,7 +1360,8 @@ TOOLS_LIST: list[dict[str, Any]] = [
             "(html etag from get_page_html or a prior push) to guard concurrent "
             "writes; use "
             "allow_field_loss=true when a re-push drops fields a published page "
-            "still holds. Reserved slugs (privacy, terms, …) are refused."
+            "still holds. Reserved slugs (api, mcp, dashboard, …) are refused; "
+            "privacy/terms are allowed (platform legal pages are host-scoped)."
         ),
         "inputSchema": {
             "type": "object",
