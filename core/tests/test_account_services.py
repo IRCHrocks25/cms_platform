@@ -157,6 +157,45 @@ class CreateFromHtmlTests(TestCase):
         self.assertFalse(Tenant.objects.filter(subdomain="bothco").exists())
         self.assertFalse(User.objects.filter(username="bothco-owner").exists())
 
+    def test_template_and_empty_html_refused(self):
+        with self.assertRaises(AccountSeedError):
+            create_tenant_account(
+                name="Empty Html Co",
+                subdomain="emptyhtmlco",
+                custom_domain="",
+                template=self.template,
+                username="emptyhtml-owner",
+                email="owner@emptyhtmlco.test",
+                html="",
+            )
+
+    def test_template_and_whitespace_html_refused(self):
+        with self.assertRaises(AccountSeedError):
+            create_tenant_account(
+                name="Whitespace Html Co",
+                subdomain="whitespacehtmlco",
+                custom_domain="",
+                template=self.template,
+                username="whitespacehtml-owner",
+                email="owner@whitespacehtmlco.test",
+                html="   ",
+            )
+
+    def test_new_template_and_whitespace_html_refused(self):
+        with self.assertRaises(AccountSeedError):
+            create_tenant_account(
+                name="Inline Whitespace Co",
+                subdomain="inlinewhitespaceco",
+                custom_domain="",
+                username="inlinewhitespace-owner",
+                email="owner@inlinewhitespaceco.test",
+                new_template={
+                    "name": "Inline seed",
+                    "html_source": RAW_HTML,
+                },
+                html="   ",
+            )
+
     def test_neither_template_nor_html_refused(self):
         with self.assertRaises(AccountSeedError):
             create_tenant_account(
@@ -269,4 +308,3 @@ class CustomDomainAtCreationTests(TestCase):
         self.assertEqual(
             CustomDomain.objects.get(domain="taken.com").tenant_id, other_tenant.pk
         )
-

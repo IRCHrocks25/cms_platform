@@ -233,6 +233,28 @@ class CreateClientAccountToolTests(TestCase):
         self.assertTrue(result["isError"])
         self.assertFalse(Tenant.objects.filter(subdomain="bothco").exists())
 
+    def test_template_id_and_empty_html_refused(self):
+        r = self._call(
+            self._valid_args(
+                html="", subdomain="emptyhtml", username="emptyhtml-owner"
+            )
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.json()["result"]["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="emptyhtml").exists())
+
+    def test_template_id_and_whitespace_html_refused(self):
+        r = self._call(
+            self._valid_args(
+                html="   ",
+                subdomain="whitespacehtml",
+                username="whitespacehtml-owner",
+            )
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.json()["result"]["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="whitespacehtml").exists())
+
     def test_html_alone_creates_tenant_owned_raw_site(self):
         """CMS-38: html seeds a tenant-owned template; no library clone."""
         args = self._valid_args()
