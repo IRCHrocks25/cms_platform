@@ -69,7 +69,6 @@ def create_tenant_account(
     than failing deep inside the transaction after the expensive work (inline
     template parsing, password hashing) is already done.
     """
-    html = (html or "").strip() or None
     seeds = sum(
         [
             template is not None,
@@ -78,6 +77,12 @@ def create_tenant_account(
         ]
     )
     if seeds != 1:
+        raise AccountSeedError(
+            "Provide exactly one of template, html, or new_template."
+        )
+
+    html = (html or "").strip() or None
+    if html is None and template is None and new_template is None:
         raise AccountSeedError(
             "Provide exactly one of template, html, or new_template."
         )

@@ -397,14 +397,19 @@ def create_client_account(
     email = (email or "").strip()
     name = (name or "").strip()
     custom_domain = (custom_domain or "").strip().lower()
-    html = (html or "").strip() or None
-
     if not name or not subdomain or not username:
         return tool_error("name, subdomain, and username are required.")
 
     has_template = template_id is not None
     has_html = html is not None
     if has_template == has_html:
+        return tool_error(
+            "Provide exactly one of template_id or html "
+            "(not both, and not neither)."
+        )
+
+    html = (html or "").strip() or None
+    if has_html and html is None:
         return tool_error(
             "Provide exactly one of template_id or html "
             "(not both, and not neither)."
@@ -1663,7 +1668,7 @@ def call_tool(
         args.pop("if_match")
     if "template_id" in args and args["template_id"] is None:
         args.pop("template_id")
-    if "html" in args and args["html"] in (None, ""):
+    if "html" in args and args["html"] is None:
         args.pop("html")
     if "allow_field_loss" in args and args["allow_field_loss"] is None:
         args.pop("allow_field_loss")
