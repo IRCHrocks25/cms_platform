@@ -300,14 +300,14 @@ def _platform_legal_or_tenant_page(request, *, template_name: str, slug: str):
     return render(request, template_name)
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "HEAD"])
 def privacy(request):
     return _platform_legal_or_tenant_page(
         request, template_name="legal/privacy.html", slug="privacy"
     )
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "HEAD"])
 def terms(request):
     return _platform_legal_or_tenant_page(
         request, template_name="legal/terms.html", slug="terms"
