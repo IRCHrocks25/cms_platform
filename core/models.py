@@ -303,9 +303,10 @@ class EmbeddableAssistant(models.Model):
 RESERVED_PAGE_SLUGS = {
     "blog", "dashboard", "login", "logout", "admin", "static", "media",
     "site", "password-reset", "reset", "debug-headers", "api", "mcp",
-    # Globally claimed by cms_platform.urls (legal pages) — a tenant Page with
-    # either slug is permanently unreachable, so refuse at create time.
-    "privacy", "terms",
+    # privacy/terms are intentionally NOT reserved: the platform legal
+    # views only serve on the agency host (request.tenant is None) and
+    # otherwise fall through to page_render, so tenants can own those
+    # slugs. See core.ghl_views._platform_legal_or_tenant_page.
 }
 
 

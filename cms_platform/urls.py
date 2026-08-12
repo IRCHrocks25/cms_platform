@@ -75,6 +75,8 @@ urlpatterns = [
     # serve it directly rather than relying on an APPEND_SLASH 301 mid-OAuth.
     path("connect/callback", ghl_views.oauth_callback),
     path("connect/webhook/", ghl_views.webhook, name="ghl_webhook"),
+    # Host-scoped in the views: agency host → marketplace legal pages;
+    # tenant host → fall through to page_render for that slug (CMS-40).
     path("privacy/", ghl_views.privacy, name="privacy"),
     path("terms/", ghl_views.terms, name="terms"),
 

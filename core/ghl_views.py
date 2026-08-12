@@ -283,11 +283,32 @@ def webhook(request):
     return JsonResponse({"ok": True})
 
 
-@require_http_methods(["GET"])
+def _platform_legal_or_tenant_page(request, *, template_name: str, slug: str):
+    """Serve marketplace legal copy only on the agency host.
+
+    These routes sit ahead of the tenant catch-all ``/<slug>/`` in the
+    URLconf, so without a host check they claim ``/privacy/`` and
+    ``/terms/`` on every host — including tenant subdomains and custom
+    domains. Gate on ``request.tenant`` (set by TenantResolverMiddleware,
+    which already prefers ``X-Forwarded-Host`` behind Traefik) and fall
+    through to the page renderer when a tenant is present.
+    """
+    if request.tenant is not None:
+        from .views import page_render
+
+        return page_render(request, slug)
+    return render(request, template_name)
+
+
+@require_http_methods(["GET", "HEAD"])
 def privacy(request):
-    return render(request, "legal/privacy.html")
+    return _platform_legal_or_tenant_page(
+        request, template_name="legal/privacy.html", slug="privacy"
+    )
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "HEAD"])
 def terms(request):
-    return render(request, "legal/terms.html")
+    return _platform_legal_or_tenant_page(
+        request, template_name="legal/terms.html", slug="terms"
+    )
