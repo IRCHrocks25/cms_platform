@@ -11,7 +11,11 @@ from django.db import transaction
 from core.models import CustomDomain, Page, RESERVED_PAGE_SLUGS, Template, Tenant
 from core.services import content_versions as cv
 from core.services import custom_domains as custom_domains_svc
-from core.services.accounts import CustomDomainError, create_tenant_account
+from core.services.accounts import (
+    AccountSeedError,
+    CustomDomainError,
+    create_tenant_account,
+)
 from core.services.templates import FieldLossError, save_template_version
 from core.urls_helpers import tenant_canonical_public_url
 
@@ -374,13 +378,16 @@ def create_client_account(
     subdomain: str,
     username: str,
     email: str,
-    template_id: int,
+    template_id: Optional[int] = None,
+    html: Optional[str] = None,
     custom_domain: str = "",
 ) -> dict[str, Any]:
     """CMS-11 + CMS-8: mint tenant + owner login; password returned once only.
 
-    ``custom_domain``, if given, becomes a real unverified CustomDomain row
-    (CMS-37) — see the tool description for what the caller still has to do.
+    Exactly one of ``template_id`` (library clone) or ``html`` (tenant-owned
+    raw template) must be supplied (CMS-38). ``custom_domain``, if given,
+    becomes a real unverified CustomDomain row (CMS-37) — see the tool
+    description for what the caller still has to do.
     """
     if not getattr(auth.user, "is_superuser", False):
         return _CREATE_DENIED
@@ -390,9 +397,23 @@ def create_client_account(
     email = (email or "").strip()
     name = (name or "").strip()
     custom_domain = (custom_domain or "").strip().lower()
-
     if not name or not subdomain or not username:
         return tool_error("name, subdomain, and username are required.")
+
+    has_template = template_id is not None
+    has_html = html is not None
+    if has_template == has_html:
+        return tool_error(
+            "Provide exactly one of template_id or html "
+            "(not both, and not neither)."
+        )
+
+    html = (html or "").strip() or None
+    if has_html and html is None:
+        return tool_error(
+            "Provide exactly one of template_id or html "
+            "(not both, and not neither)."
+        )
 
     reserved = getattr(settings, "TENANT_RESERVED_SUBDOMAINS", set()) or set()
     if subdomain in reserved:
@@ -406,15 +427,17 @@ def create_client_account(
     if User.objects.filter(username__iexact=username).exists():
         return tool_error(f"Username '{username}' is already taken.")
 
-    template = Template.objects.filter(pk=template_id).first()
-    if template is None:
-        return tool_error(f"Unknown template_id {template_id}.")
-    if template.tenant_id is not None:
-        return tool_error(
-            f"template_id {template_id} is client-owned. "
-            "Pass a library template id (unowned), or duplicate that "
-            "template into the agency library first."
-        )
+    template = None
+    if has_template:
+        template = Template.objects.filter(pk=template_id).first()
+        if template is None:
+            return tool_error(f"Unknown template_id {template_id}.")
+        if template.tenant_id is not None:
+            return tool_error(
+                f"template_id {template_id} is client-owned. "
+                "Pass a library template id (unowned), or duplicate that "
+                "template into the agency library first."
+            )
 
     from core.services.templates import CrossTenantTemplateError
 
@@ -424,10 +447,13 @@ def create_client_account(
             subdomain=subdomain,
             custom_domain=custom_domain,
             template=template,
+            html=html,
             username=username,
             email=email,
             is_published=False,
         )
+    except AccountSeedError as exc:
+        return tool_error(str(exc))
     except CrossTenantTemplateError as exc:
         return tool_error(str(exc))
     except CustomDomainError as exc:
@@ -1176,13 +1202,15 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "name": "create_client_account",
         "description": (
             "Create a new client site and owner login. Superuser only. "
-            "Requires an explicit template_id — there is no default template. "
-            "Sites are created unpublished. The generated password is returned "
-            "once in the tool result and is never stored in plaintext."
+            "Supply exactly one of template_id (clone a library template) or "
+            "html (create the home page from that HTML). HTML produces a "
+            "raw, non-field-editable site until annotated. Sites are created "
+            "unpublished. The generated password is returned once in the tool "
+            "result and is never stored in plaintext."
         ),
         "inputSchema": {
             "type": "object",
-            "required": ["name", "subdomain", "username", "email", "template_id"],
+            "required": ["name", "subdomain", "username", "email"],
             "additionalProperties": False,
             "properties": {
                 "name": {"type": "string", "description": "Site display name"},
@@ -1191,7 +1219,19 @@ TOOLS_LIST: list[dict[str, Any]] = [
                 "email": {"type": "string", "description": "Owner email"},
                 "template_id": {
                     "type": "integer",
-                    "description": "Template primary key (required; no default)",
+                    "description": (
+                        "Library template primary key to clone. Mutually "
+                        "exclusive with html."
+                    ),
+                },
+                "html": {
+                    "type": "string",
+                    "description": (
+                        "Raw HTML for the site home. Creates a tenant-owned "
+                        "template (raw / non-field-editable unless it already "
+                        "has data-edit annotations). Mutually exclusive with "
+                        "template_id."
+                    ),
                 },
                 "custom_domain": {
                     "type": "string",
@@ -1628,6 +1668,8 @@ def call_tool(
         args.pop("if_match")
     if "template_id" in args and args["template_id"] is None:
         args.pop("template_id")
+    if "html" in args and args["html"] is None:
+        args.pop("html")
     if "allow_field_loss" in args and args["allow_field_loss"] is None:
         args.pop("allow_field_loss")
     if "version" in args and args["version"] is None:

@@ -21,6 +21,12 @@ class CustomDomainError(Exception):
     invalid or already registered (CMS-37)."""
 
 
+class AccountSeedError(Exception):
+    """Raised when the template seed for ``create_tenant_account`` is missing
+    or ambiguous (CMS-38). Exactly one of ``template``, ``html``, or
+    ``new_template`` must be supplied."""
+
+
 def generate_password():
     return get_random_string(length=16, allowed_chars=PASSWORD_ALPHABET)
 
@@ -30,17 +36,26 @@ def create_tenant_account(
     name,
     subdomain,
     custom_domain,
-    template,
     username,
     email,
+    template=None,
+    html=None,
     new_template=None,
     is_published=True,
 ):
     """Create a tenant, owner login, and owner membership atomically.
 
-    ``new_template`` may contain the keyword arguments for an inline Template
-    creation. The generated password is returned to the caller and is never
-    persisted outside Django's password hash.
+    Seed the home template with exactly one of:
+
+    - ``template`` — library (or already-resolved) Template to clone
+    - ``html`` — raw HTML string; creates a tenant-owned template named after
+      the site (CMS-38). Unannotated HTML correctly yields an empty schema /
+      ``raw`` editing mode via ``Template.save``
+    - ``new_template`` — kwargs for an inline Template (dashboard new-client
+      path); richer than ``html`` when a custom name/description is needed
+
+    The generated password is returned to the caller and is never persisted
+    outside Django's password hash.
 
     ``is_published`` defaults to True for the dashboard new-client flow.
     MCP ``create_client_account`` passes False so chat-created sites stay draft.
@@ -54,6 +69,31 @@ def create_tenant_account(
     than failing deep inside the transaction after the expensive work (inline
     template parsing, password hashing) is already done.
     """
+    seeds = sum(
+        [
+            template is not None,
+            html is not None,
+            new_template is not None,
+        ]
+    )
+    if seeds != 1:
+        raise AccountSeedError(
+            "Provide exactly one of template, html, or new_template."
+        )
+
+    html = (html or "").strip() or None
+    if html is None and template is None and new_template is None:
+        raise AccountSeedError(
+            "Provide exactly one of template, html, or new_template."
+        )
+
+    if html is not None:
+        # Same inline path the dashboard uses; name/slug derived from the site.
+        new_template = {
+            "name": (name or "").strip() or "Site template",
+            "html_source": html,
+        }
+
     password = generate_password()
 
     domain = custom_domains.normalize_domain(custom_domain) if custom_domain else ""
