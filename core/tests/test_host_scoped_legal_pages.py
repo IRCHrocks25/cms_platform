@@ -66,6 +66,9 @@ class PlatformLegalPagesStillServeOnAgencyHostTests(TestCase):
                 # Platform legal copy, not a missing-tenant 404.
                 self.assertContains(r, "sites.katek.app")
 
+                head = c.head(path, HTTP_HOST="sites.katek.app")
+                self.assertEqual(head.status_code, 200)
+
 
 @override_settings(
     TENANT_BASE_DOMAIN="sites.katek.app",
@@ -109,6 +112,21 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "ACME_TERMS")
         self.assertNotContains(r, "Terms of Service — sites.katek.app")
+
+    def test_head_for_tenant_legal_pages_matches_normal_page(self):
+        for slug, title, marker in (
+            ("about", "About", "ACME_ABOUT"),
+            ("privacy", "Privacy", "ACME_PRIVACY"),
+            ("terms", "Terms", "ACME_TERMS"),
+        ):
+            _published_page(self.tenant, slug=slug, title=title, marker=marker)
+
+        c = Client()
+        for path in ("/about/", "/privacy/", "/terms/"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    c.head(path, HTTP_HOST="acme.sites.katek.app").status_code, 200
+                )
 
     def test_tenant_privacy_on_verified_custom_domain(self):
         _published_page(
