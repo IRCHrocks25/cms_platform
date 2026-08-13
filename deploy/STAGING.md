@@ -9,7 +9,7 @@ of every hazard documented here.
 | Dokploy project | `cms-dashboard` | `cms-dashboard` (same) |
 | Environment | `production` (`RTqjeg8in9kGVOmJ6L_Cc`) | `staging` (`MzPbhgIhn6vzLJWBH5Clq`) |
 | Compose file | `docker-compose.yml` | `docker-compose.staging.yml` |
-| Branch tracked | `main` | `feat/cms-ui-overhaul` |
+| Branch tracked | `main` | `main` |
 | Docker image tag | `cms-platform:latest` | `cms-platform-staging:latest` |
 | Host | `sites.katek.app` + `*.sites.katek.app` | `staging.sites.katek.app` |
 | Database | production Postgres | `cms-staging-db`, own container |
@@ -80,9 +80,14 @@ their data to anyone with the staging URL.
 
 ## Deploying a branch
 
-Staging tracks `feat/cms-ui-overhaul`. To point it somewhere else, change the
-branch on the `sites-staging` compose service in Dokploy and redeploy. Nothing
-about staging is wired to `main`, so merging to `main` does not touch it.
+Staging tracks `main` with autoDeploy on, so a merge to `main` lands here first —
+production deploys only when someone triggers it (`autoDeploy` is off there).
+Staging is therefore the place to catch a bad merge before it reaches clients.
+
+To review a branch before merging, point staging at it: change the branch on the
+`sites-staging` compose service in Dokploy, redeploy, and set it back to `main`
+when you're done. That was how it ran during the UI overhaul
+(`feat/cms-ui-overhaul`, PR #30).
 
 ## Tearing it down
 
