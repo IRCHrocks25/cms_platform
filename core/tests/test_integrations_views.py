@@ -38,6 +38,18 @@ class IntegrationsViewTests(TestCase):
         self.assertContains(resp, "co_1")
         self.assertContains(resp, "Acme HQ")
 
+    def test_site_choices_expose_full_name_for_truncated_select(self):
+        self.tenant.name = (
+            "Northstar International Hospitality and Destination Management "
+            "Group — Southeast Asia Operations"
+        )
+        self.tenant.save(update_fields=["name"])
+
+        resp = self.client.get(reverse("dashboard:integrations"))
+
+        self.assertContains(resp, "data-selected-option-title")
+        self.assertContains(resp, f'title="{self.tenant.name}"', count=1)
+
     def test_bind_creates_install(self):
         mint = {"access_token": "la", "refresh_token": "lr", "expires_in": 86400, "scope": ""}
         with mock.patch("core.ghl_oauth.mint_location_token", return_value=mint):

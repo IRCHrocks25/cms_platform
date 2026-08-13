@@ -28,3 +28,13 @@ document.addEventListener("submit", (event) => {
   button.setAttribute("aria-busy", "true");
   if (label) label.textContent = form.dataset.submitLabel || "Working…";
 });
+
+function syncSelectedOptionTitle(select) {
+  const option = select.selectedOptions[0];
+  select.title = option?.textContent?.trim() || "";
+}
+
+document.querySelectorAll("[data-selected-option-title]").forEach((select) => {
+  syncSelectedOptionTitle(select);
+  select.addEventListener("change", () => syncSelectedOptionTitle(select));
+});
