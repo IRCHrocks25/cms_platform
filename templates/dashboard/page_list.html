@@ -51,7 +51,7 @@
         </p>
         {% include "dashboard/_html_source_editor.html" with html_value="" %}
         <div class="row-end">
-          <button type="submit" class="btn btn-purple">+ Add page</button>
+          <button type="submit" class="btn btn-primary">Add page</button>
         </div>
       </form>
     </div>
@@ -69,7 +69,7 @@
       <div class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: stretch;">
         <input type="url" id="import-siblings-url" class="input" style="flex: 1; min-width: 280px;"
                placeholder="https://yourclient.example.com/" />
-        <button type="button" id="import-siblings-btn" class="btn btn-purple"
+        <button type="button" id="import-siblings-btn" class="btn btn-primary"
                 data-url="{% url 'dashboard:page_import_siblings' tenant.pk %}">
           Discover &amp; Import
         </button>
@@ -145,7 +145,7 @@
 
     {% if pages %}
       <div class="card card-flush content-block">
-        <table class="data-table">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Page</th>
@@ -159,18 +159,18 @@
           <tbody>
             {% for row in pages %}
               <tr>
-                <td><a href="{{ row.urls.edit }}" class="cell-strong">{{ row.obj.title }}</a></td>
-                <td><code>/{{ row.obj.slug }}/</code></td>
-                <td>{{ row.obj.template.name }}</td>
-                <td>
+                <td data-label="Page"><a href="{{ row.urls.edit }}" class="cell-strong">{{ row.obj.title }}</a></td>
+                <td data-label="Path"><code>/{{ row.obj.slug }}/</code></td>
+                <td data-label="Template">{{ row.obj.template.name }}</td>
+                <td data-label="Status">
                   {% if row.obj.is_published %}
                     <span class="badge badge-success">Published</span>
                   {% else %}
                     <span class="badge badge-soft">Draft</span>
                   {% endif %}
                 </td>
-                <td class="cell-muted">{{ row.obj.updated_at|naturaltime }}</td>
-                <td class="right">
+                <td class="cell-muted" data-label="Updated">{{ row.obj.updated_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <div class="row-actions">
                     <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
                     {% if row.urls.edit_html %}

@@ -35,7 +35,7 @@
       <div class="row row-wrap">
         <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
         <a href="{% url 'dashboard:blog_list' tenant.pk %}" class="btn btn-secondary">Manage blog</a>
-        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-purple">Open editor</a>
+        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-primary">Edit site</a>
       </div>
     </div>
 
@@ -49,7 +49,7 @@
       </div>
 
       {% if members %}
-        <table class="data-table data-table-flush">
+        <table class="data-table data-table-flush" data-responsive-table>
           <thead>
             <tr>
               <th>Username</th>
@@ -62,9 +62,9 @@
           <tbody>
             {% for m in members %}
               <tr>
-                <td><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
-                <td class="cell-muted">{{ m.user.email|default:'—' }}</td>
-                <td>
+                <td data-label="Member"><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
+                <td class="cell-muted" data-label="Email">{{ m.user.email|default:'—' }}</td>
+                <td data-label="Role">
                   <form method="post" action="{% url 'dashboard:tenant_member_role' tenant.pk m.pk %}" class="inline-form">
                     {% csrf_token %}
                     <select name="role" class="select select-sm" onchange="this.form.submit();">
@@ -74,8 +74,8 @@
                     </select>
                   </form>
                 </td>
-                <td class="cell-muted">{{ m.created_at|naturaltime }}</td>
-                <td class="right">
+                <td class="cell-muted" data-label="Added">{{ m.created_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <form method="post" action="{% url 'dashboard:tenant_member_remove' tenant.pk m.pk %}"
                         onsubmit="return confirm('Remove {{ m.user.username }} from this site?');" class="inline-form">
                     {% csrf_token %}
@@ -123,7 +123,7 @@
               <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          <button type="submit" class="btn btn-purple">Create login</button>
+          <button type="submit" class="btn btn-primary">Create login</button>
         </form>
         <p class="field-hint" style="margin: 8px 0 0;">
           Need a whole new site instead?

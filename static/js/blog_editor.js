@@ -112,7 +112,7 @@
       upload(file)
         .then(function (data) {
           coverInput.value = data.url;
-          if (coverPreview) { coverPreview.src = data.url; coverPreview.style.display = ""; }
+          if (coverPreview) { coverPreview.src = data.url; coverPreview.hidden = false; }
           if (coverName) coverName.textContent = file.name;
           scheduleFieldPreview();
         })

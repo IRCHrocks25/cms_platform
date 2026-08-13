@@ -10,12 +10,12 @@
         <h1 class="page-title">Templates</h1>
         <p class="page-subtitle">Annotated HTML used to generate client dashboards.</p>
       </div>
-      <a class="btn btn-purple" href="{% url 'dashboard:template_create' %}">+ New template</a>
+      <a class="btn btn-primary" href="{% url 'dashboard:template_create' %}">New template</a>
     </div>
 
     {% if templates %}
-      <div class="card" style="padding: 0;">
-        <table class="data-table">
+      <div class="card card-flush">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Name</th>
@@ -28,7 +28,7 @@
           <tbody>
             {% for template in templates %}
               <tr>
-                <td>
+                <td data-label="Template">
                   <a href="{% url 'dashboard:template_detail' template.pk %}" class="cell-strong">
                     {{ template.name }}
                   </a>
@@ -36,8 +36,8 @@
                     <div class="cell-muted">{{ template.description }}</div>
                   {% endif %}
                 </td>
-                <td class="cell-muted">{{ template.schema.sections|length }}</td>
-                <td class="cell-muted">
+                <td class="cell-muted" data-label="Sections">{{ template.schema.sections|length }}</td>
+                <td class="cell-muted" data-label="Sites">
                   {% if template.tenant_count %}
                     <a href="{% url 'dashboard:tenant_list' %}?q={{ template.name|urlencode }}" class="cell-link">
                       {{ template.tenant_count }} site{{ template.tenant_count|pluralize }}
@@ -46,8 +46,8 @@
                     0 sites
                   {% endif %}
                 </td>
-                <td class="cell-muted">{{ template.updated_at|naturaltime }}</td>
-                <td class="right">
+                <td class="cell-muted" data-label="Updated">{{ template.updated_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <a href="{% url 'dashboard:template_detail' template.pk %}" class="btn btn-secondary btn-sm">Edit</a>
                 </td>
               </tr>
@@ -59,7 +59,7 @@
       <div class="empty">
         <h3>No templates yet</h3>
         <p>Paste your first annotated HTML to start.</p>
-        <a class="btn btn-purple" href="{% url 'dashboard:template_create' %}">+ New template</a>
+        <a class="btn btn-primary" href="{% url 'dashboard:template_create' %}">New template</a>
       </div>
     {% endif %}
   </div>

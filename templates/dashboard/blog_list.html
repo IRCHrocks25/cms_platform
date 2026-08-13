@@ -28,9 +28,9 @@
         <h1 class="page-title">Blog</h1>
         <p class="page-subtitle">Write and publish posts for {{ tenant.name }}.</p>
       </div>
-      <div class="row" style="gap: var(--space-2);">
+      <div class="row">
         <a class="btn btn-secondary" href="{{ blog_urls.editor }}">Site editor</a>
-        <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+        <a class="btn btn-primary" href="{{ blog_urls.create }}">New post</a>
       </div>
     </div>
 
@@ -44,7 +44,7 @@
 
     {% if rows %}
       <div class="card card-flush content-block">
-        <table class="data-table">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Title</th>
@@ -57,21 +57,21 @@
           <tbody>
             {% for row in rows %}
               <tr>
-                <td>
+                <td data-label="Post">
                   <a href="{{ row.urls.edit }}" class="cell-strong">{{ row.post.title }}</a>
                   <div class="cell-muted"><code>/blog/{{ row.post.slug }}/</code></div>
                 </td>
-                <td>
+                <td data-label="Status">
                   {% if row.post.status == 'published' %}
                     <span class="badge badge-success">Published</span>
                   {% else %}
                     <span class="badge badge-soft">Draft</span>
                   {% endif %}
                 </td>
-                <td class="cell-muted">
+                <td class="cell-muted" data-label="Published">
                   {% if row.post.publish_date %}{{ row.post.publish_date|date:"M j, Y" }}{% else %}—{% endif %}
                 </td>
-                <td>
+                <td data-label="Featured">
                   <form method="post" action="{{ row.urls.featured }}" class="inline-form">
                     {% csrf_token %}
                     <button type="submit" class="star-toggle {% if row.post.featured %}is-on{% endif %}"
@@ -80,7 +80,7 @@
                     </button>
                   </form>
                 </td>
-                <td class="right">
+                <td class="right" data-label="Actions">
                   <div class="row-actions">
                     <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
                     {% if row.post.status == 'published' %}
@@ -107,7 +107,7 @@
         {% else %}
           <h3>No posts yet</h3>
           <p>Write your first post — it'll show on your site's blog once published.</p>
-          <a class="btn btn-purple" href="{{ blog_urls.create }}">+ New post</a>
+          <a class="btn btn-primary" href="{{ blog_urls.create }}">New post</a>
         {% endif %}
       </div>
     {% endif %}
@@ -116,7 +116,7 @@
       <div class="row-between">
         <div>
           <h2>Homepage strip</h2>
-          <p class="page-subtitle" style="margin:4px 0 0;">Choose the look and which posts appear on your homepage.</p>
+          <p class="page-subtitle mt-1">Choose the look and which posts appear on your homepage.</p>
         </div>
       </div>
 
@@ -169,7 +169,7 @@
             <span class="status-dot"></span>
             <span id="strip-preview-status">Homepage strip preview</span>
           </span>
-          <span class="field-hint" style="margin:0;">Reflects unsaved style, heading &amp; count.</span>
+          <span class="field-hint m-0">Reflects unsaved style, heading &amp; count.</span>
         </div>
         <div class="strip-preview-frame-wrap">
           <iframe id="strip-preview-frame" class="strip-preview-frame"
@@ -179,7 +179,7 @@
       </div>
 
       <div>
-        <h3>Featured posts <span class="cell-muted" style="font-weight:400;">— drag to reorder</span></h3>
+        <h3>Featured posts <span class="cell-muted font-normal">— drag or use the move controls</span></h3>
         {% if featured_rows %}
           <ul class="reorder-list" id="reorder-list" data-reorder-url="{{ blog_urls.reorder }}">
             {% for row in featured_rows %}
@@ -187,13 +187,13 @@
                 <span class="reorder-handle" aria-hidden="true">⋮⋮</span>
                 <span class="reorder-title">{{ row.post.title }}</span>
                 {% if row.post.status != 'published' %}<span class="badge badge-soft">Draft</span>{% endif %}
-                <a href="{{ row.urls.edit }}" class="cell-link" style="margin-left:auto; font-size:13px;">Edit</a>
+                <a href="{{ row.urls.edit }}" class="cell-link link-push">Edit</a>
               </li>
             {% endfor %}
           </ul>
           <p class="field-hint" id="reorder-status">Only published featured posts appear in the live strip.</p>
         {% else %}
-          <p class="cell-muted" style="margin:0;">No featured posts yet. Tap the ☆ star next to a post to feature it on the homepage.</p>
+          <p class="cell-muted m-0">No featured posts yet. Use the Feature control next to a post to add it to the homepage.</p>
         {% endif %}
       </div>
     </section>
