@@ -1,0 +1,151 @@
+# Staging stack for cms_platform. NOT a copy of docker-compose.yml.
+#
+# Three things in the production compose are unsafe to duplicate onto the same
+# Docker host, and each is deliberately changed here. Read this before editing.
+#
+# 1. IMAGE TAG. Production builds and tags `cms-platform:latest`. Building
+#    staging under that same tag would overwrite the image production restarts
+#    from — a staging build would silently become production's next container.
+#    Staging tags `cms-platform-staging:latest`.
+#
+# 2. TRAEFIK NAMES. Production hardcodes the service `cms-web`, the routers
+#    `cms-apex` / `cms-tenants` / `cms-apex-web` / `cms-tenants-web`, and the
+#    middleware `cms-redirect-to-https`. Traefik keys on those names globally,
+#    so reusing them would merge staging containers into production's load
+#    balancer pool. Everything here is prefixed `cmsstg-`.
+#
+# 3. NO route-syncer. `core/services/traefik_routes.py:40` writes a FIXED
+#    filename, `custom-domains.yml`, into the shared /etc/dokploy/traefik/dynamic.
+#    A second syncer reading the staging DB would overwrite production's file and
+#    drop every verified client custom domain from Traefik. Staging therefore
+#    runs no syncer AND never mounts the Traefik directory. TRAEFIK_DYNAMIC_DIR
+#    is left unset, so even a stray `sync_traefik_routes` call no-ops
+#    (_dynamic_dir() returns None → the writer refuses).
+#
+# Consequence, by design: custom-domain routing does not work on staging. Test
+# that on production only. Free tenant subdomains are also unavailable here —
+# see the HOST section below.
+#
+# HOST. Staging serves the dashboard at `staging.sites.katek.app` only.
+# HostRegexp (not Host) for the same reason production uses it: the websecure
+# entrypoint defaults to certResolver=letsencrypt, and a tls=true router with an
+# extractable domain would try to ACME-issue. HostRegexp exposes no extractable
+# domain, so Traefik serves the default-store cert — the Cloudflare Origin CA,
+# whose *.sites.katek.app wildcard covers `staging.sites.katek.app`.
+#
+# Priority 200 beats production's `cms-tenants` wildcard (priority 10), which
+# would otherwise also match this host — `staging` is a valid [a-z0-9-]+ label.
+# That is the documented escape hatch in docker-compose.yml: an exact anchored
+# router at higher priority outranks the wildcard.
+#
+# Tenant subdomains under staging (acme.staging.sites.katek.app) are two labels
+# deep and NOT covered by the *.sites.katek.app wildcard cert, so they would
+# fail TLS. Verify tenant public renders locally (`manage.py runserver`) or on
+# production. The editor's preview iframe is same-host and works fine here.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # See note 1 — must never be cms-platform:latest.
+    image: cms-platform-staging:latest
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      # Kept at 0 so staging reproduces production's error handling, static
+      # serving (whitenoise manifest) and security middleware. Flip to 1 only
+      # to chase a specific traceback, then flip it back.
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      # Points at the staging-only Postgres created in this Dokploy environment.
+      # Never point this at the production database.
+      DATABASE_URL: ${DATABASE_URL}
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-staging.sites.katek.app}
+
+      IFRAME_EMBED: ${IFRAME_EMBED:-0}
+
+      # GHL integration off by default on staging: the OAuth callback and
+      # webhook are registered against production URLs in the GHL marketplace
+      # app, and a second consumer would fight production for the same install.
+      GHL_AUTO_LOGIN: ${GHL_AUTO_LOGIN:-0}
+      GHL_CLIENT_ID: ${GHL_CLIENT_ID:-}
+      GHL_CLIENT_SECRET: ${GHL_CLIENT_SECRET:-}
+      GHL_SHARED_SECRET: ${GHL_SHARED_SECRET:-}
+      GHL_FRAME_ANCESTORS: ${GHL_FRAME_ANCESTORS:-}
+      GHL_TOKEN_ENCRYPTION_KEY: ${GHL_TOKEN_ENCRYPTION_KEY:-}
+      GHL_WEBHOOK_PUBLIC_KEY: ${GHL_WEBHOOK_PUBLIC_KEY:-}
+
+      # Email intentionally unset. RESEND_API_KEY blank means password-reset
+      # mail is not delivered — that is the point. Staging must not be able to
+      # send mail to a real client address from seeded or copied data.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      PASSWORD_RESET_TIMEOUT: ${PASSWORD_RESET_TIMEOUT:-3600}
+
+      # Media uploads intentionally unset. With ICEBERG_API_URL blank, uploads
+      # fall back to the local `media` volume instead of writing into the
+      # production CDN tenant (t1). Set ICEBERG_TENANT to a throwaway tenant if
+      # you specifically need to exercise the CDN path.
+      ICEBERG_API_URL: ${ICEBERG_API_URL:-}
+      ICEBERG_TOKEN: ${ICEBERG_TOKEN:-}
+      ICEBERG_CDN: ${ICEBERG_CDN:-}
+      ICEBERG_TENANT: ${ICEBERG_TENANT:-}
+      MEDIA_MAX_IMAGE_BYTES: ${MEDIA_MAX_IMAGE_BYTES:-10485760}
+      MEDIA_MAX_VIDEO_BYTES: ${MEDIA_MAX_VIDEO_BYTES:-209715200}
+      MEDIA_MAX_VIDEO_DURATION: ${MEDIA_MAX_VIDEO_DURATION:-180}
+
+      # Cloudflare DNS writes intentionally unset — staging must not create or
+      # mutate DNS records in the live zone.
+      #
+      # TRAEFIK_DYNAMIC_DIR intentionally ABSENT. See note 3.
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      # Compose-project-scoped, so this is a distinct volume from production's
+      # despite the identical short name.
+      - media:/app/media
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+
+      # Own service name — see note 2.
+      - traefik.http.services.cmsstg-web.loadbalancer.server.port=8000
+
+      # Dashboard on HTTPS. Anchored to the exact host, priority 200 so it
+      # outranks production's priority-10 tenant wildcard.
+      - traefik.http.routers.cmsstg-apex.rule=HostRegexp(`^staging\.sites\.katek\.app$`)
+      - traefik.http.routers.cmsstg-apex.entrypoints=websecure
+      - traefik.http.routers.cmsstg-apex.tls=true
+      - traefik.http.routers.cmsstg-apex.service=cmsstg-web
+      - traefik.http.routers.cmsstg-apex.priority=200
+
+      # Own redirect middleware — NOT production's cms-redirect-to-https.
+      - traefik.http.middlewares.cmsstg-redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.cmsstg-redirect-to-https.redirectscheme.permanent=true
+
+      - traefik.http.routers.cmsstg-apex-web.rule=HostRegexp(`^staging\.sites\.katek\.app$`)
+      - traefik.http.routers.cmsstg-apex-web.entrypoints=web
+      - traefik.http.routers.cmsstg-apex-web.middlewares=cmsstg-redirect-to-https
+      - traefik.http.routers.cmsstg-apex-web.service=cmsstg-web
+      - traefik.http.routers.cmsstg-apex-web.priority=200
+
+      # No catch-all router, same reasoning as production: this Docker host is
+      # shared with other stacks.
+
+volumes:
+  media:
+
+networks:
+  dokploy-network:
+    external: true
