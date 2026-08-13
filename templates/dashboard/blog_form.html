@@ -24,11 +24,19 @@
       <button type="button" data-layout="preview" aria-pressed="false">Preview</button>
     </div>
 
-    <div class="row">
-      {% if view_url and post.status == 'published' %}
-        <a href="{{ view_url }}" class="btn btn-ghost" target="_blank" rel="noopener">View ↗</a>
-      {% endif %}
-      <a href="{{ blog_urls.list }}" class="btn btn-secondary">Cancel</a>
+    <div class="row blog-editor-actions">
+      <div class="editor-tools" data-menu>
+        <button type="button" class="btn btn-secondary" id="blog-tools-trigger"
+                data-menu-trigger aria-haspopup="menu" aria-expanded="false"
+                aria-controls="blog-tools-menu">Tools</button>
+        <div class="editor-tools-menu" id="blog-tools-menu" role="menu"
+             aria-labelledby="blog-tools-trigger" hidden>
+          {% if view_url and post.status == 'published' %}
+            <a href="{{ view_url }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View post</a>
+          {% endif %}
+          <a href="{{ blog_urls.list }}" role="menuitem" tabindex="-1" data-menu-item>Back to posts</a>
+        </div>
+      </div>
       <button type="submit" form="blog-form" class="btn btn-primary">Save post</button>
     </div>
   </div>

@@ -36,21 +36,21 @@
         <span id="save-text">All changes saved</span>
         <button type="button" class="save-retry" id="save-retry" hidden>Retry</button>
       </div>
-      {% if live_url %}
-        <a href="{{ live_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
-      {% endif %}
-      <details class="editor-tools">
-        <summary class="btn btn-secondary">Tools</summary>
-        <div class="editor-tools-menu">
-          {% if live_url %}<a href="{{ live_url }}" target="_blank" rel="noopener">View site</a>{% endif %}
-          <a href="{{ page_list_url }}">Pages</a>
-          <a href="{{ blog_url }}">Blog</a>
-          {% if scope == "tenant" and team_url %}<a href="{{ team_url }}">Team</a>{% endif %}
-          {% if versions_url %}<button type="button" id="open-history-btn">History</button>{% endif %}
-          <button type="button" id="open-gallery-btn">Gallery</button>
-          <button type="button" id="open-settings-btn">Settings</button>
+      <div class="editor-tools" data-menu>
+        <button type="button" class="btn btn-secondary" id="editor-tools-trigger"
+                data-menu-trigger aria-haspopup="menu" aria-expanded="false"
+                aria-controls="editor-tools-menu">Tools</button>
+        <div class="editor-tools-menu" id="editor-tools-menu" role="menu"
+             aria-labelledby="editor-tools-trigger" hidden>
+          {% if live_url %}<a href="{{ live_url }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View site</a>{% endif %}
+          <a href="{{ page_list_url }}" role="menuitem" tabindex="-1" data-menu-item>Pages</a>
+          <a href="{{ blog_url }}" role="menuitem" tabindex="-1" data-menu-item>Blog</a>
+          {% if scope == "tenant" and team_url %}<a href="{{ team_url }}" role="menuitem" tabindex="-1" data-menu-item>Team</a>{% endif %}
+          {% if versions_url %}<button type="button" id="open-history-btn" role="menuitem" tabindex="-1" data-menu-item>History</button>{% endif %}
+          <button type="button" id="open-gallery-btn" role="menuitem" tabindex="-1" data-menu-item>Gallery</button>
+          <button type="button" id="open-settings-btn" role="menuitem" tabindex="-1" data-menu-item>Settings</button>
         </div>
-      </details>
+      </div>
       <form method="post" action="{{ publish_url }}" class="editor-publish-form">
         {% csrf_token %}
         <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-primary{% endif %}">

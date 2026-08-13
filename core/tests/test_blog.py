@@ -536,6 +536,14 @@ class BlogDashboardTests(TestCase):
         r = self._agency().get(reverse("dashboard:blog_list", args=[self.tenant.pk]))
         self.assertEqual(r.status_code, 200)
 
+    def test_blog_form_tools_use_accessible_menu_markup(self):
+        response = self._tenant().get(reverse("dashboard:blog_create_self"))
+
+        self.assertContains(response, 'aria-haspopup="menu"')
+        self.assertContains(response, 'aria-expanded="false"')
+        self.assertContains(response, 'role="menu"')
+        self.assertContains(response, 'role="menuitem"')
+
     def test_non_staff_blocked_agency_blog(self):
         c = Client(HTTP_HOST="localhost")
         c.force_login(self.member)

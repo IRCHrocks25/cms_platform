@@ -156,6 +156,16 @@
   .layout-toggle button[data-layout="split"] { display: none; }
 }
 
+@media (max-width: 560px) {
+  .editor-bar:has(.blog-editor-actions) .layout-toggle {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+  .editor-bar:has(.blog-editor-actions) .layout-toggle button { flex: 1; }
+  .blog-editor-actions { grid-column: 2; grid-row: 1; flex-wrap: nowrap; }
+}
+
 /* --- Rich-text toolbar + editor ---------------------------------------- */
 .rt-toolbar {
   display: flex;

@@ -71,6 +71,17 @@ class TenantDashboardAccessTests(TestCase):
         self.assertContains(response, "Acme")
         self.assertTemplateUsed(response, "dashboard/editor.html")
 
+    def test_editor_tools_use_accessible_menu_markup(self):
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get("/dashboard/")
+
+        self.assertContains(response, 'aria-haspopup="menu"')
+        self.assertContains(response, 'aria-expanded="false"')
+        self.assertContains(response, 'role="menu"')
+        self.assertContains(response, 'role="menuitem"')
+
     def test_staff_on_tenant_host_sees_editor(self):
         c = self._client("acme.localhost")
         c.force_login(self.staff)
