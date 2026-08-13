@@ -118,6 +118,18 @@ class TenantDashboardAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "dashboard/home.html")
 
+    def test_authenticated_shell_has_persistent_desktop_sidebar_toggle(self):
+        c = self._client("localhost")
+        c.force_login(self.staff)
+
+        response = c.get("/dashboard/")
+
+        self.assertContains(response, 'id="sidebar-collapse-toggle"')
+        self.assertContains(response, 'aria-controls="app-sidebar"')
+        self.assertContains(response, 'aria-expanded="true"')
+        self.assertContains(response, 'cms.sidebar.collapsed')
+        self.assertContains(response, 'data-sidebar-label="Sites"')
+
     # ---------- other tenant-scoped URLs ---------- #
 
     def test_tenant_save_self_requires_member(self):

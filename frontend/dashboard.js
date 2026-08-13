@@ -117,4 +117,12 @@ document.addEventListener("click", (event) => {
   });
 });
 
+document.addEventListener("focusin", (event) => {
+  event.target.closest?.("[data-sidebar-label]")?.classList.add("is-label-visible");
+});
+
+document.addEventListener("focusout", (event) => {
+  event.target.closest?.("[data-sidebar-label]")?.classList.remove("is-label-visible");
+});
+
 Alpine.start();
