@@ -65,6 +65,21 @@
       }
       exec(cmd);
     });
+
+    function refreshToolbarState() {
+      toolbar.querySelectorAll("button[data-cmd]").forEach(function (btn) {
+        var cmd = btn.dataset.cmd;
+        if (["bold", "italic", "insertUnorderedList", "insertOrderedList"].indexOf(cmd) === -1) return;
+        var active = false;
+        try { active = document.queryCommandState(cmd); } catch (err) {}
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    document.addEventListener("selectionchange", function () {
+      var selection = window.getSelection();
+      if (selection && selection.anchorNode && editor.contains(selection.anchorNode)) refreshToolbarState();
+    });
   }
 
   // ---- uploads ----------------------------------------------------------
@@ -157,6 +172,7 @@
   var authorEl = document.getElementById("bf-author");
   var dateEl = document.getElementById("bf-date");
   var statusEl = document.getElementById("blog-preview-status");
+  var previewLoading = document.getElementById("blog-preview-loading");
   var previewReady = false;
   var fieldTimer = null;
   var bodyTimer = null;
@@ -239,6 +255,7 @@
       if (data.source !== FROM_FRAME) return;
       if (data.type === "ready") {
         previewReady = true;
+        if (previewLoading) previewLoading.hidden = true;
         sendContent();
       } else if (data.type === "focus-field") {
         if (data.field === "body") editor.focus();
@@ -258,6 +275,7 @@
     if (styleEl) {
       styleEl.addEventListener("change", function () {
         previewReady = false;
+        if (previewLoading) previewLoading.hidden = false;
         var style = styleEl.value || (cfg.defaultStyle || "");
         var base = cfg.previewUrl || iframe.src.split("?")[0];
         iframe.src = style ? base + "?style=" + encodeURIComponent(style) : base;
@@ -302,7 +320,9 @@
     shell.classList.add("layout-" + mode);
     if (layoutToggle) {
       layoutToggle.querySelectorAll("button").forEach(function (b) {
-        b.classList.toggle("active", b.dataset.layout === effective);
+        var active = b.dataset.layout === effective;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-pressed", active ? "true" : "false");
       });
     }
   }

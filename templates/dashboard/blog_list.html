@@ -187,6 +187,10 @@
                 <span class="reorder-handle" aria-hidden="true">⋮⋮</span>
                 <span class="reorder-title">{{ row.post.title }}</span>
                 {% if row.post.status != 'published' %}<span class="badge badge-soft">Draft</span>{% endif %}
+                <span class="reorder-actions" role="group" aria-label="Move {{ row.post.title|escape }}">
+                  <button type="button" class="btn btn-ghost btn-sm" data-move="up" aria-label="Move {{ row.post.title|escape }} up">Up</button>
+                  <button type="button" class="btn btn-ghost btn-sm" data-move="down" aria-label="Move {{ row.post.title|escape }} down">Down</button>
+                </span>
                 <a href="{{ row.urls.edit }}" class="cell-link link-push">Edit</a>
               </li>
             {% endfor %}

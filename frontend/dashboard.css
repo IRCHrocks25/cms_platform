@@ -91,6 +91,32 @@
   --radius: 0.75rem;
 }
 
+/* CodeMirror progressively enhances the agency-only raw HTML textarea. The
+   textarea stays in the form as the canonical submitted value. */
+.cms-code-editor {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+}
+.cms-code-editor-source {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.cms-code-editor .cm-editor { color: var(--color-text); background: var(--color-white); }
+.cms-code-editor .cm-activeLine { background: color-mix(in srgb, var(--color-blue) 5%, transparent); }
+.cms-code-editor .cm-selectionBackground { background: color-mix(in srgb, var(--color-blue) 22%, transparent) !important; }
+@media (max-width: 680px) {
+  .cms-code-editor .cm-editor { min-height: 20rem !important; }
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html {

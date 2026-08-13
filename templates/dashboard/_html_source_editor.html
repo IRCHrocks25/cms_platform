@@ -1,7 +1,8 @@
-{# Reusable HTML-source editor: paste/fetch HTML, "Annotate with AI" with the
+{% load static %}
+{% comment %}Reusable HTML-source editor: paste/fetch HTML, "Annotate with AI" with the
    side-by-side compare overlay, and a raw preview. Used by the template form
    and the page "Edit HTML" screen. Include INSIDE a <form> that has a csrf
-   token and a submit button. Parameter: html_value (initial textarea content). #}
+   token and a submit button. Parameter: html_value (initial textarea content).{% endcomment %}
 <div class="field">
   <div class="row-between" style="align-items: center; margin-bottom: 6px;">
     <label class="field-label" for="id_html_source" style="margin: 0;">HTML source</label>
@@ -28,7 +29,8 @@
   <div id="fetch-url-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
 
   <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
-  <textarea class="textarea" name="html_source" id="id_html_source" rows="22" required>{{ html_value }}</textarea>
+  <textarea class="textarea" name="html_source" id="id_html_source" rows="22" required
+            data-code-editor aria-label="HTML source code">{{ html_value }}</textarea>
   <span class="field-hint">
     Tip: every <code>data-section</code> wrapper becomes a sidebar entry.
     Field types supported: <code>text</code>, <code>richtext</code>, <code>image</code>, <code>color</code>, <code>link</code>.
@@ -44,16 +46,16 @@
 </div>
 
 {# ---- Side-by-side AI annotation compare overlay --------------- #}
-<div id="compare-overlay" hidden
+<div id="compare-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="compare-title"
      style="position: fixed; inset: 0; background: rgba(10,10,20,0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 1000; padding: 24px;">
   <div style="background: var(--color-surface); border-radius: var(--radius-lg); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px rgba(10,10,20,0.4);">
 
     <div class="row-between" style="padding: 14px 20px; border-bottom: 1px solid var(--color-border); align-items: center;">
       <div>
-        <div style="font-weight: 600; font-size: 15px;">Compare AI annotation</div>
+        <div id="compare-title" style="font-weight: 600; font-size: 15px;">Compare AI annotation</div>
         <div id="compare-summary" style="font-size: 12px; color: var(--color-text-soft); margin-top: 2px;"></div>
       </div>
-      <button type="button" id="compare-close" class="btn btn-ghost btn-sm">✕ Close</button>
+      <button type="button" id="compare-close" class="btn btn-ghost btn-sm" aria-label="Close comparison">Close</button>
     </div>
 
     <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--color-border); overflow: hidden;">
@@ -94,10 +96,7 @@
                 <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
                 <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
               </div>
-              <div class="compare-loading-title" style="font-weight:500;font-size:15px;margin-top:14px;color:var(--color-text);">AI is annotating… <em style="font-style:normal;font-family:var(--font-mono);color:var(--color-purple);">beep boop</em></div>
-              <div class="compare-progress" style="height:6px;width:280px;max-width:100%;margin:16px auto 0;background:var(--color-surface-2);border-radius:999px;overflow:hidden;">
-                <div class="compare-progress-bar" id="compare-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--color-blue),var(--color-purple));border-radius:999px;transition:width .45s ease;"></div>
-              </div>
+              <div class="compare-loading-title" style="font-weight:500;font-size:15px;margin-top:14px;color:var(--color-text);">AI is annotating your HTML</div>
               <div class="compare-loading-sub" id="compare-loading-sub" style="font-size:12px;color:var(--color-text-muted);margin-top:10px;">Reading your HTML…</div>
               <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm" hidden style="margin-top: 14px;">Try again</button>
             </div>
@@ -119,6 +118,7 @@
   </div>
 </div>
 
+<script src="{% static 'js/code-editor.js' %}"></script>
 <script>
   (function () {
     var toggle = document.getElementById("preview-toggle");
@@ -179,29 +179,22 @@
     var savedInputForRetry = "";
 
     var compareLoading = document.getElementById("compare-loading");
-    var progressBar = document.getElementById("compare-progress-bar");
     var loadingSub = document.getElementById("compare-loading-sub");
     var loadingRetry = document.getElementById("compare-loading-retry");
-    var progressTimer = null, elapsedTimer = null, loadStart = 0, progressPct = 0;
+    var elapsedTimer = null, loadStart = 0;
 
     function stopProgress() {
-      clearInterval(progressTimer); clearInterval(elapsedTimer);
-      progressTimer = elapsedTimer = null;
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
     }
     function startProgress() {
       stopProgress();
-      progressPct = 0;
       loadStart = Date.now();
-      if (progressBar) progressBar.style.width = "0%";
       if (loadingSub) loadingSub.textContent = "Reading your HTML…";
       if (loadingRetry) loadingRetry.hidden = true;
-      progressTimer = setInterval(function () {
-        progressPct += (95 - progressPct) * 0.045;
-        if (progressBar) progressBar.style.width = progressPct.toFixed(1) + "%";
-      }, 200);
       elapsedTimer = setInterval(function () {
         var s = Math.round((Date.now() - loadStart) / 1000);
-        if (loadingSub) loadingSub.textContent = s + "s · large pages can take 1–2 min";
+        if (loadingSub) loadingSub.textContent = "Working for " + s + "s · large pages can take 1–2 min";
       }, 1000);
     }
     function openCompareLoading(originalHtml) {
@@ -219,7 +212,6 @@
     }
     function fillCompareResult(annotatedHtml, sections) {
       stopProgress();
-      if (progressBar) progressBar.style.width = "100%";
       rightCode.value = annotatedHtml;
       setView("left", "code");
       setView("right", "code");
@@ -233,7 +225,6 @@
     }
     function showLoadingError(msg) {
       stopProgress();
-      if (progressBar) progressBar.style.width = "100%";
       if (loadingSub) loadingSub.textContent = msg || "Annotation failed.";
       if (loadingRetry) loadingRetry.hidden = false;
     }
@@ -295,6 +286,7 @@
       compareCancel.addEventListener("click", closeCompare);
       compareApply.addEventListener("click", function () {
         textarea.value = rightCode.value;
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
         setStatus("ok", "Annotation applied. Save to persist.");
         closeCompare();
         if (!panel.hasAttribute("hidden")) render();
