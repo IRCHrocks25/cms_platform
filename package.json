@@ -1,0 +1,28 @@
+{
+  "name": "locked-cms-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Reproducible dashboard CSS and browser bundles for the server-rendered CMS.",
+  "scripts": {
+    "build": "npm run build:css && npm run build:js",
+    "build:css": "tailwindcss -i frontend/dashboard.css -o static/css/dashboard.css --minify",
+    "build:js": "esbuild frontend/dashboard.js --bundle --minify --format=iife --target=es2020 --outfile=static/js/dashboard.js && esbuild frontend/code-editor.js --bundle --minify --format=iife --target=es2020 --outfile=static/js/code-editor.js",
+    "watch:css": "tailwindcss -i frontend/dashboard.css -o static/css/dashboard.css --watch",
+    "check:assets": "npm run build && git diff --exit-code -- static/css/dashboard.css static/js/dashboard.js static/js/code-editor.js"
+  },
+  "dependencies": {
+    "@alpinejs/csp": "3.16.1",
+    "@codemirror/commands": "6.10.4",
+    "@codemirror/lang-html": "6.4.12",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/search": "6.7.1",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.8",
+    "basecoat-css": "1.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "esbuild": "0.28.2",
+    "tailwindcss": "4.3.3"
+  }
+}

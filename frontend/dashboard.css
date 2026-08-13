@@ -1,0 +1,16 @@
+/*
+ * Dashboard build entry point.
+ *
+ * Tailwind Preflight is intentionally omitted. Dashboard chrome has an
+ * explicit component layer, while client-authored HTML keeps its native and
+ * template-defined semantics inside previews and rich-text editing surfaces.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "basecoat-css";
+
+@source "../templates/**/*.html";
+@source "../static/js/**/*.js";
+

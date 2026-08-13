@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
+  <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -173,6 +174,7 @@
     {% endif %}
   {% endblock %}
 
+  <script defer src="{% static 'js/dashboard.js' %}"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>
