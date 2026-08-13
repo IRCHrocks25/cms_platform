@@ -103,6 +103,28 @@ services:
       # TRAEFIK_DYNAMIC_DIR intentionally ABSENT. See note 3.
 
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # Self-seeding admin, staging only. Port 22 is firewalled on this host and
+      # Dokploy's web terminal is the only interactive shell, so a staging DB
+      # that can only be seeded by hand is a staging DB nobody logs into. These
+      # feed `createsuperuser --noinput` in the command override below.
+      # Production must NEVER set these — it has no such override and a
+      # bootstrap admin there would be a standing credential.
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@staging.invalid}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD}
+    # entrypoint.sh runs `migrate --noinput` then execs this. createsuperuser
+    # exits non-zero when the username already exists, which is the normal case
+    # on every redeploy after the first — `|| true` makes the boot idempotent
+    # rather than crash-looping the container.
+    command:
+      - /bin/sh
+      - -c
+      - >
+        python manage.py createsuperuser --noinput || true;
+        exec gunicorn cms_platform.wsgi:application
+        --bind 0.0.0.0:8000 --workers 3 --worker-class gthread --threads 4
+        --timeout 180 --access-logfile - --error-logfile -
     volumes:
       # Compose-project-scoped, so this is a distinct volume from production's
       # despite the identical short name.
