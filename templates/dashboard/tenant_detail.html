@@ -42,6 +42,59 @@
     <div class="detail-grid">
       <div class="detail-main">
 
+    <section class="card stack-4" id="pages">
+      <div class="row-between page-section-heading">
+        <div>
+          <h2 class="card-title">Pages</h2>
+          <p class="cell-muted m-0">Edit and publish every page on this site from one place.</p>
+        </div>
+        <a href="{{ pages_manage_url }}" class="btn btn-secondary btn-sm">Add or import pages</a>
+      </div>
+
+      <div class="site-page-list">
+        <article class="site-page-row site-page-home">
+          <div class="site-page-identity">
+            <span class="site-page-icon" aria-hidden="true">H</span>
+            <div>
+              <strong>Home</strong>
+              <code>/</code>
+            </div>
+          </div>
+          <span class="badge {% if tenant.is_published %}badge-success{% else %}badge-soft{% endif %}">
+            {% if tenant.is_published %}Published{% else %}Draft{% endif %}
+          </span>
+          <div class="row-actions">
+            <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
+            {% if tenant.is_published %}<a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+          </div>
+        </article>
+        {% for row in pages %}
+          <article class="site-page-row">
+            <div class="site-page-identity">
+              <span class="site-page-icon" aria-hidden="true">{{ row.obj.title|first|upper }}</span>
+              <div>
+                <strong>{{ row.obj.title }}</strong>
+                <code>/{{ row.obj.slug }}/</code>
+              </div>
+            </div>
+            <span class="badge {% if row.obj.is_published %}badge-success{% else %}badge-soft{% endif %}">
+              {% if row.obj.is_published %}Published{% else %}Draft{% endif %}
+            </span>
+            <div class="row-actions">
+              <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
+              {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" class="btn btn-ghost btn-sm">HTML</a>{% endif %}
+              {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+            </div>
+          </article>
+        {% empty %}
+          <div class="site-page-empty">
+            <strong>No inner pages yet</strong>
+            <span>Add an About, Services, or contact page when this site needs one.</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
     <section class="card stack-4" id="members">
       <div class="row-between">
         <h2 class="card-title">Members</h2>
@@ -213,6 +266,10 @@
                   <a href="{% url 'dashboard:user_detail' tenant.owner.pk %}">{{ tenant.owner.username }}</a>
                 {% else %}—{% endif %}
               </span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Pages</span>
+              <span class="overview-val"><a href="#pages">{{ pages|length|add:1 }}</a></span>
             </div>
             <div class="overview-row">
               <span class="overview-key">Members</span>

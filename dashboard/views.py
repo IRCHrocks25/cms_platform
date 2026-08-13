@@ -1073,6 +1073,10 @@ def tenant_detail(request, pk):
             if not loc_id or loc_id in bound:
                 continue
             connectable.append({"agency_id": agency.pk, "id": loc_id, "name": loc.get("name", "")})
+    page_rows = [
+        {"obj": page, "urls": _page_row_urls(request, "agency", tenant, page)}
+        for page in tenant.pages.select_related("template").all()
+    ]
     return render(
         request,
         "dashboard/tenant_detail.html",
@@ -1093,6 +1097,8 @@ def tenant_detail(request, pk):
             # fallback that always works on the current host (/site/<sub>/).
             "site_urls": build_tenant_url_bundle(request, tenant),
             "connectable_subaccounts": connectable,
+            "pages": page_rows,
+            "pages_manage_url": reverse("dashboard:page_list", args=[tenant.pk]),
         },
     )
 
