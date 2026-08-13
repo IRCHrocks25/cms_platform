@@ -75,4 +75,20 @@
       })
       .catch(function () { if (status) status.textContent = "Couldn't save order — reload and retry."; });
   }
+
+  list.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-move]");
+    if (!btn) return;
+    var row = btn.closest(".reorder-item");
+    if (!row) return;
+    if (btn.dataset.move === "up" && row.previousElementSibling) {
+      list.insertBefore(row, row.previousElementSibling);
+    } else if (btn.dataset.move === "down" && row.nextElementSibling) {
+      list.insertBefore(row.nextElementSibling, row);
+    } else {
+      return;
+    }
+    btn.focus({ preventScroll: true });
+    save();
+  });
 })();

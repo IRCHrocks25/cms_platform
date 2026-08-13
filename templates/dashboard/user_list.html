@@ -10,7 +10,7 @@
         <h1 class="page-title">Users</h1>
         <p class="page-subtitle">Agency staff and client accounts.</p>
       </div>
-      <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+      <a class="btn btn-primary" href="{% url 'dashboard:tenant_create' %}">New client site</a>
     </div>
 
     <form method="get" class="filter-bar">
@@ -21,7 +21,6 @@
         placeholder="Search by username or email…"
         value="{{ q }}"
         autocomplete="off"
-        style="max-width: 380px;"
       >
       <div class="filter-pills">
         <a href="?{% if q %}q={{ q }}&{% endif %}role=all"
@@ -39,7 +38,7 @@
 
     {% if user_rows %}
       <div class="card card-flush content-block">
-        <table class="data-table">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Username</th>
@@ -55,33 +54,33 @@
             {% for row in user_rows %}
               {% with u=row.user %}
                 <tr>
-                  <td><a href="{% url 'dashboard:user_detail' u.pk %}" class="cell-strong">{{ u.username }}</a></td>
-                  <td class="cell-muted">{{ u.email|default:'—' }}</td>
-                  <td>
+                  <td data-label="User"><a href="{% url 'dashboard:user_detail' u.pk %}" class="cell-strong">{{ u.username }}</a></td>
+                  <td class="cell-muted" data-label="Email">{{ u.email|default:'—' }}</td>
+                  <td data-label="Role">
                     {% if u.is_staff or u.is_superuser %}
-                      <span class="badge badge-purple">Agency staff</span>
+                      <span class="badge badge-blue">Agency staff</span>
                     {% else %}
                       <span class="badge badge-blue">Client</span>
                     {% endif %}
                   </td>
-                  <td class="cell-muted">
+                  <td class="cell-muted" data-label="Sites">
                     {% if row.site_names %}
                       {{ row.site_names_truncated|join:", " }}{% if row.site_names_overflow %} +{{ row.site_names_overflow }} more{% endif %}
                     {% else %}
                       —
                     {% endif %}
                   </td>
-                  <td class="cell-muted">
+                  <td class="cell-muted" data-label="Last login">
                     {% if u.last_login %}{{ u.last_login|naturaltime }}{% else %}Never{% endif %}
                   </td>
-                  <td>
+                  <td data-label="Status">
                     {% if u.is_active %}
                       <span class="badge badge-success">Active</span>
                     {% else %}
                       <span class="badge badge-soft">Inactive</span>
                     {% endif %}
                   </td>
-                  <td class="right">
+                  <td class="right" data-label="Actions">
                     <a href="{% url 'dashboard:user_detail' u.pk %}" class="btn btn-secondary btn-sm">Details</a>
                   </td>
                 </tr>
@@ -98,7 +97,7 @@
         {% else %}
           <h3>No users yet</h3>
           <p>Create a client to add the first user account.</p>
-          <a class="btn btn-purple" href="{% url 'dashboard:tenant_create' %}">+ New client site</a>
+          <a class="btn btn-primary" href="{% url 'dashboard:tenant_create' %}">New client site</a>
         {% endif %}
       </div>
     {% endif %}

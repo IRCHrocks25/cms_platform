@@ -168,6 +168,8 @@
     .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-size:14px;color:#1e40af;cursor:pointer}
     .composer{padding:10px;border-top:1px solid var(--line);background:#fff}
     .row{display:flex;gap:8px}
+    .call-orb{margin:0 auto 14px}
+    .composer-row{margin-top:8px}
     .input{flex:1;border:1px solid #c7d2fe;border-radius:999px;padding:12px 14px;font-size:15px;outline:none}
     .input:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
     .send{
@@ -207,7 +209,7 @@
           {% endif %}
           <button id="btn-close-call" class="topbar close" type="button" aria-label="Close">×</button>
         </div>
-        <div class="orb" style="margin:0 auto 14px;"></div>
+        <div class="orb call-orb"></div>
         <div class="call-name">{{ config.brand_full|default:config.brand }}</div>
         <div class="call-note" id="call-note">Connecting you now...</div>
         <ul class="steps">
@@ -241,7 +243,7 @@
       </div>
       <div class="composer">
       <div class="chips" id="suggestions"></div>
-      <div class="row" style="margin-top:8px;">
+      <div class="row composer-row">
         <input id="chat-input" class="input" placeholder="Type your message…">
         <button id="send-btn" class="send" type="button">↑</button>
       </div>

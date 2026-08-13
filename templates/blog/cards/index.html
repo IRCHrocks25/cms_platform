@@ -18,6 +18,8 @@
   .card-title a:hover { color: var(--blog-accent); text-decoration: none; }
   .card-excerpt { color: var(--blog-soft); font-size: 15px; margin: 0 0 16px; flex: 1; }
   .card-foot { margin-top: auto; }
+  .card-meta { margin-bottom: 10px; }
+  .card-readmore { font-size: 14px; font-weight: 500; }
 {% endblock %}
 
 {% block body %}
@@ -35,10 +37,10 @@
             <img class="card-cover" src="{{ post.cover_image|default:'https://placehold.co/600x375?text=+' }}" alt="{{ post.title }}">
           </a>
           <div class="card-body">
-            <div class="blog-meta" style="margin-bottom: 10px;"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
+            <div class="blog-meta card-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
             <h2 class="card-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
             <p class="card-excerpt">{{ post.display_excerpt }}</p>
-            <div class="card-foot"><a href="{{ blog_base }}{{ post.slug }}/" style="font-weight:500; font-size:14px;">Read more →</a></div>
+            <div class="card-foot"><a class="card-readmore" href="{{ blog_base }}{{ post.slug }}/">Read more →</a></div>
           </div>
         </article>
       {% endfor %}

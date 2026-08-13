@@ -1,3 +1,18 @@
+FROM node:22.23.0-slim AS assets
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Tailwind scans the server-rendered templates and existing browser modules.
+# Only compiled outputs cross into the runtime image.
+COPY templates ./templates
+COPY frontend ./frontend
+COPY static ./static
+RUN npm run build
+
+
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -25,6 +40,10 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY . .
+
+COPY --from=assets /app/static/css/dashboard.css /app/static/css/dashboard.css
+COPY --from=assets /app/static/js/dashboard.js /app/static/js/dashboard.js
+COPY --from=assets /app/static/js/code-editor.js /app/static/js/code-editor.js
 
 RUN mkdir -p /app/staticfiles /app/media \
     && DJANGO_SECRET_KEY=build-only DATABASE_URL=sqlite:////tmp/build.sqlite3 \

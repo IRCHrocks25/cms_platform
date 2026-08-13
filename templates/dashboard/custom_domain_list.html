@@ -20,7 +20,6 @@
         placeholder="Search by domain or site…"
         value="{{ q }}"
         autocomplete="off"
-        style="max-width: 380px;"
       >
       <div class="filter-pills">
         <a href="?{% if q %}q={{ q }}&{% endif %}status=all"
@@ -38,7 +37,7 @@
 
     {% if domains %}
       <div class="card card-flush content-block">
-        <table class="data-table">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Domain</th>
@@ -51,22 +50,22 @@
           <tbody>
             {% for d in domains %}
               <tr>
-                <td><code class="cell-strong">{{ d.domain }}</code></td>
-                <td>
+                <td data-label="Domain"><code class="cell-strong">{{ d.domain }}</code></td>
+                <td data-label="Site">
                   <a href="{% url 'dashboard:tenant_detail' d.tenant.pk %}" class="cell-link">
                     {{ d.tenant.name }}
                   </a>
                   <span class="cell-muted"> · {{ d.tenant.subdomain }}</span>
                 </td>
-                <td>
+                <td data-label="Status">
                   {% if d.is_verified %}
                     <span class="badge badge-success">Verified</span>
                   {% else %}
                     <span class="badge badge-soft">Pending</span>
                   {% endif %}
                 </td>
-                <td class="cell-muted">{{ d.created_at|naturaltime }}</td>
-                <td class="right">
+                <td class="cell-muted" data-label="Added">{{ d.created_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <div class="row-actions">
                     {% if not d.is_verified %}
                       <form method="post"

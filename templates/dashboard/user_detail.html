@@ -16,7 +16,7 @@
         <h1 class="page-title">{{ user_obj.username }}</h1>
         <div class="page-meta">
           {% if user_obj.is_staff or user_obj.is_superuser %}
-            <span class="badge badge-purple">Agency staff</span>
+            <span class="badge badge-blue">Agency staff</span>
           {% else %}
             <span class="badge badge-blue">Client</span>
           {% endif %}
@@ -34,7 +34,7 @@
     <section class="card stack-4 page-section">
       <h2>Memberships</h2>
       {% if memberships %}
-        <table class="data-table data-table-flush">
+        <table class="data-table data-table-flush" data-responsive-table>
           <thead>
             <tr>
               <th>Site</th>
@@ -47,11 +47,11 @@
           <tbody>
             {% for m in memberships %}
               <tr>
-                <td><a href="{% url 'dashboard:tenant_detail' m.tenant.pk %}" class="cell-strong">{{ m.tenant.name }}</a></td>
-                <td class="cell-muted"><code>{{ m.tenant.subdomain }}</code></td>
-                <td>{{ m.get_role_display }}</td>
-                <td class="cell-muted">{{ m.created_at|naturaltime }}</td>
-                <td class="right">
+                <td data-label="Site"><a href="{% url 'dashboard:tenant_detail' m.tenant.pk %}" class="cell-strong">{{ m.tenant.name }}</a></td>
+                <td class="cell-muted" data-label="Subdomain"><code>{{ m.tenant.subdomain }}</code></td>
+                <td data-label="Role">{{ m.get_role_display }}</td>
+                <td class="cell-muted" data-label="Added">{{ m.created_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <form method="post"
                         action="{% url 'dashboard:user_remove_membership' user_obj.pk m.pk %}"
                         onsubmit="return confirm('Remove {{ user_obj.username }} from {{ m.tenant.name }}?');"
@@ -65,21 +65,21 @@
           </tbody>
         </table>
       {% else %}
-        <p class="cell-muted" style="margin: 0;">Not a member of any site.</p>
+        <p class="cell-muted m-0">Not a member of any site.</p>
       {% endif %}
     </section>
 
     {% if memberships %}
       <section class="card stack-4 page-section">
         <h2>Add another login</h2>
-        <p class="cell-muted" style="margin: 0;">
+        <p class="cell-muted m-0">
           Create a brand-new login on behalf of this client — a separate account
           scoped to one of their sites. The password is shown once.
         </p>
         <form method="post" action="{% url 'dashboard:user_create_login' user_obj.pk %}"
-              class="row" style="gap: 8px; flex-wrap: wrap;">
+              class="form-row">
           {% csrf_token %}
-          <select name="tenant_id" class="select" required style="min-width: 180px;">
+          <select name="tenant_id" class="select field-medium" required>
             {% if memberships|length > 1 %}
               <option value="" disabled selected>Pick a site…</option>
             {% endif %}
@@ -87,16 +87,16 @@
               <option value="{{ m.tenant.pk }}">{{ m.tenant.name }} ({{ m.tenant.subdomain }})</option>
             {% endfor %}
           </select>
-          <input type="text" name="username" class="input" required placeholder="username"
-                 autocomplete="off" style="flex: 1; min-width: 160px;">
-          <input type="email" name="email" class="input" placeholder="email (optional)"
-                 autocomplete="off" style="flex: 1; min-width: 160px;">
-          <select name="role" class="select" style="max-width: 180px;">
+          <input type="text" name="username" class="input form-grow" required placeholder="username"
+                 autocomplete="off">
+          <input type="email" name="email" class="input form-grow" placeholder="email (optional)"
+                 autocomplete="off">
+          <select name="role" class="select field-medium">
             {% for value, label in role_choices %}
               <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          <button type="submit" class="btn btn-purple">Create login</button>
+          <button type="submit" class="btn btn-primary">Create login</button>
         </form>
       </section>
     {% endif %}

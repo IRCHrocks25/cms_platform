@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template, Tenant, TenantMembership
+from core.models import Page, Template, Tenant, TenantMembership
 
 
 def _make_template(name="Bare"):
@@ -130,3 +130,60 @@ class TenantDashboardAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.tenant_a.refresh_from_db()
         self.assertEqual(self.tenant_a.content, {"hero": {"title": "Hello"}})
+
+    # ---------- tenant pages navigation ---------- #
+
+    def test_tenant_shell_links_to_pages(self):
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get(reverse("dashboard:blog_list_self"))
+
+        pages_url = reverse("dashboard:page_list_self")
+        self.assertContains(response, f'href="{pages_url}"')
+        self.assertContains(response, "<span>Pages</span>", html=True)
+
+    def test_tenant_page_list_has_active_nav_and_client_safe_empty_state(self):
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get(reverse("dashboard:page_list_self"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["nav_section"], "pages")
+        self.assertContains(response, "No inner pages yet")
+        self.assertContains(response, "Ask your agency")
+        self.assertNotContains(response, "HTML source")
+        self.assertNotContains(response, "Add page")
+
+    def test_tenant_page_list_exposes_structured_edit_without_html_or_delete(self):
+        page = Page.objects.create(
+            tenant=self.tenant_a,
+            template=self.tenant_a.template,
+            title="About us",
+            slug="about",
+        )
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get(reverse("dashboard:page_list_self"))
+
+        self.assertContains(response, "About us")
+        self.assertContains(response, reverse("dashboard:page_editor_self", args=[page.pk]))
+        self.assertNotContains(response, "Edit HTML")
+        self.assertNotContains(response, reverse("dashboard:page_delete_self", args=[page.pk]))
+
+    def test_tenant_page_editor_keeps_pages_nav_active(self):
+        page = Page.objects.create(
+            tenant=self.tenant_a,
+            template=self.tenant_a.template,
+            title="Services",
+            slug="services",
+        )
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get(reverse("dashboard:page_editor_self", args=[page.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["nav_section"], "pages")

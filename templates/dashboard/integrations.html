@@ -8,8 +8,8 @@
       <h1 class="page-title">Integrations</h1>
       <p class="page-subtitle">Connect GoHighLevel agencies and bind sub-accounts to client sites.</p>
     </div>
-    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-      <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+    <div class="head-actions-vertical">
+      <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">Connect GHL agency</a>
       <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
          title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
         Sub-account missing? Use standard link
@@ -18,7 +18,7 @@
   </div>
 
   {% if just_connected %}
-    <div class="flash flash-success" style="margin-bottom: var(--space-6);">
+    <div class="flash flash-success section-flash">
       {% if connected_type == "location" %}
         Sub-account connected: {{ connected_label }}
       {% else %}
@@ -31,17 +31,17 @@
   <div class="stack-6">
 
     {% for card in agency_cards %}
-    <div class="card" style="padding: 0; overflow: hidden;">
+    <div class="card integration-card">
 
       {# Card header row #}
-      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--color-border);">
-        <div style="min-width: 0;">
-          <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: var(--color-text);">
+      <div class="integration-card-head">
+        <div class="integration-card-title">
+          <h2>
             {{ card.agency.company_name|default:card.agency.company_id }}
           </h2>
           {% if card.agency.company_name %}
-            <p style="margin: 2px 0 0; font-size: 12px; color: var(--color-text-muted);">
-              ID: <code style="font-family: var(--font-mono); font-size: 11px; background: var(--color-surface-2); padding: 1px 5px; border-radius: 4px;">{{ card.agency.company_id }}</code>
+            <p class="integration-card-id">
+              ID: <code class="code-token">{{ card.agency.company_id }}</code>
             </p>
           {% endif %}
           <details class="agency-rename">
@@ -54,18 +54,18 @@
             </form>
           </details>
         </div>
-        <div style="display: flex; gap: var(--space-2); align-items: center; flex-shrink: 0;">
-          <a class="btn btn-secondary btn-sm" href="{% url 'ghl_oauth_install' %}">+ Add sub-accounts</a>
+        <div class="integration-card-actions">
+          <a class="btn btn-secondary btn-sm" href="{% url 'ghl_oauth_install' %}">Add sub-accounts</a>
           <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
              title="Use this if the sub-account doesn't show up via '+ Add sub-accounts' — happens for accounts with no agency or no white-label/SaaS Mode.">
             Standard link
           </a>
-          <form method="post" action="{% url 'dashboard:integrations_refresh_locations' %}" style="display: inline; margin: 0;">
+          <form method="post" action="{% url 'dashboard:integrations_refresh_locations' %}" class="inline-form">
             {% csrf_token %}
             <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
             <button class="btn btn-secondary btn-sm" type="submit">Refresh list</button>
           </form>
-          <form method="post" action="{% url 'dashboard:integrations_disconnect_agency' %}" style="display: inline; margin: 0;"
+          <form method="post" action="{% url 'dashboard:integrations_disconnect_agency' %}" class="inline-form"
                 onsubmit="return confirm('Disconnect this agency? Bound sites will be unlinked.')">
             {% csrf_token %}
             <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
@@ -75,10 +75,10 @@
       </div>
 
       {# ── Sub-accounts to bind ─────────────────────────────────────────── #}
-      <div style="padding: var(--space-5) var(--space-6);">
-        <p class="field-hint" style="margin-bottom: var(--space-3); font-size: 13px; font-weight: 500; color: var(--color-text-soft);">Sub-accounts to bind</p>
+      <div class="integration-section">
+        <p class="integration-section-label">Sub-accounts to bind</p>
         {% if card.agency.available_locations %}
-          <table class="data-table">
+          <table class="data-table" data-responsive-table>
             <thead>
               <tr>
                 <th>Sub-account name</th>
@@ -89,17 +89,17 @@
             <tbody>
               {% for loc in card.agency.available_locations %}
               <tr>
-                <td class="cell-strong">{{ loc.name|default:"(unnamed)" }}</td>
-                <td><code style="font-family: var(--font-mono); font-size: 12px; background: var(--color-surface-2); padding: 2px 6px; border-radius: 4px; color: var(--color-text-soft);">{{ loc.id }}</code></td>
-                <td>
+                <td class="cell-strong" data-label="Sub-account">{{ loc.name|default:"(unnamed)" }}</td>
+                <td data-label="ID"><code class="code-token">{{ loc.id }}</code></td>
+                <td data-label="Status / action">
                   {% if loc.id in bound_location_ids %}
                     <span class="badge badge-success">bound</span>
                   {% else %}
-                    <form method="post" action="{% url 'dashboard:integrations_bind' %}" style="display: flex; gap: var(--space-2); align-items: center; margin: 0;">
+                    <form method="post" action="{% url 'dashboard:integrations_bind' %}" class="integration-inline-form">
                       {% csrf_token %}
                       <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
                       <input type="hidden" name="location_id" value="{{ loc.id }}">
-                      <select name="tenant_id" required class="select select-sm" style="width: auto; min-width: 160px;">
+                      <select name="tenant_id" required class="select select-sm integration-select">
                         <option value="">Choose site...</option>
                         {% for t in tenants %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}
                       </select>
@@ -112,15 +112,15 @@
             </tbody>
           </table>
         {% else %}
-          <p class="field-hint" style="padding: var(--space-4) 0;">No sub-accounts found. Click "Refresh list" to fetch from GHL.</p>
+          <p class="field-hint integration-empty-note">No sub-accounts found. Refresh the list to fetch them from GHL.</p>
         {% endif %}
       </div>
 
       {# ── Connected sites inside this agency ───────────────────────────── #}
       {% if card.installs %}
-      <div style="border-top: 1px solid var(--color-border); padding: var(--space-5) var(--space-6);">
-        <p class="field-hint" style="margin-bottom: var(--space-3); font-size: 13px; font-weight: 500; color: var(--color-text-soft);">Connected sites</p>
-        <table class="data-table">
+      <div class="integration-section integration-section-bordered">
+        <p class="integration-section-label">Connected sites</p>
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Location</th>
@@ -132,9 +132,9 @@
           <tbody>
             {% for i in card.installs %}
             <tr>
-              <td class="cell-strong">{{ i.location_name|default:i.location_id }}</td>
-              <td>{{ i.tenant.name|default:"&mdash;" }}</td>
-              <td>
+              <td class="cell-strong" data-label="Location">{{ i.location_name|default:i.location_id }}</td>
+              <td data-label="Site">{{ i.tenant.name|default:"&mdash;" }}</td>
+              <td data-label="Status">
                 {% if i.status == "connected" %}
                   <span class="badge badge-success">{{ i.get_status_display }}</span>
                 {% elif i.status == "expired" %}
@@ -143,14 +143,14 @@
                   <span class="badge badge-soft">{{ i.get_status_display }}</span>
                 {% endif %}
               </td>
-              <td class="right">
+              <td class="right" data-label="Actions">
                 <span class="row-actions">
-                  <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" style="display: inline; margin: 0;">
+                  <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" class="inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
                     <button class="btn btn-secondary btn-sm" type="submit">Reconnect</button>
                   </form>
-                  <form method="post" action="{% url 'dashboard:integrations_disconnect' %}" style="display: inline; margin: 0;">
+                  <form method="post" action="{% url 'dashboard:integrations_disconnect' %}" class="inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
                     <button class="btn btn-danger btn-sm" type="submit">Disconnect</button>
@@ -163,7 +163,7 @@
         </table>
       </div>
       {% else %}
-      <div style="border-top: 1px solid var(--color-border); padding: var(--space-4) var(--space-6);">
+      <div class="integration-section integration-section-bordered">
         <p class="field-hint">No sites connected yet. Bind a sub-account above to get started.</p>
       </div>
       {% endif %}
@@ -172,9 +172,9 @@
     {% empty %}
     <div class="empty">
       <h3>No GHL agency connected yet</h3>
-      <p style="margin-bottom: var(--space-5);">Connect your first GoHighLevel agency to start linking sub-accounts to client sites.</p>
-      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
-        <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">+ Connect GHL agency</a>
+      <p class="integration-empty-copy">Connect your first GoHighLevel agency to start linking sub-accounts to client sites.</p>
+      <div class="integration-empty-actions">
+        <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">Connect GHL agency</a>
         <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
            title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
           Sub-account missing? Use standard link
@@ -185,13 +185,13 @@
 
     {# ── Orphan installs (no agency) ──────────────────────────────────── #}
     {% if orphan_installs %}
-    <div class="card" style="padding: 0; overflow: hidden;">
-      <div style="padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--color-border); background: var(--color-surface-2);">
-        <h2 style="margin: 0; font-size: 16px; font-weight: 500; color: var(--color-text-soft);">Other connections</h2>
-        <p class="field-hint" style="margin: 2px 0 0;">Direct sub-account installs not linked to an agency.</p>
+    <div class="card integration-card">
+      <div class="integration-subhead">
+        <h2>Other connections</h2>
+        <p class="field-hint">Direct sub-account installs not linked to an agency.</p>
       </div>
-      <div style="padding: var(--space-5) var(--space-6);">
-        <table class="data-table">
+      <div class="integration-section">
+        <table class="data-table" data-responsive-table>
           <thead>
             <tr>
               <th>Location</th>
@@ -203,9 +203,9 @@
           <tbody>
             {% for i in orphan_installs %}
             <tr>
-              <td class="cell-strong">{{ i.location_name|default:i.location_id }}</td>
-              <td>{{ i.tenant.name|default:"&mdash;" }}</td>
-              <td>
+              <td class="cell-strong" data-label="Location">{{ i.location_name|default:i.location_id }}</td>
+              <td data-label="Site">{{ i.tenant.name|default:"&mdash;" }}</td>
+              <td data-label="Status">
                 {% if i.status == "connected" %}
                   <span class="badge badge-success">{{ i.get_status_display }}</span>
                 {% elif i.status == "expired" %}
@@ -214,13 +214,13 @@
                   <span class="badge badge-soft">{{ i.get_status_display }}</span>
                 {% endif %}
               </td>
-              <td class="right">
+              <td class="right" data-label="Actions">
                 <span class="row-actions">
                   {% if not i.tenant %}
-                  <form method="post" action="{% url 'dashboard:integrations_bind_orphan' %}" style="display: inline; margin: 0;">
+                  <form method="post" action="{% url 'dashboard:integrations_bind_orphan' %}" class="integration-inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
-                    <select name="tenant_id" class="select select-sm" style="display: inline-block; width: auto;" required>
+                    <select name="tenant_id" class="select select-sm integration-select" required>
                       <option value="">Link to site…</option>
                       {% for t in tenants %}
                       <option value="{{ t.pk }}">{{ t.name }}</option>
@@ -229,12 +229,12 @@
                     <button class="btn btn-secondary btn-sm" type="submit">Link</button>
                   </form>
                   {% endif %}
-                  <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" style="display: inline; margin: 0;">
+                  <form method="post" action="{% url 'dashboard:integrations_reconnect' %}" class="inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
                     <button class="btn btn-secondary btn-sm" type="submit">Reconnect</button>
                   </form>
-                  <form method="post" action="{% url 'dashboard:integrations_disconnect' %}" style="display: inline; margin: 0;">
+                  <form method="post" action="{% url 'dashboard:integrations_disconnect' %}" class="inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
                     <button class="btn btn-danger btn-sm" type="submit">Disconnect</button>

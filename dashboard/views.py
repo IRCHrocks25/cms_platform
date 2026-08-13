@@ -188,11 +188,20 @@ def template_create(request):
         html_source = request.POST.get("html_source") or ""
 
         if not name or not html_source.strip():
-            messages.error(request, "Name and HTML source are required.")
+            messages.error(request, "Enter a template name and HTML source.")
             return render(
                 request,
                 "dashboard/template_form.html",
                 {"form_data": request.POST},
+            )
+
+        if len(name) > 120:
+            messages.error(request, "Template name must be 120 characters or fewer.")
+            return render(
+                request,
+                "dashboard/template_form.html",
+                {"form_data": request.POST},
+                status=400,
             )
 
         template = Template.objects.create(
@@ -792,6 +801,8 @@ def tenant_create(request):
 
     if not name:
         errors.append("Site name is required.")
+    elif len(name) > 120:
+        errors.append("Site name must be 120 characters or fewer.")
 
     sub_reason = _validate_subdomain(subdomain) if subdomain else None
     if sub_reason:
@@ -820,6 +831,8 @@ def tenant_create(request):
 
     if not client_username:
         errors.append("Client username is required.")
+    elif len(client_username) > 150:
+        errors.append("Client username must be 150 characters or fewer.")
     elif User.objects.filter(username__iexact=client_username).exists():
         errors.append(
             f"A user named “{client_username}” already exists. "
@@ -1073,6 +1086,10 @@ def tenant_detail(request, pk):
             if not loc_id or loc_id in bound:
                 continue
             connectable.append({"agency_id": agency.pk, "id": loc_id, "name": loc.get("name", "")})
+    page_rows = [
+        {"obj": page, "urls": _page_row_urls(request, "agency", tenant, page)}
+        for page in tenant.pages.select_related("template").all()
+    ]
     return render(
         request,
         "dashboard/tenant_detail.html",
@@ -1093,6 +1110,8 @@ def tenant_detail(request, pk):
             # fallback that always works on the current host (/site/<sub>/).
             "site_urls": build_tenant_url_bundle(request, tenant),
             "connectable_subaccounts": connectable,
+            "pages": page_rows,
+            "pages_manage_url": reverse("dashboard:page_list", args=[tenant.pk]),
         },
     )
 
@@ -1106,6 +1125,9 @@ def tenant_settings_update(request, pk):
 
     if not name:
         messages.error(request, "Site name is required.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    if len(name) > 120:
+        messages.error(request, "Site name must be 120 characters or fewer.")
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
     if new_subdomain != tenant.subdomain:
@@ -1776,6 +1798,7 @@ def _page_list(request, tenant, scope):
                 _templates_available(tenant=tenant) if can_manage else []
             ),
             "reserved_slugs": ", ".join(sorted(RESERVED_PAGE_SLUGS)),
+            "nav_section": "pages" if scope == "tenant" else "sites",
         },
     )
 
@@ -1789,6 +1812,8 @@ def _page_create(request, tenant, scope):
     errors = []
     if not title:
         errors.append("A page title is required.")
+    elif len(title) > 120:
+        errors.append("Page title must be 120 characters or fewer.")
     if not slug:
         errors.append("A URL slug is required.")
     elif slug in RESERVED_PAGE_SLUGS:
@@ -2328,6 +2353,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "live_url": live_url,
             "scope": scope,
             "client_editable": client_editable,
+            "nav_section": "pages" if scope == "tenant" and page else "editor",
         },
     )
 

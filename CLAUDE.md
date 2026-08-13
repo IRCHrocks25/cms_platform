@@ -495,10 +495,20 @@ public DNS service that resolves all subdomains to `127.0.0.1`).
 - **`Tenant.content` is canonical.** Never compute display values that
   bypass `merge_with_defaults()` — that helper is what makes empty fields
   fall back to template defaults.
-- **No new dependencies casually.** The stack is deliberately tiny: Django
-  + BeautifulSoup + lxml + Pillow (+ `django.contrib.humanize`, ships
-  with Django). Don't add jQuery, htmx, alpine, etc. without discussing
-  first.
+- **Keep dependencies deliberate.** The dashboard overhaul approved pinned
+  Tailwind CSS, Basecoat UI, Alpine's CSP build, and modular CodeMirror 6.
+  Tailwind/Basecoat provide the server-rendered component layer, Alpine is for
+  small progressive interactions, and CodeMirror is limited to the agency-only
+  HTML coding surface. Do not add another frontend dependency without a concrete
+  reason and discussion first; React, jQuery, and htmx remain out of scope.
+- **Built dashboard assets are committed.** `npm run build` emits
+  `static/css/dashboard.css`, `static/js/dashboard.js`, and
+  `static/js/code-editor.js`. Commit those outputs with their sources so a
+  developer without Node can run Django and the Python test suite. The Docker
+  asset stage rebuilds them before `collectstatic`; `npm run check:assets`
+  verifies that committed files match the pinned lockfile and sources. Tailwind
+  Preflight is deliberately omitted because client-authored rich text exists in
+  the dashboard DOM.
 - **Generated passwords are never persisted in plaintext.** If you need
   to expose a password, use `_stash_credentials_in_session` and the
   `credentials.html` template. Don't email passwords (out of scope until

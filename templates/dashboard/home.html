@@ -12,6 +12,27 @@
       </div>
     </div>
 
+    {% if stats.total_sites == 0 and stats.total_templates == 0 %}
+      <section class="card onboarding-card" aria-labelledby="agency-start-title">
+        <div>
+          <p class="onboarding-eyebrow">Start with a real client site</p>
+          <h2 class="onboarding-title" id="agency-start-title">Launch your first editable site</h2>
+          <p class="onboarding-copy">
+            Bring an existing page or paste its HTML, mark the editable content with AI,
+            and create the client login in one flow.
+          </p>
+          <div class="onboarding-actions">
+            <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-primary">Create first client site</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary">Create a reusable template</a>
+          </div>
+        </div>
+        <ol class="onboarding-steps" aria-label="Setup steps">
+          <li>Fetch or paste the site design.</li>
+          <li>Review the AI-marked editable fields.</li>
+          <li>Create the site and share its client login.</li>
+        </ol>
+      </section>
+    {% else %}
     <section class="stat-grid">
       <div class="stat-card">
         <div class="stat-card-value">{{ stats.total_sites }}</div>
@@ -41,15 +62,15 @@
       </div>
     </section>
 
-    <section class="split-row" style="margin-top: 48px;">
+    <section class="split-row">
       <div class="split-main">
-        <div class="row-between" style="margin-bottom: 16px;">
-          <h2 style="margin: 0;">Recent activity</h2>
+        <div class="row-between mb-4">
+          <h2 class="m-0">Recent activity</h2>
           <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-ghost btn-sm">All sites →</a>
         </div>
 
         {% if recent_activity %}
-          <div class="card" style="padding: 0;">
+          <div class="card pad-0">
             <ul class="activity-list">
               {% for v in recent_activity %}
                 <li>
@@ -75,21 +96,22 @@
       </div>
 
       <aside class="split-aside">
-        <h2 style="margin: 0 0 16px;">Quick actions</h2>
+        <h2 class="mb-4">Quick actions</h2>
         {% if stats.total_sites == 0 and stats.total_templates == 0 %}
-          <div class="empty" style="padding: 24px;">
+          <div class="empty pad-5">
             <h3>Get started</h3>
             <p>Add a template, then create your first client site.</p>
-            <a href="{% url 'dashboard:template_create' %}" class="btn btn-purple">+ New template</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-primary">New template</a>
           </div>
         {% else %}
           <div class="stack-3">
-            <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-purple btn-block">+ New client site</a>
-            <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary btn-block">+ New template</a>
+            <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-primary btn-block">New client site</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary btn-block">New template</a>
             <a href="{% url 'dashboard:user_list' %}" class="btn btn-ghost btn-block">Manage users</a>
           </div>
         {% endif %}
       </aside>
     </section>
+    {% endif %}
   </div>
 {% endblock %}

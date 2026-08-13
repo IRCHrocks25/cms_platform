@@ -3,13 +3,13 @@
 {% block title %}No access · Locked CMS{% endblock %}
 
 {% block content %}
-  <div class="page" style="max-width: 480px;">
+  <div class="page page-compact">
     <h1 class="page-title">You don't have access to this site</h1>
     <p class="page-subtitle">
       Your account isn't a member of this site. If you think that's wrong,
       contact the agency that built it.
     </p>
-    <form action="{% url 'logout' %}" method="post" style="margin-top: 24px;">
+    <form action="{% url 'logout' %}" method="post" class="mt-5">
       {% csrf_token %}
       <button type="submit" class="btn btn-secondary">Sign out</button>
     </form>

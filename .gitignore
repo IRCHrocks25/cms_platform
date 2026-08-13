@@ -15,3 +15,4 @@ media/
 *.sqlite3
 _reference/
 .worktrees/
+node_modules/

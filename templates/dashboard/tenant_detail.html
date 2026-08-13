@@ -13,8 +13,8 @@
 
     <div class="page-head">
       <div>
-        <div class="row" style="gap: var(--space-3);">
-          <h1 class="page-title" style="margin: 0;">{{ tenant.name }}</h1>
+        <div class="row row-gap-3">
+          <h1 class="page-title m-0">{{ tenant.name }}</h1>
           {% if tenant.is_published %}
             <span class="badge badge-success">Published</span>
           {% else %}
@@ -35,12 +35,65 @@
       <div class="row row-wrap">
         <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
         <a href="{% url 'dashboard:blog_list' tenant.pk %}" class="btn btn-secondary">Manage blog</a>
-        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-purple">Open editor</a>
+        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-primary">Edit site</a>
       </div>
     </div>
 
     <div class="detail-grid">
       <div class="detail-main">
+
+    <section class="card stack-4" id="pages">
+      <div class="row-between page-section-heading">
+        <div>
+          <h2 class="card-title">Pages</h2>
+          <p class="cell-muted m-0">Edit and publish every page on this site from one place.</p>
+        </div>
+        <a href="{{ pages_manage_url }}" class="btn btn-secondary btn-sm">Add or import pages</a>
+      </div>
+
+      <div class="site-page-list">
+        <article class="site-page-row site-page-home">
+          <div class="site-page-identity">
+            <span class="site-page-icon" aria-hidden="true">H</span>
+            <div>
+              <strong>Home</strong>
+              <code>/</code>
+            </div>
+          </div>
+          <span class="badge {% if tenant.is_published %}badge-success{% else %}badge-soft{% endif %}">
+            {% if tenant.is_published %}Published{% else %}Draft{% endif %}
+          </span>
+          <div class="row-actions">
+            <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
+            {% if tenant.is_published %}<a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+          </div>
+        </article>
+        {% for row in pages %}
+          <article class="site-page-row">
+            <div class="site-page-identity">
+              <span class="site-page-icon" aria-hidden="true">{{ row.obj.title|first|upper }}</span>
+              <div>
+                <strong>{{ row.obj.title }}</strong>
+                <code>/{{ row.obj.slug }}/</code>
+              </div>
+            </div>
+            <span class="badge {% if row.obj.is_published %}badge-success{% else %}badge-soft{% endif %}">
+              {% if row.obj.is_published %}Published{% else %}Draft{% endif %}
+            </span>
+            <div class="row-actions">
+              <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
+              {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" class="btn btn-ghost btn-sm">HTML</a>{% endif %}
+              {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+            </div>
+          </article>
+        {% empty %}
+          <div class="site-page-empty">
+            <strong>No inner pages yet</strong>
+            <span>Add an About, Services, or contact page when this site needs one.</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
 
     <section class="card stack-4" id="members">
       <div class="row-between">
@@ -49,7 +102,7 @@
       </div>
 
       {% if members %}
-        <table class="data-table data-table-flush">
+        <table class="data-table data-table-flush" data-responsive-table>
           <thead>
             <tr>
               <th>Username</th>
@@ -62,9 +115,9 @@
           <tbody>
             {% for m in members %}
               <tr>
-                <td><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
-                <td class="cell-muted">{{ m.user.email|default:'—' }}</td>
-                <td>
+                <td data-label="Member"><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
+                <td class="cell-muted" data-label="Email">{{ m.user.email|default:'—' }}</td>
+                <td data-label="Role">
                   <form method="post" action="{% url 'dashboard:tenant_member_role' tenant.pk m.pk %}" class="inline-form">
                     {% csrf_token %}
                     <select name="role" class="select select-sm" onchange="this.form.submit();">
@@ -74,8 +127,8 @@
                     </select>
                   </form>
                 </td>
-                <td class="cell-muted">{{ m.created_at|naturaltime }}</td>
-                <td class="right">
+                <td class="cell-muted" data-label="Added">{{ m.created_at|naturaltime }}</td>
+                <td class="right" data-label="Actions">
                   <form method="post" action="{% url 'dashboard:tenant_member_remove' tenant.pk m.pk %}"
                         onsubmit="return confirm('Remove {{ m.user.username }} from this site?');" class="inline-form">
                     {% csrf_token %}
@@ -87,45 +140,45 @@
           </tbody>
         </table>
       {% else %}
-        <p class="cell-muted" style="margin: 0;">No members yet — add one to give a client access to this site's editor.</p>
+        <p class="cell-muted m-0">No members yet — add one to give a client access to this site's editor.</p>
       {% endif %}
 
-      <div id="add-member-panel" hidden class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
-        <form method="post" action="{% url 'dashboard:tenant_member_add' tenant.pk %}" class="row" style="gap: 8px; flex-wrap: wrap;">
+      <div id="add-member-panel" hidden class="card-tight member-panel">
+        <form method="post" action="{% url 'dashboard:tenant_member_add' tenant.pk %}" class="row member-form">
           {% csrf_token %}
-          <select name="user_id" class="select" required style="flex: 1; min-width: 200px;">
+          <select name="user_id" class="select flex-1 min-w-200" required>
             <option value="" disabled selected>Pick a user…</option>
             {% for u in add_member_candidates %}
               <option value="{{ u.pk }}">{{ u.username }}{% if u.email %} ({{ u.email }}){% endif %}</option>
             {% endfor %}
           </select>
-          <select name="role" class="select" style="max-width: 180px;">
+          <select name="role" class="select max-w-180">
             {% for value, label in role_choices %}
               <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
           <button type="submit" class="btn btn-primary">Add member</button>
         </form>
-        <hr style="border: none; border-top: 1px solid var(--color-border); margin: 16px 0;">
+        <hr class="section-rule-roomy">
 
-        <p class="field-hint" style="margin: 0 0 8px;">
+        <p class="field-hint mb-2">
           <strong>Create a new login for this site.</strong>
           Makes a brand-new client account scoped only to this site — no new site.
         </p>
-        <form method="post" action="{% url 'dashboard:tenant_member_create' tenant.pk %}" class="row" style="gap: 8px; flex-wrap: wrap;">
+        <form method="post" action="{% url 'dashboard:tenant_member_create' tenant.pk %}" class="row member-form">
           {% csrf_token %}
-          <input type="text" name="username" class="input" required placeholder="username"
-                 autocomplete="off" style="flex: 1; min-width: 160px;">
-          <input type="email" name="email" class="input" placeholder="email (optional)"
-                 autocomplete="off" style="flex: 1; min-width: 160px;">
-          <select name="role" class="select" style="max-width: 180px;">
+          <input type="text" name="username" class="input flex-1 min-w-160" required placeholder="username"
+                 autocomplete="off">
+          <input type="email" name="email" class="input flex-1 min-w-160" placeholder="email (optional)"
+                 autocomplete="off">
+          <select name="role" class="select max-w-180">
             {% for value, label in role_choices %}
               <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          <button type="submit" class="btn btn-purple">Create login</button>
+          <button type="submit" class="btn btn-primary">Create login</button>
         </form>
-        <p class="field-hint" style="margin: 8px 0 0;">
+        <p class="field-hint mt-2">
           Need a whole new site instead?
           <a href="{% url 'dashboard:tenant_create' %}">Create a new client</a>.
         </p>
@@ -159,7 +212,7 @@
           </button>
         {% endif %}
       {% else %}
-        <p class="cell-muted" style="margin: 0;">No saves yet.</p>
+        <p class="cell-muted m-0">No saves yet.</p>
       {% endif %}
     </section>
 
@@ -183,25 +236,25 @@
               <span class="overview-key">Template</span>
               <span class="overview-val" title="{{ tenant.template.name }}">
                 <a href="{% url 'dashboard:template_detail' tenant.template.pk %}">{{ tenant.template.name }}</a>
-                <span class="overview-actions" style="margin-left: 8px; font-size: 12px;">
+                <span class="overview-actions overview-actions-inline">
                   <a href="{% url 'dashboard:template_detail' tenant.template.pk %}" class="link-muted">Edit&nbsp;HTML</a>
                   &nbsp;·&nbsp;
                   <a href="#change-template" class="link-muted" onclick="document.getElementById('change-template-details').open=true; return true;">Change</a>
                 </span>
               </span>
             </div>
-            <details id="change-template-details" class="overview-row" style="grid-column: 1 / -1;">
-              <summary id="change-template" style="cursor: pointer; font-size: 13px; color: var(--color-muted, #666);">Swap to a different template</summary>
-              <form method="post" action="{% url 'dashboard:tenant_template_swap' tenant.pk %}" style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <details id="change-template-details" class="overview-row overview-full">
+              <summary id="change-template" class="disclosure-summary">Swap to a different template</summary>
+              <form method="post" action="{% url 'dashboard:tenant_template_swap' tenant.pk %}" class="template-swap-form">
                 {% csrf_token %}
                 <label for="swap-template-id" class="sr-only">New template</label>
-                <select id="swap-template-id" name="template_id" required style="flex: 1; min-width: 220px;">
+                <select id="swap-template-id" name="template_id" class="flex-1 min-w-220" required>
                   {% for t in available_templates %}
                     <option value="{{ t.pk }}"{% if t.pk == tenant.template_id %} selected disabled{% endif %}>{{ t.name }}{% if t.pk == tenant.template_id %} (current){% endif %}</option>
                   {% endfor %}
                 </select>
                 <button type="submit" class="btn btn-sm">Switch template</button>
-                <span style="font-size: 12px; color: var(--color-muted, #666);">
+                <span class="text-xs text-muted">
                   Existing content survives where field IDs match the new template.
                 </span>
               </form>
@@ -213,6 +266,10 @@
                   <a href="{% url 'dashboard:user_detail' tenant.owner.pk %}">{{ tenant.owner.username }}</a>
                 {% else %}—{% endif %}
               </span>
+            </div>
+            <div class="overview-row">
+              <span class="overview-key">Pages</span>
+              <span class="overview-val"><a href="#pages">{{ pages|length|add:1 }}</a></span>
             </div>
             <div class="overview-row">
               <span class="overview-key">Members</span>
@@ -237,7 +294,7 @@
             </div>
           </div>
           <a href="{{ site_urls.fallback_url }}" target="_blank" rel="noopener"
-             class="cell-muted" style="font-size: 13px;"
+             class="cell-muted text-sm"
              title="Render this site on the current server — works without subdomain DNS, and lets you preview unpublished sites">
             Preview on this server ↗
           </a>
@@ -247,19 +304,19 @@
           <h2 class="card-title">Settings</h2>
           <form method="post" action="{% url 'dashboard:tenant_settings_update' tenant.pk %}" class="stack-4">
             {% csrf_token %}
-            <div class="field" style="margin-bottom: 0;">
+            <div class="field field-compact">
               <label class="field-label" for="settings_name">Site name</label>
-              <input class="input" type="text" name="name" id="settings_name" required value="{{ tenant.name }}">
+              <input class="input" type="text" name="name" id="settings_name" maxlength="120" required value="{{ tenant.name }}">
             </div>
-            <div class="field" style="margin-bottom: 0;">
+            <div class="field field-compact">
               <label class="field-label" for="settings_subdomain">Subdomain</label>
-              <input class="input" type="text" name="subdomain" id="settings_subdomain" required
+              <input class="input" type="text" name="subdomain" id="settings_subdomain" maxlength="80" required
                      pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
                      value="{{ tenant.subdomain }}">
               <span class="field-hint">Changing the subdomain will break existing bookmarks and links.</span>
             </div>
-            <div class="field" style="margin-bottom: 0;">
-              <details style="margin-top:8px">
+            <div class="field field-compact">
+              <details class="details-offset">
                 <summary class="field-hint">Advanced: set GHL location ID manually</summary>
                 <label class="field-hint" for="settings_ghl_location_id">GHL location ID</label>
                 <input class="input" type="text" name="ghl_location_id" id="settings_ghl_location_id"
@@ -305,8 +362,8 @@
       <h2>Danger zone</h2>
       <p>Deleting this site removes its content, history, members and uploads. This cannot be undone.</p>
       <details>
-        <summary class="btn btn-danger" style="display: inline-flex; cursor: pointer;">Delete site</summary>
-        <form method="post" action="{% url 'dashboard:tenant_delete' tenant.pk %}" class="stack-3" style="margin-top: 16px;">
+        <summary class="btn btn-danger danger-summary">Delete site</summary>
+        <form method="post" action="{% url 'dashboard:tenant_delete' tenant.pk %}" class="stack-3 danger-form">
           {% csrf_token %}
           <div class="field">
             <label class="field-label" for="confirm_subdomain">

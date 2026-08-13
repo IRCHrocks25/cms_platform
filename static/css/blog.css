@@ -75,6 +75,8 @@
 .reorder-item.is-dragging { opacity: 0.5; border-color: var(--color-blue); }
 .reorder-handle { color: var(--color-text-muted); letter-spacing: -2px; cursor: grab; }
 .reorder-title { font-weight: 500; }
+.reorder-actions { display: inline-flex; gap: 2px; margin-left: auto; }
+.reorder-item:focus-within { border-color: var(--color-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
 
 /* --- Blog form layout --------------------------------------------------- */
 .blog-form-grid {
@@ -178,6 +180,8 @@
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 .rt-toolbar button:hover { background: var(--color-white); color: var(--color-text); border-color: var(--color-border); }
+.rt-toolbar button.is-active,
+.rt-toolbar button[aria-pressed="true"] { background: var(--color-blue-soft); color: var(--color-blue-dark); border-color: color-mix(in srgb, var(--color-blue) 25%, transparent); }
 .rt-sep { width: 1px; height: 20px; background: var(--color-border-strong); margin: 0 4px; }
 
 .rt-editor {
@@ -196,8 +200,9 @@
 .rt-editor p { margin: 0 0 12px; color: var(--color-text); }
 .rt-editor ul, .rt-editor ol { margin: 0 0 12px; padding-left: 24px; }
 .rt-editor blockquote {
-  margin: 12px 0; padding-left: 16px;
-  border-left: 3px solid var(--color-purple);
+  margin: 12px 0; padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-blue-soft);
   color: var(--color-text-soft); font-style: italic;
 }
 .rt-editor img { max-width: 100%; border-radius: var(--radius-sm); margin: 10px 0; }

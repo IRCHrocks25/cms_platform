@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}New client site · Locked CMS{% endblock %}
 
@@ -17,27 +18,27 @@
       </div>
     </div>
 
-    <div class="card" style="max-width: 720px;">
-      <form method="post" class="stack-5" novalidate>
+    <div class="card layout-narrow">
+      <form method="post" class="stack-5">
         {% csrf_token %}
 
         <div>
-          <h3 style="margin-bottom: 4px;">Site</h3>
-          <p style="color: var(--color-text-muted); font-size: 13px; margin: 0 0 16px;">
+          <h3 class="form-section-title">Site</h3>
+          <p class="form-section-copy">
             What clients see first.
           </p>
         </div>
 
         <div class="field">
           <label class="field-label" for="id_name">Site name</label>
-          <input class="input" type="text" name="name" id="id_name" required
+          <input class="input" type="text" name="name" id="id_name" maxlength="120" required
                  placeholder="Bella's Restaurant"
                  value="{{ form_data.name }}">
         </div>
 
         <div class="field">
           <label class="field-label" for="id_subdomain">Subdomain</label>
-          <input class="input" type="text" name="subdomain" id="id_subdomain"
+          <input class="input" type="text" name="subdomain" id="id_subdomain" maxlength="80"
                  pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
                  placeholder="bellas"
                  autocomplete="off"
@@ -75,25 +76,24 @@
         </div>
 
         {# ---- Inline template-create block (revealed when "__new__" is chosen) ---- #}
-        <div id="new-template-block"
-             {% if form_data.template != "__new__" %}hidden{% endif %}
-             style="border: 1px dashed var(--color-border); border-radius: var(--radius-md); padding: 16px; background: var(--color-surface-2);">
-          <div class="row-between" style="margin-bottom: 12px; align-items: flex-start; gap: 16px;">
+        <div id="new-template-block" class="inline-template-panel"
+             {% if form_data.template != "__new__" %}hidden{% endif %}>
+          <div class="row-between inline-template-head">
             <div>
-              <h4 style="margin: 0 0 4px;">New template</h4>
-              <p style="color: var(--color-text-muted); font-size: 13px; margin: 0;">
+              <h4 class="inline-template-title">New template</h4>
+              <p class="inline-template-copy">
                 Paste a URL and click <em>Fetch from URL</em>, then <em>Annotate with AI</em>.
                 The template will be created and assigned to this site in one step.
               </p>
             </div>
-            <a href="#" id="use-saved-template-link" class="field-link" style="font-size: 13px; white-space: nowrap;">
+            <a href="#" id="use-saved-template-link" class="field-link text-sm nowrap">
               Use a saved template instead →
             </a>
           </div>
 
           <div class="field">
             <label class="field-label" for="id_new_template_name">Template name <span class="field-optional">(optional)</span></label>
-            <input class="input" type="text" name="new_template_name" id="id_new_template_name"
+            <input class="input" type="text" name="new_template_name" id="id_new_template_name" maxlength="120"
                    placeholder="Leave blank — we'll name it after the site."
                    value="{{ form_data.new_template_name }}">
             <span class="field-hint">Only used if you plan to re-use this layout later. Otherwise, leave blank.</span>
@@ -106,9 +106,9 @@
           </div>
 
           <div class="field">
-            <div class="row-between" style="align-items: center; margin-bottom: 6px;">
-              <label class="field-label" for="id_new_template_html" style="margin: 0;">HTML source</label>
-              <div class="row" style="gap: 8px;">
+            <div class="row-between source-editor-head">
+              <label class="field-label" for="id_new_template_html">HTML source</label>
+              <div class="row source-editor-actions">
                 <button type="button" id="annotate-btn" class="btn btn-ghost btn-sm"
                         data-url="{% url 'dashboard:template_annotate' %}"
                         data-status-url="{% url 'dashboard:template_annotate_status' '00000000-0000-0000-0000-000000000000' %}"
@@ -119,8 +119,8 @@
               </div>
             </div>
             {# ---- Fetch HTML from a live URL — same endpoint as the standalone template form ---- #}
-            <div class="row" style="gap: 8px; margin-bottom: 8px; align-items: stretch;">
-              <input type="url" id="fetch-url-input" class="input" style="flex: 1;"
+            <div class="row source-fetch-row">
+              <input type="url" id="fetch-url-input" class="input"
                      placeholder="Or paste a URL — e.g. https://susan-rabbyv1.pages.dev/" />
               <button type="button" id="fetch-url-btn" class="btn btn-ghost btn-sm"
                       data-url="{% url 'dashboard:template_fetch_url' %}"
@@ -128,88 +128,80 @@
                 Fetch from URL
               </button>
             </div>
-            <div id="fetch-url-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
-            <div id="annotate-status" hidden style="margin-bottom: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;"></div>
-            <textarea class="textarea" name="new_template_html" id="id_new_template_html" rows="16">{{ form_data.new_template_html }}</textarea>
+            <div id="fetch-url-status" class="async-status" role="status" aria-live="polite" hidden></div>
+            <div id="annotate-status" class="async-status" role="status" aria-live="polite" hidden></div>
+            <textarea class="textarea" name="new_template_html" id="id_new_template_html" rows="16"
+                      data-code-editor aria-label="New template HTML source">{{ form_data.new_template_html }}</textarea>
             <span class="field-hint">
               Use <code>data-section</code> on wrappers and <code>data-edit="section.field"</code> on editable elements.
               Field types: <code>text</code>, <code>richtext</code>, <code>image</code>, <code>color</code>, <code>link</code>.
             </span>
 
-            <div id="preview-panel" hidden style="margin-top: 12px; border: 1px solid var(--color-border, #e5e7eb); border-radius: var(--radius-md); overflow: hidden;">
-              <div class="row-between" style="padding: 8px 12px; background: var(--color-surface-2); font-size: 13px; color: var(--color-text-soft);">
+            <div id="preview-panel" class="source-preview" hidden>
+              <div class="row-between source-preview-head">
                 <span>Live preview (raw — no content substitution)</span>
                 <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
               </div>
-              <iframe id="preview-iframe" style="width: 100%; height: 480px; border: 0; background: white;"></iframe>
+              <iframe id="preview-iframe" class="source-preview-frame source-preview-frame-compact" title="New template preview"></iframe>
             </div>
           </div>
         </div>
 
         {# ---- Side-by-side AI annotation compare overlay --------------- #}
-        <div id="compare-overlay" hidden
-             style="position: fixed; inset: 0; background: rgba(10,10,20,0.55); z-index: 1000; padding: 24px;">
-          <div style="background: var(--color-surface); border-radius: var(--radius-md); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.35);">
-            <div class="row-between" style="padding: 14px 20px; border-bottom: 1px solid var(--color-border); align-items: center;">
+        <div id="compare-overlay" class="compare-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="compare-title">
+          <div class="compare-dialog">
+            <div class="row-between compare-head">
               <div>
-                <div style="font-weight: 600; font-size: 15px;">Compare AI annotation</div>
-                <div id="compare-summary" style="font-size: 12px; color: var(--color-text-soft); margin-top: 2px;"></div>
+                <div id="compare-title" class="compare-title">Compare AI annotation</div>
+                <div id="compare-summary" class="compare-summary"></div>
               </div>
               <button type="button" id="compare-close" class="btn btn-ghost btn-sm">✕ Close</button>
             </div>
-            <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--color-border); overflow: hidden;">
-              <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
-                <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
-                  <div style="font-size: 13px; font-weight: 500;">Your input</div>
-                  <div class="row" style="gap: 4px;">
+            <div class="compare-grid">
+              <div class="compare-side">
+                <div class="row-between compare-side-head">
+                  <div class="compare-side-title">Your input</div>
+                  <div class="row compare-tabs">
                     <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="code">Code</button>
                     <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="preview">Preview</button>
                   </div>
                 </div>
-                <div style="flex: 1; position: relative; overflow: hidden;">
-                  <textarea id="compare-left-code" readonly
-                            style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
-                  <iframe id="compare-left-preview" hidden
-                          style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
+                <div class="compare-pane">
+                  <textarea id="compare-left-code" class="compare-code" readonly></textarea>
+                  <iframe id="compare-left-preview" class="compare-preview" title="Original HTML preview" hidden></iframe>
                 </div>
               </div>
-              <div style="background: var(--color-surface); display: flex; flex-direction: column; min-width: 0;">
-                <div class="row-between" style="padding: 8px 14px; background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); align-items: center;">
-                  <div style="font-size: 13px; font-weight: 500;">AI annotated</div>
-                  <div class="row" style="gap: 4px;">
+              <div class="compare-side">
+                <div class="row-between compare-side-head">
+                  <div class="compare-side-title">AI annotated</div>
+                  <div class="row compare-tabs">
                     <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="code">Code</button>
                     <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="preview">Preview</button>
                   </div>
                 </div>
-                <div style="flex: 1; position: relative; overflow: hidden;">
-                  <textarea id="compare-right-code"
-                            style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: none; background: var(--color-surface);"></textarea>
-                  <iframe id="compare-right-preview" hidden
-                          style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: white;"></iframe>
-                  <div id="compare-loading" class="compare-loading"
-                       style="position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; background: var(--color-surface);">
-                    <div class="compare-loading-inner" style="text-align: center; max-width: 340px; padding: 32px;">
-                      <div class="compare-loading-dots" style="display: inline-flex; gap: 7px;">
-                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
-                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
-                        <span style="width:10px;height:10px;border-radius:50%;background:var(--color-purple);display:inline-block;"></span>
+                <div class="compare-pane">
+                  <textarea id="compare-right-code" class="compare-code"></textarea>
+                  <iframe id="compare-right-preview" class="compare-preview" title="Annotated HTML preview" hidden></iframe>
+                  <div id="compare-loading" class="compare-loading">
+                    <div class="compare-loading-inner">
+                      <div class="compare-loading-dots">
+                        <span class="compare-loading-dot"></span>
+                        <span class="compare-loading-dot"></span>
+                        <span class="compare-loading-dot"></span>
                       </div>
-                      <div class="compare-loading-title" style="font-weight:500;font-size:15px;margin-top:14px;color:var(--color-text);">AI is annotating… <em style="font-style:normal;font-family:var(--font-mono);color:var(--color-purple);">beep boop</em></div>
-                      <div class="compare-progress" style="height:6px;width:280px;max-width:100%;margin:16px auto 0;background:var(--color-surface-2);border-radius:999px;overflow:hidden;">
-                        <div class="compare-progress-bar" id="compare-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--color-blue),var(--color-purple));border-radius:999px;transition:width .45s ease;"></div>
-                      </div>
-                      <div class="compare-loading-sub" id="compare-loading-sub" style="font-size:12px;color:var(--color-text-muted);margin-top:10px;">Reading your HTML…</div>
-                      <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm" hidden style="margin-top: 14px;">Try again</button>
+                      <div class="compare-loading-title">AI is annotating your HTML</div>
+                      <div class="compare-loading-sub" id="compare-loading-sub">Reading your HTML…</div>
+                      <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm compare-loading-retry" hidden>Try again</button>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="row-between" style="padding: 12px 20px; border-top: 1px solid var(--color-border); align-items: center; background: var(--color-surface-2);">
-              <div style="font-size: 12px; color: var(--color-text-soft);">
+            <div class="row-between compare-footer">
+              <div class="compare-help">
                 You can edit the AI output on the right before applying.
               </div>
-              <div class="row" style="gap: 8px;">
+              <div class="row compare-actions">
                 <button type="button" id="compare-retry" class="btn btn-ghost btn-sm">↻ Re-run AI</button>
                 <button type="button" id="compare-cancel" class="btn btn-secondary btn-sm">Cancel</button>
                 <button type="button" id="compare-apply" class="btn btn-primary btn-sm">Apply annotation</button>
@@ -226,18 +218,18 @@
           <span class="field-hint">You can connect a custom domain later — leave blank for now.</span>
         </div>
 
-        <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 8px 0;">
+        <hr class="section-rule">
 
         <div>
-          <h3 style="margin-bottom: 4px;">Client login</h3>
-          <p style="color: var(--color-text-muted); font-size: 13px; margin: 0 0 16px;">
+          <h3 class="form-section-title">Client login</h3>
+          <p class="form-section-copy">
             We'll generate a password and show it to you once on the next screen.
           </p>
         </div>
 
         <div class="field">
           <label class="field-label" for="id_client_username">Username</label>
-          <input class="input" type="text" name="client_username" id="id_client_username" required
+          <input class="input" type="text" name="client_username" id="id_client_username" maxlength="150" required
                  placeholder="alice"
                  autocomplete="off"
                  value="{{ form_data.client_username }}">
@@ -253,12 +245,13 @@
 
         <div class="row-end">
           <a href="{% url 'dashboard:tenant_list' %}" class="btn btn-ghost">Cancel</a>
-          <button type="submit" class="btn btn-purple">Create client site</button>
+          <button type="submit" class="btn btn-primary">Create client site</button>
         </div>
       </form>
     </div>
   </div>
 
+  <script src="{% static 'js/code-editor.js' %}"></script>
   <script>
     (function () {
       var input = document.getElementById("id_subdomain");
@@ -391,15 +384,13 @@
       function showStatus(msg, kind) {
         fetchStatus.hidden = false;
         fetchStatus.textContent = msg;
-        fetchStatus.style.background = kind === "error" ? "#fef2f2" : "#ecfeff";
-        fetchStatus.style.color      = kind === "error" ? "#991b1b" : "#0e7490";
-        fetchStatus.style.border     = "1px solid " + (kind === "error" ? "#fecaca" : "#a5f3fc");
+        fetchStatus.dataset.state = kind;
       }
       function clearStatus() { fetchStatus.hidden = true; fetchStatus.textContent = ""; }
 
       function doFetch() {
         var url = (fetchInput.value || "").trim();
-        if (!url) { showStatus("Paste a URL first.", "error"); return; }
+        if (!url) { showStatus("Enter the page URL you want to fetch.", "error"); return; }
 
         // The textarea is pre-seeded with STARTER_TEMPLATE_HTML on GET, so
         // suppress the "replace?" prompt only when the textarea was actually
@@ -430,7 +421,7 @@
             showStatus(data.error || "Could not fetch that URL.", "error");
           }
         })
-        .catch(function () { showStatus("Network error while fetching.", "error"); })
+        .catch(function () { showStatus("The page could not be fetched because the network connection failed. Check your connection and try again.", "error"); })
         .then(function () { fetchBtn.disabled = false; });
       }
 
@@ -487,10 +478,7 @@
 
       function setStatus(kind, message) {
         statusBox.removeAttribute("hidden");
-        var bg = kind === "error" ? "#fef2f2" : kind === "ok" ? "#ecfdf5" : "#eff6ff";
-        var fg = kind === "error" ? "#991b1b" : kind === "ok" ? "#065f46" : "#1e3a8a";
-        statusBox.style.background = bg;
-        statusBox.style.color = fg;
+        statusBox.dataset.state = kind === "ok" ? "success" : kind;
         statusBox.textContent = message;
       }
 
@@ -511,30 +499,22 @@
       var savedInputForRetry = "";
 
       var compareLoading = document.getElementById("compare-loading");
-      var progressBar = document.getElementById("compare-progress-bar");
       var loadingSub = document.getElementById("compare-loading-sub");
       var loadingRetry = document.getElementById("compare-loading-retry");
-      var progressTimer = null, elapsedTimer = null, loadStart = 0, progressPct = 0;
+      var elapsedTimer = null, loadStart = 0;
 
       function stopProgress() {
-        clearInterval(progressTimer); clearInterval(elapsedTimer);
-        progressTimer = elapsedTimer = null;
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
       }
       function startProgress() {
         stopProgress();
-        progressPct = 0;
         loadStart = Date.now();
-        if (progressBar) progressBar.style.width = "0%";
         if (loadingSub) loadingSub.textContent = "Reading your HTML…";
         if (loadingRetry) loadingRetry.hidden = true;
-        // Estimated progress: eases toward 95% (we can't know real % from one call).
-        progressTimer = setInterval(function () {
-          progressPct += (95 - progressPct) * 0.045;
-          if (progressBar) progressBar.style.width = progressPct.toFixed(1) + "%";
-        }, 200);
         elapsedTimer = setInterval(function () {
           var s = Math.round((Date.now() - loadStart) / 1000);
-          if (loadingSub) loadingSub.textContent = s + "s · usually 10–30s";
+          if (loadingSub) loadingSub.textContent = "Working for " + s + "s · large pages can take 1–2 min";
         }, 1000);
       }
       function openCompareLoading(originalHtml) {
@@ -545,14 +525,13 @@
         setView("right", "code");
         overlaySummary.textContent = "Annotating your HTML…";
         overlay.removeAttribute("hidden");
-        document.body.style.overflow = "hidden";
-        if (compareLoading) compareLoading.style.display = "flex";
+        document.body.classList.add("compare-open");
+        if (compareLoading) compareLoading.classList.add("is-visible");
         if (compareApply) compareApply.disabled = true;
         startProgress();
       }
       function fillCompareResult(annotatedHtml, sections) {
         stopProgress();
-        if (progressBar) progressBar.style.width = "100%";
         rightCode.value = annotatedHtml;
         setView("left", "code");
         setView("right", "code");
@@ -562,11 +541,10 @@
           : "AI returned HTML but no editable sections were detected — review the output carefully.";
         overlaySummary.textContent = summary;
         if (compareApply) compareApply.disabled = false;
-        setTimeout(function () { if (compareLoading) compareLoading.style.display = "none"; }, 250);
+        setTimeout(function () { if (compareLoading) compareLoading.classList.remove("is-visible"); }, 250);
       }
       function showLoadingError(msg) {
         stopProgress();
-        if (progressBar) progressBar.style.width = "100%";
         if (loadingSub) loadingSub.textContent = msg || "Annotation failed.";
         if (loadingRetry) loadingRetry.hidden = false;
       }
@@ -585,13 +563,7 @@
         }
         var tabs = document.querySelectorAll('.compare-tab[data-side="' + side + '"]');
         tabs.forEach(function (t) {
-          if (t.dataset.view === view) {
-            t.style.background = "var(--color-surface)";
-            t.style.fontWeight = "600";
-          } else {
-            t.style.background = "";
-            t.style.fontWeight = "";
-          }
+          t.classList.toggle("is-active", t.dataset.view === view);
         });
       }
 
@@ -620,15 +592,15 @@
           : "AI returned HTML but no editable sections were detected — review the output carefully.";
         overlaySummary.textContent = summary;
         overlay.removeAttribute("hidden");
-        document.body.style.overflow = "hidden";
+        document.body.classList.add("compare-open");
       }
 
       function closeCompare() {
         if (!compareReady) return;
         stopProgress();
-        if (compareLoading) compareLoading.style.display = "none";
+        if (compareLoading) compareLoading.classList.remove("is-visible");
         overlay.setAttribute("hidden", "");
-        document.body.style.overflow = "";
+        document.body.classList.remove("compare-open");
       }
 
       if (compareReady) {
@@ -636,7 +608,8 @@
         compareCancel.addEventListener("click", closeCompare);
         compareApply.addEventListener("click", function () {
           textarea.value = rightCode.value;
-          setStatus("ok", "Annotation applied. Fill in the rest and create the site.");
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          setStatus("ok", "AI annotations applied. Create the site to keep them.");
           closeCompare();
           if (!panel.hasAttribute("hidden")) render();
         });
@@ -672,7 +645,7 @@
         if (compareRetry) compareRetry.disabled = true;
         var originalText = annotateBtn.textContent;
         annotateBtn.textContent = "Annotating…";
-        setStatus("info", "Sending to OpenAI — large pages can take a minute or two.");
+        setStatus("info", "AI annotation started. Large pages can take up to two minutes.");
         savedInputForRetry = sourceHtml;
         if (compareReady) openCompareLoading(sourceHtml);
 
@@ -687,7 +660,7 @@
           resetButton();
         }
         function succeed(body) {
-          setStatus("info", "AI returned — compare the two versions and choose whether to apply.");
+          setStatus("info", "AI annotation is ready. Compare both versions, then apply or cancel.");
           if (compareReady) fillCompareResult(body.html, body.sections || []);
           else openCompare(sourceHtml, body.html, body.sections || []);
           resetButton();
@@ -754,7 +727,7 @@
       annotateBtn.addEventListener("click", function () {
         var raw = textarea.value.trim();
         if (!raw) {
-          setStatus("error", "Paste some HTML first.");
+          setStatus("error", "Add HTML source before starting AI annotation.");
           return;
         }
         runAnnotate(raw);

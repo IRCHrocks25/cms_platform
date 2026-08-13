@@ -11,10 +11,19 @@
 
   var content = window.CMS.content || {};
   var saveTimer = null;
+  var saveInFlight = false;
+  var saveQueued = false;
+  var hasUnsavedChanges = false;
   var saveDot = document.getElementById("save-dot");
   var saveText = document.getElementById("save-text");
+  var saveRetry = document.getElementById("save-retry");
   var previewFrame = document.getElementById("preview-frame");
   var previewReady = false;
+  var previewLoading = document.getElementById("preview-loading");
+  var previewLoadingTitle = document.getElementById("preview-loading-title");
+  var previewLoadingCopy = document.getElementById("preview-loading-copy");
+  var previewRetry = document.getElementById("preview-retry");
+  var previewTimeout = null;
 
   // ---- helpers ---------------------------------------------------------
   // Minimal in-browser HTML scrub — neutralizes stored richtext before it is
@@ -54,8 +63,9 @@
     content[parts[0]][parts[1]] = value;
   }
 
-  function setStatus(state) {
-    saveDot.classList.remove("saving", "saved");
+  function setStatus(state, message) {
+    saveDot.classList.remove("saving", "saved", "error");
+    if (saveRetry) saveRetry.hidden = state !== "error";
     if (state === "saving") {
       saveDot.classList.add("saving");
       saveText.textContent = "Saving…";
@@ -65,19 +75,28 @@
     } else if (state === "dirty") {
       saveText.textContent = "Unsaved changes";
     } else if (state === "error") {
-      saveText.textContent = "Save failed — retrying";
+      saveDot.classList.add("error");
+      saveText.textContent = message || (navigator.onLine
+        ? "Changes were not saved. Try again."
+        : "You’re offline. Changes will retry when you reconnect.");
     }
   }
 
   // ---- save ------------------------------------------------------------
   function scheduleSave() {
     if (window.CMS && window.CMS.readOnly) return;
+    hasUnsavedChanges = true;
     setStatus("dirty");
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 600);
   }
 
   function save() {
+    if (window.CMS && window.CMS.readOnly) return;
+    if (saveInFlight) { saveQueued = true; return; }
+    saveInFlight = true;
+    saveQueued = false;
+    var snapshot = JSON.stringify(content);
     setStatus("saving");
     fetch(window.CMS.saveUrl, {
       method: "POST",
@@ -86,12 +105,66 @@
         "Content-Type": "application/json",
         "X-CSRFToken": window.CMS.csrfToken,
       },
-      body: JSON.stringify({ content: content }),
+      body: JSON.stringify({ content: JSON.parse(snapshot) }),
     })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-      .then(function () { setStatus("saved"); })
-      .catch(function () { setStatus("error"); setTimeout(save, 2000); });
+      .then(function () {
+        saveInFlight = false;
+        if (saveQueued || JSON.stringify(content) !== snapshot) {
+          saveQueued = false;
+          save();
+          return;
+        }
+        hasUnsavedChanges = false;
+        setStatus("saved");
+      })
+      .catch(function (error) {
+        saveInFlight = false;
+        hasUnsavedChanges = true;
+        if (error && (error.status === 401 || error.status === 403)) {
+          setStatus("error", "Your session expired. Sign in again, then retry the save.");
+        } else if (error && error.status === 429) {
+          setStatus("error", "Too many save attempts. Wait a moment, then try again.");
+        } else if (error && error.status >= 500) {
+          setStatus("error", "The server could not save your changes. Try again.");
+        } else {
+          setStatus("error");
+        }
+      });
   }
+
+  if (saveRetry) saveRetry.addEventListener("click", save);
+  window.addEventListener("online", function () { if (hasUnsavedChanges) save(); });
+  window.addEventListener("beforeunload", function (e) {
+    if (!hasUnsavedChanges || (window.CMS && window.CMS.readOnly)) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  function setPreviewState(state) {
+    if (!previewLoading) return;
+    clearTimeout(previewTimeout);
+    if (state === "ready") {
+      previewLoading.hidden = true;
+      return;
+    }
+    previewLoading.hidden = false;
+    if (previewRetry) previewRetry.hidden = state !== "error";
+    if (previewLoadingTitle) previewLoadingTitle.textContent = state === "error" ? "Preview didn’t load" : "Loading preview…";
+    if (previewLoadingCopy) previewLoadingCopy.textContent = state === "error" ? "Your edits are safe. Reload just the preview to try again." : "Preparing the latest version of this page.";
+    if (state === "loading") {
+      previewTimeout = setTimeout(function () { if (!previewReady) setPreviewState("error"); }, 12000);
+    }
+  }
+
+  function reloadPreview() {
+    previewReady = false;
+    setPreviewState("loading");
+    var src = previewFrame.getAttribute("src").split("#")[0];
+    previewFrame.setAttribute("src", src + "#reload-" + Date.now());
+  }
+  if (previewRetry) previewRetry.addEventListener("click", reloadPreview);
+  setPreviewState("loading");
 
   // ---- preview bridge --------------------------------------------------
   function pushToPreview(patch) {
@@ -383,6 +456,7 @@
     if (data.source !== "cms-preview") return;
     if (data.type === "ready") {
       previewReady = true;
+      setPreviewState("ready");
       pushAllToPreview();
       // Re-assert hidden state in case content._hidden has unsaved changes the
       // freshly server-rendered iframe doesn't reflect yet.
@@ -939,6 +1013,53 @@
 
     setStatus("saved");
 
+    // Narrow screens use explicit, predictable views instead of squeezing all
+    // three editor columns into unusable slivers.
+    var editorShell = document.getElementById("editor-shell");
+    document.querySelectorAll("[data-editor-view]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var view = btn.getAttribute("data-editor-view");
+        editorShell.setAttribute("data-mobile-view", view);
+        document.querySelectorAll("[data-editor-view]").forEach(function (other) {
+          var active = other === btn;
+          other.classList.toggle("active", active);
+          other.setAttribute("aria-selected", active ? "true" : "false");
+        });
+      });
+    });
+
+    var activeDialog = null;
+    var dialogReturnFocus = null;
+    function openDialog(dialog, trigger) {
+      if (!dialog) return;
+      dialogReturnFocus = trigger || document.activeElement;
+      dialog.hidden = false;
+      activeDialog = dialog;
+      document.body.classList.add("has-modal");
+      var first = dialog.querySelector("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      if (first) first.focus();
+    }
+    function closeDialog(dialog) {
+      if (!dialog) return;
+      dialog.hidden = true;
+      if (activeDialog === dialog) activeDialog = null;
+      document.body.classList.remove("has-modal");
+      if (dialogReturnFocus && dialogReturnFocus.focus) dialogReturnFocus.focus();
+      dialogReturnFocus = null;
+    }
+    document.addEventListener("keydown", function (e) {
+      if (!activeDialog) return;
+      if (e.key === "Escape") { e.preventDefault(); closeDialog(activeDialog); return; }
+      if (e.key !== "Tab") return;
+      var focusable = Array.prototype.slice.call(activeDialog.querySelectorAll(
+        "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+      )).filter(function (el) { return !el.hidden; });
+      if (!focusable.length) return;
+      var first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+
     // ---- site settings modal --------------------------------------------
     var settingsModal = document.getElementById("settings-modal");
     var openBtn = document.getElementById("open-settings-btn");
@@ -955,7 +1076,7 @@
 
     function openSettings() {
       statusEl.textContent = "Loading…";
-      settingsModal.style.display = "";
+      openDialog(settingsModal, openBtn);
       fetch(window.CMS.settingsUrl, {
         method: "GET",
         credentials: "same-origin",
@@ -977,7 +1098,7 @@
     }
 
     function closeSettings() {
-      settingsModal.style.display = "none";
+      closeDialog(settingsModal);
     }
 
     function saveSettings() {
@@ -1023,11 +1144,6 @@
         if (e.target === settingsModal) closeSettings();
       });
     }
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && settingsModal && settingsModal.style.display !== "none") {
-        closeSettings();
-      }
-    });
 
     // ---- version history modal ------------------------------------------
     var historyModal = document.getElementById("history-modal");
@@ -1037,7 +1153,7 @@
     var versionList = document.getElementById("version-list");
     var historyStatus = document.getElementById("history-status");
 
-    function closeHistory() { if (historyModal) historyModal.style.display = "none"; }
+    function closeHistory() { closeDialog(historyModal); }
 
     function fmtTime(iso) {
       try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
@@ -1101,7 +1217,7 @@
 
     function openHistory() {
       if (!historyModal) return;
-      historyModal.style.display = "";
+      openDialog(historyModal, openHistoryBtn);
       historyStatus.textContent = "Loading…";
       versionList.innerHTML = "";
       fetch(window.CMS.versionsUrl, {
@@ -1121,9 +1237,6 @@
         if (e.target === historyModal) closeHistory();
       });
     }
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && historyModal && historyModal.style.display !== "none") closeHistory();
-    });
 
     // ---- media gallery modal --------------------------------------------
     var galleryModal = document.getElementById("gallery-modal");
@@ -1164,7 +1277,7 @@
     }
 
     function closeGallery() {
-      if (galleryModal) galleryModal.style.display = "none";
+      closeDialog(galleryModal);
       gallerySelected = null;
       galleryPickFieldId = null;
       galleryAssets = [];
@@ -1203,6 +1316,7 @@
       galleryRenaming = false;
       galleryDetail.hidden = false;
       if (galleryDetailImg) {
+        galleryDetailImg.hidden = false;
         galleryDetailImg.src = item.url;
         galleryDetailImg.alt = item.name || "";
       }
@@ -1320,7 +1434,7 @@
           ? "Select an image, then click Use — or double-click to apply it."
           : "Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.";
       }
-      galleryModal.style.display = "";
+      openDialog(galleryModal, galleryPickFieldId ? document.querySelector('[data-gallery-pick="' + galleryPickFieldId + '"]') : openGalleryBtn);
       if (galleryGrid) galleryGrid.innerHTML = "";
       if (galleryCount) galleryCount.textContent = "";
       reloadGallery();
@@ -1511,20 +1625,6 @@
         if (e.target === galleryModal) closeGallery();
       });
     }
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && galleryModal && galleryModal.style.display !== "none") {
-        if (galleryRenaming) {
-          galleryRenaming = false;
-          if (galleryDetailName) {
-            galleryDetailName.value = gallerySelected ? (gallerySelected.name || "") : "";
-            galleryDetailName.readOnly = true;
-          }
-          if (galleryRenameBtn) galleryRenameBtn.textContent = "Rename";
-          return;
-        }
-        closeGallery();
-      }
-    });
     document.querySelectorAll("[data-gallery-pick]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         openGallery(btn.getAttribute("data-gallery-pick"));

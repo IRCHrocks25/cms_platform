@@ -2,36 +2,6 @@
 
 {% block title %}{% if assistant_obj %}Edit assistant{% else %}New assistant{% endif %} · KATEK-AI CMS{% endblock %}
 
-{% block extra_head %}
-<style>
-  .assist-form{--line:#e6e8f0;--muted:#6b7280;--ink:#111827;--panel:#fff;--bg:#f8f9fd;--brand:#2563eb;}
-  .assist-form .breadcrumbs{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:18px;}
-  .assist-form .breadcrumbs a{color:var(--muted);font-weight:500;}
-  .assist-form .head h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;}
-  .assist-form .head p{margin:0;color:var(--muted);}
-  .assist-form .layout{margin-top:22px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);gap:18px;align-items:start;}
-  .assist-form .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(17,24,39,.04);}
-  .assist-form .fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-  .assist-form .fields .field{margin-bottom:0;}
-  .assist-form .fields .field.full{grid-column:1/-1;}
-  .assist-form .section-title{font-size:14px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;}
-  .assist-form .hint{font-size:12px;color:var(--muted);margin-top:6px;}
-  .assist-form .embed-box{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;}
-  .assist-form .embed-box h4{font-size:13px;margin:0 0 8px;color:var(--ink);}
-  .assist-form .code{width:100%;min-height:110px;border:1px solid #d9deed;border-radius:10px;background:#0f172a;color:#e2e8f0;font-family:var(--font-mono);font-size:12px;padding:10px;line-height:1.45;resize:vertical;}
-  .assist-form .code.short{min-height:64px;}
-  .assist-form .copy-row{display:flex;justify-content:flex-end;margin-top:8px;}
-  .assist-form .copy-btn{padding:6px 10px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;}
-  .assist-form .copy-btn:hover{border-color:#cfd8ea;}
-  .assist-form .preview-wrap{margin-top:14px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;}
-  .assist-form .preview-head{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);background:#f9fafe;}
-  .assist-form .preview-frame{width:100%;height:420px;border:0;background:#fff;}
-  .assist-form .stack > * + *{margin-top:14px;}
-  .assist-form .actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap;}
-  @media (max-width:1080px){.assist-form .layout{grid-template-columns:1fr;}.assist-form .fields{grid-template-columns:1fr;}}
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="page assist-form">
   <div class="breadcrumbs">
@@ -113,7 +83,7 @@
 
       <div class="actions">
         <div class="row">
-          <button type="submit" class="btn btn-purple">{% if assistant_obj %}Save changes{% else %}Create assistant{% endif %}</button>
+          <button type="submit" class="btn btn-primary">{% if assistant_obj %}Save changes{% else %}Create assistant{% endif %}</button>
           <a href="{% url 'dashboard:assistant_list' %}" class="btn btn-secondary">Back to assistants</a>
         </div>
         {% if assistant_obj %}
@@ -223,9 +193,10 @@
       const widgetUrl = query ? baseUrl + "?" + query : baseUrl;
       snippetUrl.value = widgetUrl;
       snippetIframe.value =
-`<iframe
+`<style>.locked-cms-assistant-frame{position:fixed;bottom:0;right:0;width:400px;height:640px;border:0;z-index:9999}</style>
+<iframe
   src="${escAttr(widgetUrl)}"
-  style="position:fixed;bottom:0;right:0;width:400px;height:640px;border:none;z-index:9999;"
+  class="locked-cms-assistant-frame"
   allow="microphone"
   title="AI Assistant"
 ></iframe>`;

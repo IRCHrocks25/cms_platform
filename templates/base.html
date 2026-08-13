@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="{% static 'css/base.css' %}">
+  <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -35,7 +35,7 @@
         <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
         {# ---- Sidebar ---- #}
-        <aside class="sidebar" id="app-sidebar">
+        <aside class="app-sidebar" id="app-sidebar">
           <a href="{% if request.tenant %}{{ tenant_home_url }}{% else %}{{ agency_root_url }}{% endif %}" class="sidebar-brand">
             <span class="brand-mark">L</span>
             <span class="sidebar-brand-text">
@@ -44,11 +44,15 @@
             </span>
           </a>
 
-          <nav class="sidebar-nav" aria-label="Primary">
+          <nav class="app-sidebar-nav" aria-label="Primary">
             {% if request.tenant %}
               <a href="{{ tenant_home_url }}" class="sidebar-nav-link {% if nav_section == 'editor' %}active{% endif %}">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                 <span>Editor</span>
+              </a>
+              <a href="{% url 'dashboard:page_list_self' %}" class="sidebar-nav-link {% if nav_section == 'pages' %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/></svg>
+                <span>Pages</span>
               </a>
               <a href="{% url 'dashboard:blog_list_self' %}" class="sidebar-nav-link {% if nav_section == 'blog' %}active{% endif %}">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
@@ -71,7 +75,7 @@
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
                 <span>Templates</span>
               </a>
-              <div class="sidebar-nav-label">Automation</div>
+              <div class="app-sidebar-nav-label">Automation</div>
               <a href="{% url 'dashboard:assistant_list' %}" class="sidebar-nav-link {% if nav_section == 'assistants' %}active{% endif %}">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 0-7 7v4a7 7 0 0 0 14 0v-4a7 7 0 0 0-7-7Z"/><path d="M8 12h8"/><path d="M10 16h4"/><circle cx="9" cy="9.5" r="1"/><circle cx="15" cy="9.5" r="1"/></svg>
                 <span>AI Assistants</span>
@@ -119,15 +123,15 @@
           {% if messages %}
             <div class="flash-stack">
               {% for message in messages %}
-                <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+                <div class="flash flash-{{ message.tags|default:'info' }}" {% if message.tags == 'error' %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>
               {% endfor %}
             </div>
           {% endif %}
     {% else %}
       {% if messages %}
-        <div class="container" style="padding-top: 16px;">
+        <div class="container flash-shell">
           {% for message in messages %}
-            <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+            <div class="flash flash-{{ message.tags|default:'info' }}" {% if message.tags == 'error' %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>
           {% endfor %}
         </div>
       {% endif %}
@@ -173,6 +177,7 @@
     {% endif %}
   {% endblock %}
 
+  <script defer src="{% static 'js/dashboard.js' %}"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

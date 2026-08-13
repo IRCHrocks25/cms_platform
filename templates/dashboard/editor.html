@@ -30,42 +30,50 @@
       {% endif %}
     </div>
 
-    <div class="row">
-      <div class="preview-status">
+    <div class="editor-bar-actions">
+      <div class="preview-status" role="status" aria-live="polite" aria-atomic="true">
         <span class="status-dot" id="save-dot"></span>
         <span id="save-text">All changes saved</span>
+        <button type="button" class="save-retry" id="save-retry" hidden>Retry</button>
       </div>
       {% if live_url %}
         <a href="{{ live_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
       {% endif %}
-      <a href="{{ page_list_url }}" class="btn btn-secondary">Pages</a>
-      <a href="{{ blog_url }}" class="btn btn-secondary">Blog</a>
-      {% if scope == "tenant" and team_url %}
-        <a href="{{ team_url }}" class="btn btn-secondary">Team</a>
-      {% endif %}
-      {% if versions_url %}
-        <button type="button" class="btn btn-secondary" id="open-history-btn">History</button>
-      {% endif %}
-      <button type="button" class="btn btn-secondary" id="open-gallery-btn">Gallery</button>
-      <button type="button" class="btn btn-secondary" id="open-settings-btn">Settings</button>
-      <form method="post" action="{{ publish_url }}" style="display: inline;">
+      <details class="editor-tools">
+        <summary class="btn btn-secondary">Tools</summary>
+        <div class="editor-tools-menu">
+          {% if live_url %}<a href="{{ live_url }}" target="_blank" rel="noopener">View site</a>{% endif %}
+          <a href="{{ page_list_url }}">Pages</a>
+          <a href="{{ blog_url }}">Blog</a>
+          {% if scope == "tenant" and team_url %}<a href="{{ team_url }}">Team</a>{% endif %}
+          {% if versions_url %}<button type="button" id="open-history-btn">History</button>{% endif %}
+          <button type="button" id="open-gallery-btn">Gallery</button>
+          <button type="button" id="open-settings-btn">Settings</button>
+        </div>
+      </details>
+      <form method="post" action="{{ publish_url }}" class="editor-publish-form">
         {% csrf_token %}
-        <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-purple{% endif %}">
-          {% if target_is_published %}Unpublish{% else %}Publish{% endif %}
+        <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-primary{% endif %}">
+          {% if target_is_published %}Unpublish page{% else %}Publish page{% endif %}
         </button>
       </form>
     </div>
   </div>
 
   {% if scope == "tenant" and not client_editable %}
-    <div class="card page-section" role="status"
-         style="margin: 16px 24px 0; border-left: 4px solid var(--color-warning, #c67800); background: var(--color-surface-warning, #fff8eb); padding: 14px 16px;">
-      <strong style="display: block; margin-bottom: 4px;">Editing isn’t available yet</strong>
-      <div style="font-size: 13px; color: var(--color-text-soft, #555);">
+    <div class="editor-readonly-notice" role="status">
+      <strong>Editing isn’t available yet</strong>
+      <div>
         This site isn’t set up for editing yet — contact your agency.
       </div>
     </div>
   {% endif %}
+
+  <div class="editor-mobile-switcher" role="tablist" aria-label="Editor view">
+    <button type="button" class="active" role="tab" aria-selected="true" data-editor-view="edit">Edit</button>
+    <button type="button" role="tab" aria-selected="false" data-editor-view="preview">Preview</button>
+    <button type="button" role="tab" aria-selected="false" data-editor-view="sections">Sections</button>
+  </div>
 
   <div class="editor-shell {{ layout_mode }}{% if scope == 'tenant' and not client_editable %} is-readonly{% endif %}" id="editor-shell"
        {% if scope == "tenant" and not client_editable %}aria-disabled="true"{% endif %}>
@@ -92,10 +100,10 @@
         <div class="sidebar-group">
           <div class="sidebar-group-label">{{ group.grouper }}</div>
           {% for section in group.list %}
-            <div class="sidebar-link" data-jump="{{ section.id }}">
+            <button type="button" class="sidebar-link" data-jump="{{ section.id }}">
               <span class="sidebar-link-icon">{{ section.label|first|upper }}</span>
               <span>{{ section.label }}</span>
-            </div>
+            </button>
           {% endfor %}
         </div>
       {% endfor %}
@@ -145,6 +153,19 @@
       {% endif %}
 
       <div class="editor-tab-panel" data-panel="content">
+        {% if not content_sections %}
+          <div class="empty editor-zero-state" role="status">
+            {% if scope == "tenant" %}
+              <h3>No editable content yet</h3>
+              <p>Your agency needs to finish preparing this page before its content can be edited.</p>
+              <a class="btn btn-secondary" href="{{ page_list_url }}">View your pages</a>
+            {% else %}
+              <h3>No editable sections detected</h3>
+              <p>Annotate this page's HTML with <code>data-section</code> and <code>data-edit</code> markers, then return here.</p>
+              <a class="btn btn-secondary" href="{% if editing_page %}{% url 'dashboard:page_edit_html' tenant.pk editing_page.pk %}{% else %}{% url 'dashboard:template_detail' tenant.template.pk %}{% endif %}">Edit HTML source</a>
+            {% endif %}
+          </div>
+        {% endif %}
         {% for section in content_sections %}
           <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
             <div class="editor-form-section-head">
@@ -233,7 +254,7 @@
         {% if theme_tokens %}
           <div class="editor-form-section" data-section-id="_tokens">
             <div class="editor-form-section-head"><h2>Theme colors</h2></div>
-            <p class="field-hint" style="margin: 0 0 8px;">These recolor your whole site — buttons, headings and accents update together.</p>
+            <p class="field-hint mb-2">These recolor your whole site — buttons, headings and accents update together.</p>
             <div class="stack-5">
               {% for tk in theme_tokens %}
                 <div class="field"><span class="field-label">{{ tk.label }}</span>
@@ -256,7 +277,7 @@
       {% endif %}
     </section>
 
-    <section class="editor-preview">
+    <section class="editor-preview" id="editor-preview">
       <div class="preview-toolbar">
         <div class="preview-status">Live preview</div>
         <div class="viewport-toggle" id="viewport-toggle">
@@ -266,6 +287,14 @@
         </div>
       </div>
       <div class="preview-frame-wrap">
+        <div class="preview-loading" id="preview-loading" role="status" aria-live="polite">
+          <div class="preview-loading-card">
+            <span class="spinner" aria-hidden="true"></span>
+            <strong id="preview-loading-title">Loading preview…</strong>
+            <span id="preview-loading-copy">Preparing the latest version of this page.</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="preview-retry" hidden>Reload preview</button>
+          </div>
+        </div>
         <iframe id="preview-frame" class="preview-frame"
                 src="{{ preview_url }}"
                 title="Site preview"></iframe>
@@ -275,11 +304,11 @@
   </div>
 
   <!-- Site Settings modal -->
-  <div class="modal-overlay" id="settings-modal" style="display: none;">
-    <div class="modal">
+  <div class="modal-overlay" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="modal" tabindex="-1">
       <div class="modal-header">
-        <h2>Site Settings</h2>
-        <button type="button" class="modal-close" id="close-settings-btn">&times;</button>
+        <h2 id="settings-title">Site settings</h2>
+        <button type="button" class="modal-close" id="close-settings-btn" aria-label="Close site settings">&times;</button>
       </div>
       <div class="modal-body">
         <div class="field">
@@ -315,28 +344,28 @@
             <strong>Custom Head Script</strong> &mdash; Scripts entered here run on your public site.
             Only paste code from services you trust (e.g. chat widgets, analytics, pixels).
           </div>
-          <textarea class="input" id="ss-custom-script" rows="5"
-                    placeholder='<script src="..."></script>' style="font-family: var(--font-mono); font-size: 13px;"></textarea>
+          <textarea class="input code-textarea" id="ss-custom-script" rows="5"
+                    placeholder='<script src="..."></script>'></textarea>
           <span class="field-hint">Injected into the &lt;head&gt; of your published site.</span>
         </div>
       </div>
       <div class="modal-footer">
         <span class="settings-status" id="settings-status"></span>
         <button type="button" class="btn btn-secondary" id="cancel-settings-btn">Cancel</button>
-        <button type="button" class="btn btn-purple" id="save-settings-btn">Save Settings</button>
+        <button type="button" class="btn btn-primary" id="save-settings-btn">Save settings</button>
       </div>
     </div>
   </div>
 
   <!-- Version history modal -->
-  <div class="modal-overlay" id="history-modal" style="display: none;">
-    <div class="modal">
+  <div class="modal-overlay" id="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title" hidden>
+    <div class="modal" tabindex="-1">
       <div class="modal-header">
-        <h2>Version history</h2>
-        <button type="button" class="modal-close" id="close-history-btn">&times;</button>
+        <h2 id="history-title">Version history</h2>
+        <button type="button" class="modal-close" id="close-history-btn" aria-label="Close version history">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="field-hint" style="margin: 0 0 var(--space-2);">
+        <p class="field-hint modal-intro">
           The last 10 saves. Restoring snapshots your current version first, so you can always undo a restore.
         </p>
         <ul class="version-list" id="version-list"></ul>
@@ -349,28 +378,29 @@
   </div>
 
   <!-- Media gallery modal -->
-  <div class="modal-overlay" id="gallery-modal" style="display: none;">
-    <div class="modal modal-wide">
+  <div class="modal-overlay" id="gallery-modal" role="dialog" aria-modal="true" aria-labelledby="gallery-title" hidden>
+    <div class="modal modal-wide" tabindex="-1">
       <div class="modal-header">
-        <h2>Image gallery</h2>
+        <h2 id="gallery-title">Image gallery</h2>
         <button type="button" class="modal-close" id="close-gallery-btn" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="field-hint" id="gallery-hint" style="margin: 0;">
+        <p class="field-hint modal-intro" id="gallery-hint">
           Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.
         </p>
         <div class="gallery-layout">
           <div class="gallery-grid" id="gallery-grid"></div>
           <aside class="gallery-detail" id="gallery-detail" hidden>
             <div class="gallery-detail-preview">
-              <img id="gallery-detail-img" src="" alt="">
+              <img id="gallery-detail-img" alt="" hidden
+                   src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 100'%3E%3Crect width='160' height='100' rx='10' fill='%23edf3ff'/%3E%3Ccircle cx='116' cy='28' r='10' fill='%23b7ccff'/%3E%3Cpath d='M18 79 55 44l22 21 16-15 49 29H18Z' fill='%237799ee'/%3E%3C/svg%3E">
             </div>
             <div class="gallery-detail-meta">
-              <div class="field" style="margin: 0;">
+              <div class="field gallery-detail-field">
                 <label class="field-label" for="gallery-detail-name">Name</label>
                 <input class="input" type="text" id="gallery-detail-name" maxlength="240" readonly>
               </div>
-              <p class="field-hint" id="gallery-detail-note" style="margin: 0;"></p>
+              <p class="field-hint gallery-detail-note" id="gallery-detail-note"></p>
               <div class="gallery-detail-actions">
                 <button type="button" class="btn btn-secondary btn-sm" id="gallery-open-btn">Open</button>
                 <button type="button" class="btn btn-secondary btn-sm" id="gallery-copy-btn">Copy URL</button>
@@ -386,7 +416,7 @@
       <div class="modal-footer">
         <span class="settings-status" id="gallery-count"></span>
         <button type="button" class="btn btn-secondary" id="cancel-gallery-btn">Close</button>
-        <button type="button" class="btn btn-purple" id="use-gallery-btn" hidden>Use this image</button>
+        <button type="button" class="btn btn-primary" id="use-gallery-btn" hidden>Use this image</button>
       </div>
     </div>
   </div>

@@ -19,6 +19,8 @@
   .mag-card-title a { color: var(--blog-ink); }
   .mag-card-title a:hover { color: var(--blog-accent); text-decoration: none; }
   .mag-card-excerpt { color: var(--blog-soft); font-size: 15px; margin: 0; }
+  .mag-lead-meta { margin-bottom: 14px; }
+  .mag-readmore { font-weight: 500; }
   @media (max-width: 720px) { .mag-lead { grid-template-columns: 1fr; } .mag-masthead h1 { font-size: 40px; } }
 {% endblock %}
 
@@ -39,12 +41,12 @@
           <div>
             <div class="mag-kicker">Featured</div>
             <h2 class="mag-lead-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
-            <div class="blog-meta" style="margin-bottom: 14px;">
+            <div class="blog-meta mag-lead-meta">
               <time>{{ post.publish_date|date:"M j, Y" }}</time>
               {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
             </div>
             <p class="mag-lead-excerpt">{{ post.display_excerpt }}</p>
-            <a href="{{ blog_base }}{{ post.slug }}/" style="font-weight:500;">Continue reading →</a>
+            <a class="mag-readmore" href="{{ blog_base }}{{ post.slug }}/">Continue reading →</a>
           </div>
         </article>
       {% endif %}

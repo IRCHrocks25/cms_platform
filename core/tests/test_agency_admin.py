@@ -5,6 +5,7 @@ from django.urls import reverse
 from core.models import (
     CustomDomain,
     EmbeddableAssistant,
+    Page,
     Template,
     Tenant,
     TenantMembership,
@@ -89,6 +90,30 @@ class AgencyHomeStatsTests(TestCase):
         self.assertEqual(stats["published_sites"], 1)
         self.assertEqual(stats["draft_sites"], 1)
         self.assertEqual(stats["total_templates"], 1)
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class TenantDetailPagesTests(TestCase):
+    def test_site_detail_includes_home_and_inner_pages(self):
+        staff = User.objects.create_user("agency-pages", password="x", is_staff=True)
+        home_template = _make_template("Home")
+        tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme-pages", template=home_template, owner=staff,
+        )
+        page_template = _make_template("About layout")
+        page = Page.objects.create(
+            tenant=tenant, template=page_template, title="About us", slug="about",
+        )
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(staff)
+
+        response = client.get(reverse("dashboard:tenant_detail", args=[tenant.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<strong>Home</strong>", html=True)
+        self.assertContains(response, "About us")
+        self.assertContains(response, f'href="{reverse("dashboard:page_editor", args=[tenant.pk, page.pk])}"')
+        self.assertContains(response, f'href="{reverse("dashboard:page_list", args=[tenant.pk])}"')
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")

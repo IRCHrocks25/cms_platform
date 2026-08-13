@@ -4,7 +4,7 @@
 {% block title %}Team · {{ tenant.name }}{% endblock %}
 
 {% block content %}
-  <div class="page" style="max-width: 880px;">
+  <div class="page page-medium">
     <nav class="breadcrumb">
       <a href="{% url 'dashboard:tenant_home' %}">Editor</a>
       <span class="breadcrumb-sep">/</span>
@@ -13,7 +13,7 @@
 
     <div class="page-head">
       <div>
-        <h1 class="page-title" style="margin: 0;">Team</h1>
+        <h1 class="page-title m-0">Team</h1>
         <p class="page-subtitle">
           People who can sign in and edit <strong>{{ tenant.name }}</strong>.
           Create a login to give a teammate access — they’ll only ever see this site.
@@ -26,7 +26,7 @@
 
     <section class="card stack-4">
       <h2 class="card-title">Members</h2>
-      <table class="data-table data-table-flush">
+      <table class="data-table data-table-flush" data-responsive-table>
         <thead>
           <tr>
             <th>Username</th>
@@ -38,17 +38,17 @@
         <tbody>
           {% for m in members %}
             <tr>
-              <td>
+              <td data-label="Member">
                 <span class="cell-strong">{{ m.user.username }}</span>
                 {% if m.user_id == current_user_id %}
                   <span class="badge badge-soft">You</span>
                 {% endif %}
                 {% if m.user_id == owner_id %}
-                  <span class="badge badge-purple">Owner</span>
+                  <span class="badge badge-blue">Owner</span>
                 {% endif %}
               </td>
-              <td class="cell-muted">{{ m.user.email|default:'—' }}</td>
-              <td>
+              <td class="cell-muted" data-label="Email">{{ m.user.email|default:'—' }}</td>
+              <td data-label="Role">
                 {% if m.user_id == owner_id %}
                   <span class="cell-muted">{{ m.get_role_display }}</span>
                 {% else %}
@@ -62,7 +62,7 @@
                   </form>
                 {% endif %}
               </td>
-              <td class="right">
+              <td class="right" data-label="Actions">
                 {% if m.user_id == current_user_id %}
                   <span class="cell-muted">—</span>
                 {% elif m.user_id == owner_id %}
@@ -83,22 +83,22 @@
 
     <section class="card stack-4">
       <h2 class="card-title">Create a new login</h2>
-      <p class="field-hint" style="margin: 0;">
+      <p class="field-hint m-0">
         We’ll generate a password and show it once — copy it and send it to the
         person. They sign in at this site’s login page.
       </p>
-      <form method="post" action="{{ team_create_url }}" class="row" style="gap: 8px; flex-wrap: wrap;">
+      <form method="post" action="{{ team_create_url }}" class="form-row">
         {% csrf_token %}
-        <input type="text" name="username" class="input" required placeholder="username"
-               autocomplete="off" style="flex: 1; min-width: 160px;">
-        <input type="email" name="email" class="input" placeholder="email (optional)"
-               autocomplete="off" style="flex: 1; min-width: 160px;">
-        <select name="role" class="select" style="max-width: 180px;">
+        <input type="text" name="username" class="input form-grow" required placeholder="username"
+               autocomplete="off">
+        <input type="email" name="email" class="input form-grow" placeholder="email (optional)"
+               autocomplete="off">
+        <select name="role" class="select field-medium">
           {% for value, label in role_choices %}
             <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="btn btn-purple">Create login</button>
+        <button type="submit" class="btn btn-primary">Create login</button>
       </form>
     </section>
   </div>

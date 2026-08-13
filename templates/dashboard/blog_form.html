@@ -19,9 +19,9 @@
     </div>
 
     <div class="layout-toggle" id="blog-layout-toggle" role="group" aria-label="Editor layout">
-      <button type="button" data-layout="editor" title="Editor only">✎ Write</button>
-      <button type="button" data-layout="split" class="active" title="Side by side">▣ Split</button>
-      <button type="button" data-layout="preview" title="Preview only">▦ Preview</button>
+      <button type="button" data-layout="editor" aria-pressed="false">Write</button>
+      <button type="button" data-layout="split" class="active" aria-pressed="true">Split</button>
+      <button type="button" data-layout="preview" aria-pressed="false">Preview</button>
     </div>
 
     <div class="row">
@@ -29,7 +29,7 @@
         <a href="{{ view_url }}" class="btn btn-ghost" target="_blank" rel="noopener">View ↗</a>
       {% endif %}
       <a href="{{ blog_urls.list }}" class="btn btn-secondary">Cancel</a>
-      <button type="submit" form="blog-form" class="btn btn-purple">Save post</button>
+      <button type="submit" form="blog-form" class="btn btn-primary">Save post</button>
     </div>
   </div>
 
@@ -40,7 +40,7 @@
       {% if errors %}
         <div class="warn-card card-tight">
           <strong>Couldn't save:</strong>
-          <ul style="margin:6px 0 0; padding-left:18px;">
+          <ul class="content-list">
             {% for e in errors %}<li>{{ e }}</li>{% endfor %}
           </ul>
         </div>
@@ -61,20 +61,20 @@
 
       <div class="field">
         <label class="field-label">Body</label>
-        <div class="rt-toolbar" id="rt-toolbar">
-          <button type="button" data-cmd="formatBlock" data-arg="h2" title="Heading">H2</button>
-          <button type="button" data-cmd="formatBlock" data-arg="h3" title="Subheading">H3</button>
+        <div class="rt-toolbar" id="rt-toolbar" role="toolbar" aria-label="Post formatting">
+          <button type="button" data-cmd="formatBlock" data-arg="h2" aria-label="Heading level 2">H2</button>
+          <button type="button" data-cmd="formatBlock" data-arg="h3" aria-label="Heading level 3">H3</button>
           <span class="rt-sep"></span>
-          <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
-          <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+          <button type="button" data-cmd="bold" aria-label="Bold" aria-pressed="false"><b>B</b></button>
+          <button type="button" data-cmd="italic" aria-label="Italic" aria-pressed="false"><i>I</i></button>
           <span class="rt-sep"></span>
-          <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
-          <button type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
-          <button type="button" data-cmd="formatBlock" data-arg="blockquote" title="Quote">❝</button>
+          <button type="button" data-cmd="insertUnorderedList" aria-label="Bulleted list" aria-pressed="false">Bullets</button>
+          <button type="button" data-cmd="insertOrderedList" aria-label="Numbered list" aria-pressed="false">Numbered</button>
+          <button type="button" data-cmd="formatBlock" data-arg="blockquote" aria-label="Block quote">Quote</button>
           <span class="rt-sep"></span>
-          <button type="button" data-cmd="createLink" title="Link">🔗 Link</button>
-          <button type="button" data-action="image" title="Insert image">🖼 Image</button>
-          <button type="button" data-cmd="removeFormat" title="Clear formatting">⨯</button>
+          <button type="button" data-cmd="createLink" aria-label="Add link">Link</button>
+          <button type="button" data-action="image" aria-label="Insert image">Image</button>
+          <button type="button" data-cmd="removeFormat" aria-label="Clear formatting">Clear</button>
         </div>
         <div class="cms-field-richtext rt-editor" id="blog-body-editor" contenteditable="true"
              data-placeholder="Write your post…"></div>
@@ -84,8 +84,7 @@
 
       <div class="field">
         <label class="field-label" for="bf-excerpt">Excerpt <span class="field-optional">(optional)</span></label>
-        <textarea class="input" name="excerpt" id="bf-excerpt" rows="3" maxlength="500"
-                  style="font-family: var(--font-base);">{{ form.excerpt }}</textarea>
+        <textarea class="input body-textarea" name="excerpt" id="bf-excerpt" rows="3" maxlength="500">{{ form.excerpt }}</textarea>
         <span class="field-hint">Short summary for the index + strip. Auto-generated from the body if left blank.</span>
       </div>
 
@@ -119,10 +118,9 @@
       <div class="card stack-4">
         <h3 class="blog-card-title">Cover image</h3>
         <label class="cms-field-image" for="bf-cover-file">
-          <img id="cover-preview" alt="" src="{{ form.cover_image }}"
-               {% if not form.cover_image %}style="display:none;"{% endif %}>
+          <img id="cover-preview" alt="Cover image preview" {% if form.cover_image %}src="{{ form.cover_image }}"{% else %}hidden{% endif %}>
           <div class="cms-field-image-info">
-            <strong style="color: var(--color-text); display:block; margin-bottom:2px;">Click to upload</strong>
+            <strong class="upload-title">Click to upload</strong>
             <span id="cover-name">{% if form.cover_image %}Current image{% else %}No file chosen{% endif %}</span>
           </div>
           <input type="file" accept="image/*" id="bf-cover-file">
@@ -153,8 +151,7 @@
         </div>
         <div class="field">
           <label class="field-label" for="bf-seo-desc">Meta description</label>
-          <textarea class="input" name="seo_description" id="bf-seo-desc" rows="3" maxlength="500"
-                    style="font-family: var(--font-base);" placeholder="Defaults to the excerpt">{{ form.seo_description }}</textarea>
+          <textarea class="input body-textarea" name="seo_description" id="bf-seo-desc" rows="3" maxlength="500" placeholder="Defaults to the excerpt">{{ form.seo_description }}</textarea>
         </div>
         <div class="field">
           <label class="field-label" for="bf-og">Social share image URL</label>
@@ -166,7 +163,7 @@
       {% if post %}
         <div class="card danger-zone stack-3">
           <h3 class="blog-card-title">Delete post</h3>
-          <p style="margin:0;">Permanently removes this post. This cannot be undone.</p>
+          <p class="m-0">Permanently removes this post. This cannot be undone.</p>
           <button type="submit" form="blog-delete-form" class="btn btn-danger">Delete post</button>
         </div>
       {% endif %}
@@ -185,6 +182,13 @@
         </div>
       </div>
       <div class="preview-frame-wrap">
+        <div class="preview-loading" id="blog-preview-loading" role="status" aria-live="polite">
+          <div class="preview-loading-card">
+            <span class="spinner" aria-hidden="true"></span>
+            <strong>Loading preview…</strong>
+            <span>The post preview will appear here.</span>
+          </div>
+        </div>
         <iframe id="blog-preview-frame" class="preview-frame"
                 src="{{ preview_url }}"
                 title="Post preview"></iframe>
