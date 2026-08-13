@@ -1782,6 +1782,7 @@ def _page_list(request, tenant, scope):
                 _templates_available(tenant=tenant) if can_manage else []
             ),
             "reserved_slugs": ", ".join(sorted(RESERVED_PAGE_SLUGS)),
+            "nav_section": "pages" if scope == "tenant" else "sites",
         },
     )
 
@@ -2334,6 +2335,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "live_url": live_url,
             "scope": scope,
             "client_editable": client_editable,
+            "nav_section": "pages" if scope == "tenant" and page else "editor",
         },
     )
 
