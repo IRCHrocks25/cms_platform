@@ -200,8 +200,9 @@
 .rt-editor p { margin: 0 0 12px; color: var(--color-text); }
 .rt-editor ul, .rt-editor ol { margin: 0 0 12px; padding-left: 24px; }
 .rt-editor blockquote {
-  margin: 12px 0; padding-left: 16px;
-  border-left: 3px solid var(--color-purple);
+  margin: 12px 0; padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-blue-soft);
   color: var(--color-text-soft); font-style: italic;
 }
 .rt-editor img { max-width: 100%; border-radius: var(--radius-sm); margin: 10px 0; }

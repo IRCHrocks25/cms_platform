@@ -14,6 +14,7 @@ const base = argument("base", "http://127.0.0.1:8000").replace(/\/$/, "");
 const path = argument("path", "/dashboard/");
 const output = argument("out");
 const inspectSelector = argument("inspect");
+const tabAuditCount = Number(argument("tab-audit", "0"));
 const width = Number(argument("width", "1280"));
 const height = Number(argument("height", "900"));
 const username = process.env.CMS_CAPTURE_USERNAME || "admin";
@@ -136,6 +137,30 @@ try {
       returnByValue: true,
     });
     console.log(JSON.stringify(inspection.result.value));
+  }
+  if (Number.isInteger(tabAuditCount) && tabAuditCount > 0) {
+    const stops = [];
+    for (let index = 0; index < tabAuditCount; index += 1) {
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+      await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+      const focused = await command("Runtime.evaluate", {
+        expression: `(() => {
+          const el = document.activeElement;
+          if (!el) return null;
+          return {
+            tag: el.tagName,
+            id: el.id || null,
+            label: el.getAttribute('aria-label') || el.getAttribute('title') || null,
+            text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
+            outline: getComputedStyle(el).outlineStyle,
+            boxShadow: getComputedStyle(el).boxShadow,
+          };
+        })()`,
+        returnByValue: true,
+      });
+      stops.push(focused.result.value);
+    }
+    console.log(JSON.stringify({ tabStops: stops }, null, 2));
   }
   const screenshot = await command("Page.captureScreenshot", {
     format: "png",

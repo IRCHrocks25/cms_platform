@@ -489,7 +489,6 @@
   width: 100%;
   height: 100%;
   box-shadow: var(--shadow-sm);
-  transition: width var(--transition);
 }
 .preview-frame.viewport-tablet { max-width: 768px; height: 1024px; }
 .preview-frame.viewport-mobile { max-width: 390px; height: 780px; }
@@ -1066,7 +1065,8 @@
 .editor-readonly-notice {
   margin: 16px 24px 0;
   padding: 14px 16px;
-  border-left: 4px solid var(--color-warning, #c67800);
+  border: 1px solid #f4c66a;
+  border-radius: var(--radius-md);
   background: var(--color-surface-warning, #fff8eb);
 }
 .editor-readonly-notice strong { display: block; margin-bottom: 4px; }
