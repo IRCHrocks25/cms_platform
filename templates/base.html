@@ -123,7 +123,7 @@
           {% if messages %}
             <div class="flash-stack">
               {% for message in messages %}
-                <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+                <div class="flash flash-{{ message.tags|default:'info' }}" {% if message.tags == 'error' %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>
               {% endfor %}
             </div>
           {% endif %}
@@ -131,7 +131,7 @@
       {% if messages %}
         <div class="container flash-shell">
           {% for message in messages %}
-            <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+            <div class="flash flash-{{ message.tags|default:'info' }}" {% if message.tags == 'error' %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>
           {% endfor %}
         </div>
       {% endif %}

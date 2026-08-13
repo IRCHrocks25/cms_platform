@@ -23,12 +23,11 @@
     </div>
 
     {% if template and tenants_using|length > 1 %}
-      <div class="card page-section" role="alert"
-           style="border-color: #f4c66a; background: var(--color-surface-warning, #fff8eb); padding: 14px 16px;">
-        <strong style="display: block; margin-bottom: 4px;">Heads-up — this template is shared</strong>
-        <div style="font-size: 13px; color: var(--color-text-soft, #555);">
+      <div class="card page-section shared-template-warning" role="alert">
+        <strong class="shared-template-title">Heads-up — this template is shared</strong>
+        <div class="shared-template-copy">
           Saving here updates the HTML on <strong>{{ tenants_using|length }}</strong> sites that use this template:
-          <span style="word-break: break-word;">
+          <span class="break-word">
             {% for t in tenants_using %}<a href="{% url 'dashboard:tenant_detail' t.pk %}">{{ t.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
           </span>.
           To change only one site, switch that site to a different template from its detail page first, then edit that template here.
@@ -42,7 +41,7 @@
 
         <div class="field">
           <label class="field-label" for="id_name">Name</label>
-          <input class="input" type="text" name="name" id="id_name" required
+          <input class="input" type="text" name="name" id="id_name" maxlength="120" required
                  value="{{ template.name|default:form_data.name|default_if_none:'' }}">
         </div>
 
@@ -61,7 +60,7 @@
               <option value="editable" {% if mode == "editable" %}selected{% endif %}>Editable — released to the client</option>
             {% endwith %}
           </select>
-          <p class="field-hint" style="margin-top: 6px; font-size: 13px; color: var(--color-text-soft);">
+          <p class="field-hint mt-2 text-sm text-soft">
             Clients can edit only when this is “Editable” and the HTML has annotated sections.
           </p>
         </div>
@@ -69,30 +68,30 @@
         {% if field_loss %}
           <div class="card-tight warn-card" role="alert">
             <strong>This save would drop fields used on a published site.</strong>
-            <p style="margin: 8px 0; font-size: 13px;">
+            <p class="text-sm field-loss-copy">
               Lost fields: {{ field_loss.lost_fields|join:", " }}.
               Content is never deleted — confirm to proceed anyway.
             </p>
-            <label style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+            <label class="check-row text-sm">
               <input type="checkbox" name="allow_field_loss" value="1">
               I understand — save anyway
             </label>
           </div>
         {% endif %}
 
-        <details class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
-          <summary style="cursor: pointer; font-weight: 500;">How to annotate</summary>
-          <div style="margin-top: 12px; font-size: 13px; color: var(--color-text-soft);">
-            <p style="margin: 0 0 8px;">
+        <details class="card-tight annotation-guide">
+          <summary>How to annotate</summary>
+          <div class="annotation-guide-body">
+            <p class="mb-2">
               Wrap each editable block in a <code>data-section</code>. Mark
               editable elements with <code>data-edit="section.field"</code>
               and a <code>data-type</code>.
             </p>
-<pre style="background: var(--color-surface-1); padding: 8px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 12px; margin: 0;"><code>&lt;section data-section="hero" data-label="Hero" data-group="Home"&gt;
+<pre class="annotation-code"><code>&lt;section data-section="hero" data-label="Hero" data-group="Home"&gt;
   &lt;h1 data-edit="hero.title" data-type="text" data-label="Headline"&gt;Welcome&lt;/h1&gt;
   &lt;img data-edit="hero.image" data-type="image" data-label="Photo" src="..."&gt;
 &lt;/section&gt;</code></pre>
-            <p style="margin: 8px 0 0;">
+            <p class="mt-2">
               CSS variables inside <code>&lt;style data-tokens&gt;</code> auto-generate
               brand color pickers (e.g. <code>--primary</code>).
             </p>
@@ -110,11 +109,11 @@
                 See <em>How to annotate</em> above.
               </div>
             {% else %}
-              <div class="card-tight" style="background: var(--color-surface-2); border-radius: var(--radius-md);">
-                <div style="font-size: 13px; color: var(--color-text-soft); margin-bottom: 8px;">
+              <div class="card-tight detected-sections">
+                <div class="detected-sections-copy">
                   <strong>Detected:</strong> {{ section_count }} section{{ section_count|pluralize }}
                 </div>
-                <div class="row row-wrap" style="gap: 6px;">
+                <div class="row row-wrap badge-row">
                   {% for sec in template.schema.sections %}
                     <span class="badge badge-blue">{{ sec.label }} · {{ sec.fields|length }}</span>
                   {% endfor %}
@@ -142,8 +141,8 @@
           {% endif %}
         </p>
         <details>
-          <summary class="btn btn-danger" style="display: inline-flex; cursor: pointer;">Delete template</summary>
-          <form method="post" action="{% url 'dashboard:template_delete' template.pk %}" style="margin-top: 12px;">
+          <summary class="btn btn-danger danger-summary">Delete template</summary>
+          <form method="post" action="{% url 'dashboard:template_delete' template.pk %}" class="mt-3">
             {% csrf_token %}
             <button type="submit" class="btn btn-danger">Confirm — permanently delete</button>
           </form>

@@ -193,9 +193,10 @@
       const widgetUrl = query ? baseUrl + "?" + query : baseUrl;
       snippetUrl.value = widgetUrl;
       snippetIframe.value =
-`<iframe
+`<style>.locked-cms-assistant-frame{position:fixed;bottom:0;right:0;width:400px;height:640px;border:0;z-index:9999}</style>
+<iframe
   src="${escAttr(widgetUrl)}"
-  style="position:fixed;bottom:0;right:0;width:400px;height:640px;border:none;z-index:9999;"
+  class="locked-cms-assistant-frame"
   allow="microphone"
   title="AI Assistant"
 ></iframe>`;

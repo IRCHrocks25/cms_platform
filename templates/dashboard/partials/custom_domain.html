@@ -10,35 +10,34 @@
   one independently.
 {% endcomment %}
 <div class="row-between">
-  <h2 style="margin: 0;">Custom Domains</h2>
+  <h2 class="m-0">Custom Domains</h2>
 </div>
 
 {% if error %}
-  <div class="flash flash-danger" style="margin: 0;">{{ error }}</div>
+  <div class="flash flash-danger m-0" role="alert">{{ error }}</div>
 {% endif %}
 {% if info %}
-  <div class="flash flash-info" style="margin: 0;">{{ info }}</div>
+  <div class="flash flash-info m-0" role="status">{{ info }}</div>
 {% endif %}
 
 {% for d in custom_domains %}
-  <div class="card-tight"
-       style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-    <div class="row-between" style="align-items: flex-start;">
-      <p style="margin: 0; font-weight: 600; word-break: break-all;">{{ d.obj.domain }}</p>
+  <div class="card-tight domain-card">
+    <div class="row-between align-start">
+      <p class="domain-name">{{ d.obj.domain }}</p>
       {% if d.obj.is_verified %}
         <span class="badge badge-success">Active</span>
       {% else %}
-        <span class="badge badge-soft" style="color: var(--color-warning, #b45309);">Pending</span>
+        <span class="badge badge-soft domain-status-pending">Pending</span>
       {% endif %}
     </div>
 
     {% if d.obj.is_verified %}
       {# Verified and live #}
-      <p class="cell-muted" style="margin: 8px 0 0;">
+      <p class="cell-muted domain-copy">
         Live over HTTPS — visitors to <code>{{ d.obj.domain }}</code> see this site
         with a valid SSL certificate.
       </p>
-      <div class="row" style="gap: 8px; margin-top: 10px;">
+      <div class="row domain-actions">
         <a href="https://{{ d.obj.domain }}/" target="_blank" rel="noopener"
            class="btn btn-secondary">Visit site ↗</a>
         <form data-fetch-form
@@ -53,8 +52,8 @@
       </div>
     {% else %}
       {# Added, awaiting DNS verification #}
-      <p style="margin: 8px 0 0;">Added, not verified yet. Confirm this DNS record exists at the registrar:</p>
-      <table class="data-table data-table-flush" style="margin: 8px 0 0;">
+      <p class="domain-copy">This domain is waiting for DNS verification. Add this record at the domain registrar:</p>
+      <table class="data-table data-table-flush domain-dns-table">
         <thead>
           <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
         </thead>
@@ -63,7 +62,7 @@
             <td><code>A</code></td>
             <td><code>{{ d.dns_name }}</code></td>
             <td>
-              <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+              <span class="row domain-value">
                 <code>{{ target_ip }}</code>
                 {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
               </span>
@@ -71,19 +70,19 @@
           </tr>
         </tbody>
       </table>
-      <p class="field-hint" style="margin: 12px 0 0;">
-        DNS can take a few minutes to propagate. Once <code>{{ d.obj.domain }}</code>
-        resolves to <code>{{ target_ip }}</code>, the SSL certificate is issued
-        automatically — nothing else to do.
+      <p class="field-hint domain-hint">
+        DNS updates can take a few minutes. After this record resolves to
+        <code>{{ target_ip }}</code>, check verification again. HTTPS is then
+        enabled automatically.
       </p>
-      <div class="row" style="gap: 8px; margin-top: 10px;">
+      <div class="row domain-actions">
         <form data-fetch-form
               data-target="#custom-domain-section"
               method="post"
               action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk d.obj.pk %}"
               class="inline-form">
           {% csrf_token %}
-          <button type="submit" class="btn btn-primary">Check verification</button>
+          <button type="submit" class="btn btn-primary">Check DNS verification</button>
         </form>
         <form data-fetch-form
               data-target="#custom-domain-section"
@@ -100,14 +99,13 @@
 {% endfor %}
 
 {# Add-a-domain form + how-to. Always visible; doubles as the empty state. #}
-<div class="card-tight"
-     style="background: var(--color-surface-2); border-radius: var(--radius-md); padding: 16px;">
-  <p style="margin: 0 0 8px; font-weight: 600;">Add a domain</p>
-  <p class="field-hint" style="margin: 0 0 10px;">
+<div class="card-tight domain-card">
+  <p class="domain-add-title">Add a domain</p>
+  <p class="field-hint domain-add-copy">
     Point a domain the client owns (e.g. <code>acme.com</code> or
     <code>www.acme.com</code>) at this site with one DNS <code>A</code> record:
   </p>
-  <table class="data-table data-table-flush" style="margin: 0 0 12px;">
+  <table class="data-table data-table-flush domain-add-table">
     <thead>
       <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
     </thead>
@@ -116,7 +114,7 @@
         <td><code>A</code></td>
         <td><code>@</code> for the root domain, or the subdomain (e.g. <code>www</code>)</td>
         <td>
-          <span class="row" style="gap: 8px; align-items: center; margin: 0;">
+          <span class="row domain-value">
             <code>{{ target_ip }}</code>
             {% include "dashboard/partials/_copy_button.html" with value=target_ip %}
           </span>
@@ -128,15 +126,15 @@
         data-target="#custom-domain-section"
         method="post"
         action="{% url 'dashboard:tenant_custom_domain_add' tenant.pk %}"
-        class="row" style="gap: 8px; flex-wrap: wrap; margin: 0;">
+        class="row domain-add-form">
     {% csrf_token %}
-    <input class="input" type="text" name="domain" required
+    <input class="input domain-add-input" type="text" name="domain" required
+           aria-describedby="domain-format-help"
            placeholder="acme.com   or   www.acme.com"
-           pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
-           style="flex: 1; min-width: 240px;">
-    <button type="submit" class="btn btn-primary">Add Domain</button>
+           pattern="^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$">
+    <button type="submit" class="btn btn-primary">Add domain</button>
   </form>
-  <p class="field-hint" style="margin: 10px 0 0;">
+  <p class="field-hint domain-footnote" id="domain-format-help">
     Serving both the root and <code>www</code>? Add each as its own domain here
     (e.g. <code>acme.com</code> and <code>www.acme.com</code>) — or point
     <code>www</code> at the root with a <code>CNAME</code> → <code>acme.com</code>

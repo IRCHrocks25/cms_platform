@@ -12,6 +12,27 @@
       </div>
     </div>
 
+    {% if stats.total_sites == 0 and stats.total_templates == 0 %}
+      <section class="card onboarding-card" aria-labelledby="agency-start-title">
+        <div>
+          <p class="onboarding-eyebrow">Start with a real client site</p>
+          <h2 class="onboarding-title" id="agency-start-title">Launch your first editable site</h2>
+          <p class="onboarding-copy">
+            Bring an existing page or paste its HTML, mark the editable content with AI,
+            and create the client login in one flow.
+          </p>
+          <div class="onboarding-actions">
+            <a href="{% url 'dashboard:tenant_create' %}" class="btn btn-primary">Create first client site</a>
+            <a href="{% url 'dashboard:template_create' %}" class="btn btn-secondary">Create a reusable template</a>
+          </div>
+        </div>
+        <ol class="onboarding-steps" aria-label="Setup steps">
+          <li>Fetch or paste the site design.</li>
+          <li>Review the AI-marked editable fields.</li>
+          <li>Create the site and share its client login.</li>
+        </ol>
+      </section>
+    {% else %}
     <section class="stat-grid">
       <div class="stat-card">
         <div class="stat-card-value">{{ stats.total_sites }}</div>
@@ -91,5 +112,6 @@
         {% endif %}
       </aside>
     </section>
+    {% endif %}
   </div>
 {% endblock %}

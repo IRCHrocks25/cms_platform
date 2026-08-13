@@ -11,10 +11,11 @@
   .min-item-title a:hover { color: var(--blog-accent); text-decoration: none; }
   .min-item-excerpt { color: var(--blog-soft); margin: 0 0 14px; }
   .min-readmore { font-weight: 500; font-size: 14px; }
+  .min-index { padding-top: 64px; }
 {% endblock %}
 
 {% block body %}
-<main class="blog-narrow" style="padding-top: 64px;">
+<main class="blog-narrow min-index">
   <h1 class="min-index-title">{{ settings.title }}</h1>
   <p class="min-index-sub">Latest from {{ tenant.name }}</p>
 

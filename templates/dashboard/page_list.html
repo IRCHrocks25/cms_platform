@@ -31,21 +31,21 @@
     </div>
 
     {% if can_manage_pages %}
-    <div class="card content-block" style="margin-bottom: var(--space-5);">
-      <h3 style="margin-bottom: var(--space-2);">New page</h3>
+    <div class="card content-block content-block-spaced">
+      <h3 class="content-block-title">New page</h3>
       <form method="post" action="{{ nav_urls.new }}" class="stack-5">
         {% csrf_token %}
-        <div class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: flex-end;">
-          <div class="field" style="margin: 0; min-width: 200px;">
+        <div class="row page-create-row">
+          <div class="field field-min-200">
             <label class="field-label" for="pf-title">Page title</label>
-            <input class="input" type="text" id="pf-title" name="title" placeholder="About us" required>
+            <input class="input" type="text" id="pf-title" name="title" maxlength="120" placeholder="About us" required>
           </div>
-          <div class="field" style="margin: 0; min-width: 160px;">
+          <div class="field field-min-160">
             <label class="field-label" for="pf-slug">URL slug</label>
-            <input class="input" type="text" id="pf-slug" name="slug" placeholder="about">
+            <input class="input" type="text" id="pf-slug" name="slug" maxlength="80" placeholder="about">
           </div>
         </div>
-        <p class="field-help" style="margin: 0;">
+        <p class="field-help m-0">
           Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
           Paste the page's HTML below (annotate it with AI for the editable fields) — each page gets its own template.
         </p>
@@ -57,24 +57,24 @@
     </div>
 
     {% if scope == "agency" %}
-    <div class="card content-block" style="margin-bottom: var(--space-5);">
-      <h3 style="margin-bottom: var(--space-2);">Import sibling pages from a URL</h3>
-      <p class="field-help" style="margin-bottom: var(--space-3);">
+    <div class="card content-block content-block-spaced">
+      <h3 class="content-block-title">Import sibling pages from a URL</h3>
+      <p class="field-help content-block-help">
         Paste the source home URL (e.g. <code>https://susan-rabbyv2.pages.dev/</code>).
         We'll fetch the page, find every same-origin <code>.html</code> link on it
         (privacy, terms, about, etc.), and import each as a Page on this site.
         Each imported Page is editable in the CMS once background annotation finishes
         (~30–120 s per page).
       </p>
-      <div class="row" style="gap: var(--space-3); flex-wrap: wrap; align-items: stretch;">
-        <input type="url" id="import-siblings-url" class="input" style="flex: 1; min-width: 280px;"
+      <div class="row page-import-row">
+        <input type="url" id="import-siblings-url" class="input flex-1 min-w-280"
                placeholder="https://yourclient.example.com/" />
         <button type="button" id="import-siblings-btn" class="btn btn-primary"
                 data-url="{% url 'dashboard:page_import_siblings' tenant.pk %}">
-          Discover &amp; Import
+          Find and import pages
         </button>
       </div>
-      <div id="import-siblings-status" hidden style="margin-top: var(--space-3); padding: 10px 14px; border-radius: 8px; font-size: 14px;"></div>
+      <div id="import-siblings-status" class="async-status import-status" role="status" aria-live="polite" hidden></div>
     </div>
 
     <script>
@@ -88,15 +88,29 @@
 
         function show(msg, kind) {
           statusBox.hidden = false;
-          statusBox.innerHTML = msg;
-          statusBox.style.background = kind === "error" ? "#fef2f2" : "#ecfeff";
-          statusBox.style.color      = kind === "error" ? "#991b1b" : "#0e7490";
-          statusBox.style.border     = "1px solid " + (kind === "error" ? "#fecaca" : "#a5f3fc");
+          statusBox.replaceChildren();
+          if (typeof msg === "string") statusBox.textContent = msg;
+          else statusBox.appendChild(msg);
+          statusBox.dataset.state = kind;
+        }
+
+        function appendResultList(container, heading, items, formatter) {
+          var strong = document.createElement("strong");
+          strong.textContent = heading;
+          container.appendChild(strong);
+          var list = document.createElement("ul");
+          list.className = "import-result-list";
+          items.forEach(function (item) {
+            var li = document.createElement("li");
+            li.textContent = formatter(item);
+            list.appendChild(li);
+          });
+          container.appendChild(list);
         }
 
         btn.addEventListener("click", function () {
           var url = (input.value || "").trim();
-          if (!url) { show("Paste a URL first.", "error"); return; }
+          if (!url) { show("Enter the home page URL to scan for sibling pages.", "error"); return; }
 
           btn.disabled = true;
           show("Fetching " + url + " and discovering sibling pages…", "info");
@@ -107,35 +121,50 @@
             credentials: "same-origin",
             body: JSON.stringify({ home_url: url }),
           })
-          .then(function (r) { return r.json().then(function (data) { return [r.ok, data]; }); })
+          .then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (data) {
+              return [r.ok, r.status, data];
+            });
+          })
           .then(function (pair) {
-            var ok = pair[0], data = pair[1];
-            if (!ok) { show(data.error || "Import failed.", "error"); return; }
+            var ok = pair[0], status = pair[1], data = pair[2];
+            if (!ok) {
+              if (status === 401 || status === 403) show("Your session expired. Sign in again, then retry the import.", "error");
+              else if (status === 429) show("Too many import attempts. Wait a moment, then try again.", "error");
+              else if (status >= 500) show("The server could not import pages. Try again.", "error");
+              else show(data.error || "The pages could not be imported. Check the URL and try again.", "error");
+              return;
+            }
             var created = data.created || [];
             var skipped = data.skipped || [];
             if (!created.length && !skipped.length) {
               show(data.message || "No sibling pages discovered.", "info");
               return;
             }
-            var html = "";
+            var result = document.createElement("div");
             if (created.length) {
-              html += "<strong>Imported " + created.length + " page" + (created.length === 1 ? "" : "s") + ":</strong><ul style='margin: 6px 0 0 18px;'>";
-              created.forEach(function (c) {
-                html += "<li>/" + c.slug + "/ — " + c.title + " (annotation pending in background)</li>";
+              appendResultList(result, "Imported " + created.length + " page" + (created.length === 1 ? "" : "s") + ":", created, function (c) {
+                return "/" + c.slug + "/ — " + c.title + " (AI annotation is running in the background)";
               });
-              html += "</ul>";
             }
             if (skipped.length) {
-              html += "<div style='margin-top: 8px;'><strong>Skipped:</strong><ul style='margin: 6px 0 0 18px;'>";
-              skipped.forEach(function (s) {
-                html += "<li>" + s.slug + " — " + s.reason + "</li>";
+              var skippedGroup = document.createElement("div");
+              skippedGroup.className = "import-result-group";
+              appendResultList(skippedGroup, "Skipped:", skipped, function (s) {
+                return s.slug + " — " + s.reason;
               });
-              html += "</ul></div>";
+              result.appendChild(skippedGroup);
             }
-            html += "<div style='margin-top: 10px;'><a href='" + window.location.pathname + "'>Reload to see the new pages →</a></div>";
-            show(html, "info");
+            var reload = document.createElement("div");
+            reload.className = "import-result-reload";
+            var reloadLink = document.createElement("a");
+            reloadLink.href = window.location.pathname;
+            reloadLink.textContent = "Reload to see the new pages →";
+            reload.appendChild(reloadLink);
+            result.appendChild(reload);
+            show(result, "info");
           })
-          .catch(function () { show("Network error.", "error"); })
+          .catch(function () { show("Pages could not be imported because the network connection failed. Check your connection and try again.", "error"); })
           .then(function () { btn.disabled = false; });
         });
       })();
@@ -173,7 +202,7 @@
                 <form method="post" action="{{ row.urls.publish }}" class="inline-form">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-secondary btn-sm">
-                    {% if row.obj.is_published %}Unpublish{% else %}Publish{% endif %}
+                    {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
                   </button>
                 </form>
               </div>
@@ -217,17 +246,17 @@
                     {% if row.obj.is_published %}
                       <a href="{{ row.urls.live }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
                     {% endif %}
-                    <form method="post" action="{{ row.urls.publish }}" style="display:inline;">
+                    <form method="post" action="{{ row.urls.publish }}" class="inline-form">
                       {% csrf_token %}
                       <button type="submit" class="btn btn-ghost btn-sm">
-                        {% if row.obj.is_published %}Unpublish{% else %}Publish{% endif %}
+                        {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
                       </button>
                     </form>
                     {% if can_manage_pages %}
-                      <form method="post" action="{{ row.urls.delete }}" style="display:inline;"
+                      <form method="post" action="{{ row.urls.delete }}" class="inline-form"
                             onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-danger);">Delete</button>
+                        <button type="submit" class="btn btn-ghost btn-sm text-danger">Delete</button>
                       </form>
                     {% endif %}
                   </div>

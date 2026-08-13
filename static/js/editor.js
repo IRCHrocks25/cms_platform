@@ -63,7 +63,7 @@
     content[parts[0]][parts[1]] = value;
   }
 
-  function setStatus(state) {
+  function setStatus(state, message) {
     saveDot.classList.remove("saving", "saved", "error");
     if (saveRetry) saveRetry.hidden = state !== "error";
     if (state === "saving") {
@@ -76,7 +76,9 @@
       saveText.textContent = "Unsaved changes";
     } else if (state === "error") {
       saveDot.classList.add("error");
-      saveText.textContent = navigator.onLine ? "Changes not saved" : "Offline — changes not saved";
+      saveText.textContent = message || (navigator.onLine
+        ? "Changes were not saved. Try again."
+        : "You’re offline. Changes will retry when you reconnect.");
     }
   }
 
@@ -116,10 +118,18 @@
         hasUnsavedChanges = false;
         setStatus("saved");
       })
-      .catch(function () {
+      .catch(function (error) {
         saveInFlight = false;
         hasUnsavedChanges = true;
-        setStatus("error");
+        if (error && (error.status === 401 || error.status === 403)) {
+          setStatus("error", "Your session expired. Sign in again, then retry the save.");
+        } else if (error && error.status === 429) {
+          setStatus("error", "Too many save attempts. Wait a moment, then try again.");
+        } else if (error && error.status >= 500) {
+          setStatus("error", "The server could not save your changes. Try again.");
+        } else {
+          setStatus("error");
+        }
       });
   }
 

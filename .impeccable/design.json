@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-14T03:00:00+08:00",
+  "title": "Design System: Locked CMS",
+  "extensions": {
+    "colorMeta": {
+      "action-blue": { "role": "primary", "displayName": "Action Blue", "canonical": "#2457d6", "tonalRamp": ["#071331", "#0e2868", "#1944b3", "#2457d6", "#6e94ed", "#b7ccff", "#dbe6ff", "#edf3ff"] },
+      "canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#f4f6fa", "tonalRamp": ["#17191d", "#30333a", "#555a65", "#7d8390", "#a9aeba", "#d4d7df", "#e7e9ee", "#f4f6fa"] },
+      "ink": { "role": "neutral", "displayName": "Deep Ink", "canonical": "#101828", "tonalRamp": ["#080c14", "#101828", "#253247", "#49566b", "#758196", "#a7afbd", "#d5d9e0", "#f2f4f7"] },
+      "success": { "role": "success", "displayName": "Operational Green", "canonical": "#067647", "tonalRamp": ["#032719", "#045334", "#067647", "#229665", "#54b98b", "#8bd6b3", "#c8eedc", "#ecfdf3"] },
+      "danger": { "role": "danger", "displayName": "Consequence Red", "canonical": "#b42318", "tonalRamp": ["#390a07", "#70120d", "#8f1b12", "#b42318", "#d45d54", "#e99a94", "#f7c8c4", "#fef3f2"] },
+      "warning": { "role": "warning", "displayName": "Caution Amber", "canonical": "#b54708", "tonalRamp": ["#341301", "#692a04", "#7a2e0e", "#b54708", "#d77928", "#eca65f", "#f6d3a8", "#fffaeb"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Page Headline", "purpose": "Page titles and onboarding statements." },
+      "body": { "displayName": "Interface Body", "purpose": "Default operational copy." },
+      "label": { "displayName": "Control Label", "purpose": "Forms, controls, navigation, and compact metadata." },
+      "mono": { "displayName": "Technical Value", "purpose": "URLs, slugs, credentials, and code." }
+    },
+    "shadows": [
+      { "name": "hairline-lift", "value": "0 1px 2px rgb(16 24 40 / 0.05)", "purpose": "Resting cards and secondary controls." },
+      { "name": "low-lift", "value": "0 3px 10px rgb(16 24 40 / 0.07)", "purpose": "Small floating elements." },
+      { "name": "dialog-lift", "value": "0 24px 64px rgb(16 24 40 / 0.16)", "purpose": "Dialogs and mobile navigation." }
+    ],
+    "motion": [
+      { "name": "fast-state", "value": "120ms cubic-bezier(0.2, 0, 0, 1)", "purpose": "Button, link, input, and navigation state changes." },
+      { "name": "sidebar", "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Mobile drawer movement; disabled for reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "560px" },
+      { "name": "shell", "value": "820px" },
+      { "name": "wide-content", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single strongest action in a task group.",
+      "html": "<button class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary{min-height:40px;padding:9px 15px;border:1px solid var(--color-blue);border-radius:var(--radius-md);background:var(--color-blue);color:var(--color-white);font:600 13px/20px var(--font-base);cursor:pointer;transition:120ms cubic-bezier(.2,0,0,1)}.ds-btn-primary:hover{background:var(--color-blue-dark);border-color:var(--color-blue-dark)}.ds-btn-primary:focus-visible{outline:3px solid rgb(36 87 214 / .28);outline-offset:2px}.ds-btn-primary:active{transform:translateY(1px)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A safe supporting action with a quiet border.",
+      "html": "<button class=\"ds-btn-secondary\">View details</button>",
+      "css": ".ds-btn-secondary{min-height:40px;padding:9px 15px;border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-white);color:var(--color-text-soft);font:600 13px/20px var(--font-base);cursor:pointer;box-shadow:var(--shadow-xs)}.ds-btn-secondary:hover{background:var(--color-surface-2);color:var(--color-text)}.ds-btn-secondary:focus-visible{outline:3px solid rgb(36 87 214 / .28);outline-offset:2px}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The standard persistent-label form control.",
+      "html": "<label class=\"ds-field\">Site name<input class=\"ds-input\" value=\"Acme Restaurant\"></label>",
+      "css": ".ds-field{display:grid;gap:7px;color:var(--color-text-soft);font:600 13px/1.5 var(--font-base)}.ds-input{min-height:42px;padding:9px 12px;border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-white);color:var(--color-text);font:400 14px/22px var(--font-base)}.ds-input:hover{border-color:var(--color-text-muted)}.ds-input:focus{outline:0;border-color:var(--color-blue);box-shadow:0 0 0 3px rgb(36 87 214 / .14)}"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "description": "A compact state label that pairs color with text.",
+      "html": "<span class=\"ds-chip\">Published</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;min-height:24px;padding:4px 9px;border-radius:999px;background:var(--color-success-soft);color:var(--color-success);font:600 11px/1.4 var(--font-base)}"
+    },
+    {
+      "name": "Operational Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A bordered white work surface on the cool application canvas.",
+      "html": "<section class=\"ds-card\"><h3>Site settings</h3><p>Manage the public name and address.</p></section>",
+      "css": ".ds-card{padding:32px;border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-xs);font-family:var(--font-base)}.ds-card h3{margin:0 0 8px;font-size:16px}.ds-card p{margin:0;color:var(--color-text-muted);font-size:14px}"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "description": "The current destination inside dark application chrome.",
+      "html": "<a class=\"ds-nav-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 3h9l3 3v15H6zM9 11h6M9 15h6\"/></svg><span>Pages</span></a>",
+      "css": ".ds-nav-active{display:flex;min-height:42px;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;background:#1b2d52;color:#f8fbff;font:500 13px/1.4 var(--font-base);text-decoration:none}.ds-nav-active svg{width:18px;height:18px;fill:none;stroke:#8fb0ff;stroke-width:1.6}.ds-nav-active:focus-visible{outline:3px solid rgb(143 176 255 / .55);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Operations Desk",
+    "overview": "Locked CMS is a focused work surface: dependable, compact, and quiet enough for repeated daily use. The system preserves the established blue, navy, white, and Roboto identity while using disciplined spacing and hierarchy to keep complex site operations legible.",
+    "keyCharacteristics": ["Compact operational density with generous task separation.", "One restrained blue accent for action and state.", "Cool-gray canvas, white working surfaces, and navy chrome.", "Plain-language states with recovery paths.", "Responsive task cards on small screens."],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Use blue for the primary next action, current location, links, and focus—not as general decoration.", "section": "colors" },
+      { "name": "The Semantic State Rule", "body": "Success, warning, and danger colors always communicate state and must also include text or an icon.", "section": "colors" },
+      { "name": "The Operational Type Rule", "body": "Use weight, spacing, and color for hierarchy; introduce no additional typefaces for dashboard novelty.", "section": "typography" },
+      { "name": "The Border-First Rule", "body": "Prefer a cool border or tonal shift at rest; reserve larger shadows for true overlays.", "section": "elevation" }
+    ],
+    "dos": ["Do make one primary action obvious and keep secondary actions available without equal visual weight.", "Do use shared spacing, radius, status, empty-state, and responsive-table patterns.", "Do preserve input and explain recovery from validation, network, authentication, and server failures.", "Do keep client surfaces limited to approved editing and publishing tasks.", "Do test agency and tenant paths at 375px, 768px, and 1280px."],
+    "donts": ["Don't add inline styles or one-off hardcoded presentation colors to templates.", "Don't use accent color, gradients, glows, or shadows as decoration in dashboard surfaces.", "Don't expose raw HTML, page creation, or page deletion to tenant users.", "Don't hide destructive consequences behind vague labels.", "Don't add a new component shape, spacing value, or typography family when the incumbent system covers the need."]
+  }
+}

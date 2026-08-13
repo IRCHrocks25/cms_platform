@@ -188,11 +188,20 @@ def template_create(request):
         html_source = request.POST.get("html_source") or ""
 
         if not name or not html_source.strip():
-            messages.error(request, "Name and HTML source are required.")
+            messages.error(request, "Enter a template name and HTML source.")
             return render(
                 request,
                 "dashboard/template_form.html",
                 {"form_data": request.POST},
+            )
+
+        if len(name) > 120:
+            messages.error(request, "Template name must be 120 characters or fewer.")
+            return render(
+                request,
+                "dashboard/template_form.html",
+                {"form_data": request.POST},
+                status=400,
             )
 
         template = Template.objects.create(
@@ -792,6 +801,8 @@ def tenant_create(request):
 
     if not name:
         errors.append("Site name is required.")
+    elif len(name) > 120:
+        errors.append("Site name must be 120 characters or fewer.")
 
     sub_reason = _validate_subdomain(subdomain) if subdomain else None
     if sub_reason:
@@ -820,6 +831,8 @@ def tenant_create(request):
 
     if not client_username:
         errors.append("Client username is required.")
+    elif len(client_username) > 150:
+        errors.append("Client username must be 150 characters or fewer.")
     elif User.objects.filter(username__iexact=client_username).exists():
         errors.append(
             f"A user named “{client_username}” already exists. "
@@ -1112,6 +1125,9 @@ def tenant_settings_update(request, pk):
 
     if not name:
         messages.error(request, "Site name is required.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    if len(name) > 120:
+        messages.error(request, "Site name must be 120 characters or fewer.")
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
     if new_subdomain != tenant.subdomain:
@@ -1796,6 +1812,8 @@ def _page_create(request, tenant, scope):
     errors = []
     if not title:
         errors.append("A page title is required.")
+    elif len(title) > 120:
+        errors.append("Page title must be 120 characters or fewer.")
     if not slug:
         errors.append("A URL slug is required.")
     elif slug in RESERVED_PAGE_SLUGS:

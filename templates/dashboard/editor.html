@@ -54,7 +54,7 @@
       <form method="post" action="{{ publish_url }}" class="editor-publish-form">
         {% csrf_token %}
         <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-primary{% endif %}">
-          {% if target_is_published %}Unpublish{% else %}Publish{% endif %}
+          {% if target_is_published %}Unpublish page{% else %}Publish page{% endif %}
         </button>
       </form>
     </div>
@@ -153,6 +153,19 @@
       {% endif %}
 
       <div class="editor-tab-panel" data-panel="content">
+        {% if not content_sections %}
+          <div class="empty editor-zero-state" role="status">
+            {% if scope == "tenant" %}
+              <h3>No editable content yet</h3>
+              <p>Your agency needs to finish preparing this page before its content can be edited.</p>
+              <a class="btn btn-secondary" href="{{ page_list_url }}">View your pages</a>
+            {% else %}
+              <h3>No editable sections detected</h3>
+              <p>Annotate this page's HTML with <code>data-section</code> and <code>data-edit</code> markers, then return here.</p>
+              <a class="btn btn-secondary" href="{% if editing_page %}{% url 'dashboard:page_edit_html' tenant.pk editing_page.pk %}{% else %}{% url 'dashboard:template_detail' tenant.template.pk %}{% endif %}">Edit HTML source</a>
+            {% endif %}
+          </div>
+        {% endif %}
         {% for section in content_sections %}
           <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
             <div class="editor-form-section-head">
@@ -241,7 +254,7 @@
         {% if theme_tokens %}
           <div class="editor-form-section" data-section-id="_tokens">
             <div class="editor-form-section-head"><h2>Theme colors</h2></div>
-            <p class="field-hint" style="margin: 0 0 8px;">These recolor your whole site — buttons, headings and accents update together.</p>
+            <p class="field-hint mb-2">These recolor your whole site — buttons, headings and accents update together.</p>
             <div class="stack-5">
               {% for tk in theme_tokens %}
                 <div class="field"><span class="field-label">{{ tk.label }}</span>
