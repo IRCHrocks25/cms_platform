@@ -59,6 +59,64 @@ class InstalledLocationsTests(TestCase):
 
 
 @override_settings(GHL_CLIENT_ID="app123-ver", GHL_CLIENT_SECRET="secret")
+class FormsApiTests(TestCase):
+    def test_default_scopes_include_forms_readonly(self):
+        self.assertIn("forms.readonly", ghl_oauth.DEFAULT_SCOPES)
+
+    def test_lists_and_normalizes_forms_for_exact_location(self):
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured.update(
+                {"url": url, "params": params, "headers": headers, "timeout": timeout}
+            )
+            return _resp(
+                200,
+                {
+                    "forms": [
+                        {"id": "form_a", "name": "Contact us"},
+                        {"_id": "form_b", "name": "予約フォーム"},
+                        {"name": "missing id"},
+                    ]
+                },
+            )
+
+        with mock.patch.object(httpx, "get", side_effect=fake_get):
+            forms = ghl_oauth.list_forms(
+                access_token="location-token", location_id="loc_authorized"
+            )
+
+        self.assertEqual(
+            forms,
+            [
+                {"id": "form_a", "name": "Contact us"},
+                {"id": "form_b", "name": "予約フォーム"},
+            ],
+        )
+        self.assertEqual(captured["url"], "https://services.leadconnectorhq.com/forms/")
+        self.assertEqual(captured["params"], {"locationId": "loc_authorized"})
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer location-token")
+        self.assertEqual(captured["headers"]["Version"], ghl_oauth.GHL_API_VERSION)
+
+    def test_unauthorized_forms_response_has_typed_error_without_body(self):
+        with mock.patch.object(
+            httpx,
+            "get",
+            return_value=_resp(401, {"error": "secret upstream diagnostic"}),
+        ):
+            with self.assertRaises(ghl_oauth.GhlFormsAuthorizationFailed) as raised:
+                ghl_oauth.list_forms(access_token="token", location_id="loc")
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_network_failure_has_typed_forms_error(self):
+        with mock.patch.object(
+            httpx, "get", side_effect=httpx.ConnectError("network details")
+        ):
+            with self.assertRaises(ghl_oauth.GhlFormsRequestFailed):
+                ghl_oauth.list_forms(access_token="token", location_id="loc")
+
+
+@override_settings(GHL_CLIENT_ID="app123-ver", GHL_CLIENT_SECRET="secret")
 class RefreshTokenTests(TestCase):
     def test_posts_refresh_grant(self):
         captured = {}

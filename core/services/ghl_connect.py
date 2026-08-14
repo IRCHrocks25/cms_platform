@@ -39,6 +39,40 @@ def ensure_fresh_agency_token(agency: GhlAgencyInstall) -> str:
     return data.get("access_token", "")
 
 
+def ensure_fresh_location_token(install: GhlInstall) -> str:
+    """Return a valid location token, refreshing and persisting when needed."""
+    if install.expires_at and install.expires_at - timezone.now() > REFRESH_MARGIN:
+        return decrypt_token(install.access_token)
+
+    refresh_token = decrypt_token(install.refresh_token)
+    if not refresh_token:
+        raise ghl_oauth.TokenExchangeFailed(
+            "GHL location install has no refresh token."
+        )
+    data = ghl_oauth.refresh_access_token(
+        refresh_token=refresh_token,
+        user_type=GhlInstall.USER_TYPE_LOCATION,
+    )
+    access_token = data.get("access_token", "")
+    if not access_token:
+        raise ghl_oauth.TokenExchangeFailed(
+            "GHL location refresh returned no access token."
+        )
+
+    install.access_token = encrypt_token(access_token)
+    update_fields = ["access_token", "expires_at", "updated_at"]
+    if data.get("refresh_token"):
+        install.refresh_token = encrypt_token(data["refresh_token"])
+        update_fields.append("refresh_token")
+    install.expires_at = _expires_at(data.get("expires_in"))
+    if "scope" in data:
+        scope = data.get("scope", "")
+        install.scopes = scope.split() if scope else []
+        update_fields.append("scopes")
+    install.save(update_fields=update_fields)
+    return access_token
+
+
 def bind_location(*, agency: GhlAgencyInstall, location_id: str, tenant: Tenant) -> GhlInstall:
     """Mint a location token from the agency token and persist a connected
     GhlInstall linked to ``tenant``. Also sets Tenant.ghl_location_id so the

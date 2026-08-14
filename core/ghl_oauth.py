@@ -56,6 +56,7 @@ LOCATION_TOKEN_URL = "https://services.leadconnectorhq.com/oauth/locationToken"
 INSTALLED_LOCATIONS_URL = (
     "https://services.leadconnectorhq.com/oauth/installedLocations"
 )
+FORMS_URL = "https://services.leadconnectorhq.com/forms/"
 GHL_API_VERSION = "2021-07-28"
 
 # State TTL — 30 minutes. Long enough that a user choosing a location at a
@@ -71,6 +72,7 @@ STATE_TTL_SECONDS = 30 * 60
 # `locations.readonly` so the integration can look up location metadata.
 DEFAULT_SCOPES = [
     "locations.readonly",
+    "forms.readonly",
 ]
 
 
@@ -80,6 +82,14 @@ class StateInvalid(Exception):
 
 class TokenExchangeFailed(Exception):
     """GHL's /oauth/token endpoint returned a non-2xx."""
+
+
+class GhlFormsRequestFailed(Exception):
+    """The Forms API could not return a usable list."""
+
+
+class GhlFormsAuthorizationFailed(GhlFormsRequestFailed):
+    """The location token is revoked or lacks access to Forms."""
 
 
 def sign_state(payload: dict[str, Any]) -> str:
@@ -239,6 +249,49 @@ def list_installed_locations(
             continue
         out.append({"id": loc_id, "name": (loc.get("name") or "").strip()})
     return out
+
+
+def list_forms(*, access_token: str, location_id: str) -> list[dict[str, str]]:
+    """List existing form definitions for exactly one GHL location."""
+    try:
+        resp = httpx.get(
+            FORMS_URL,
+            params={"locationId": location_id},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Version": GHL_API_VERSION,
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise GhlFormsRequestFailed("GHL forms are temporarily unavailable.") from exc
+
+    if resp.status_code in (401, 403):
+        raise GhlFormsAuthorizationFailed("GHL form authorization failed.")
+    if resp.status_code >= 400:
+        raise GhlFormsRequestFailed("GHL forms are temporarily unavailable.")
+
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise GhlFormsRequestFailed("GHL forms returned an invalid response.") from exc
+
+    forms: list[dict[str, str]] = []
+    for row in payload.get("forms") or []:
+        if not isinstance(row, dict):
+            continue
+        form_id = row.get("id") or row.get("_id")
+        if not form_id:
+            continue
+        forms.append(
+            {
+                "id": str(form_id),
+                "name": str(row.get("name") or "Untitled form").strip()
+                or "Untitled form",
+            }
+        )
+    return forms
 
 
 COMPANY_URL = "https://services.leadconnectorhq.com/companies/"

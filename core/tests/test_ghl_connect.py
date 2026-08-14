@@ -67,6 +67,54 @@ class BindLocationTests(TestCase):
         r.assert_not_called()
         self.assertEqual(token, "agency-access")
 
+    def test_ensure_fresh_location_token_skips_refresh_when_valid(self):
+        from core.services import ghl_connect
+
+        install = GhlInstall.objects.create(
+            location_id="loc_valid",
+            access_token=encrypt_token("location-access"),
+            refresh_token=encrypt_token("location-refresh"),
+            expires_at=timezone.now() + timedelta(hours=1),
+            scopes=["forms.readonly"],
+            tenant=self.tenant,
+        )
+        with mock.patch("core.ghl_oauth.refresh_access_token") as refresh:
+            token = ghl_connect.ensure_fresh_location_token(install)
+
+        refresh.assert_not_called()
+        self.assertEqual(token, "location-access")
+
+    def test_ensure_fresh_location_token_refreshes_and_persists_scopes(self):
+        from core.services import ghl_connect
+
+        install = GhlInstall.objects.create(
+            location_id="loc_expired",
+            access_token=encrypt_token("old-access"),
+            refresh_token=encrypt_token("old-refresh"),
+            expires_at=timezone.now() - timedelta(seconds=1),
+            scopes=["locations.readonly"],
+            tenant=self.tenant,
+        )
+        refreshed = {
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "expires_in": 86400,
+            "scope": "locations.readonly forms.readonly",
+        }
+        with mock.patch(
+            "core.ghl_oauth.refresh_access_token", return_value=refreshed
+        ) as refresh:
+            token = ghl_connect.ensure_fresh_location_token(install)
+
+        refresh.assert_called_once_with(
+            refresh_token="old-refresh", user_type=GhlInstall.USER_TYPE_LOCATION
+        )
+        self.assertEqual(token, "fresh-access")
+        install.refresh_from_db()
+        self.assertEqual(decrypt_token(install.access_token), "fresh-access")
+        self.assertEqual(decrypt_token(install.refresh_token), "fresh-refresh")
+        self.assertEqual(install.scopes, ["locations.readonly", "forms.readonly"])
+
     def test_reconnect_install_raises_on_orphaned_install(self):
         from core.services import ghl_connect
 
