@@ -33,9 +33,18 @@
         </div>
       </div>
       <div class="row row-wrap">
-        <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary">View site ↗</a>
-        <a href="{% url 'dashboard:blog_list' tenant.pk %}" class="btn btn-secondary">Manage blog</a>
-        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-primary">Edit site</a>
+        <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          View site
+        </a>
+        <a href="{% url 'dashboard:blog_list' tenant.pk %}" class="btn btn-secondary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+          Manage blog
+        </a>
+        <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-primary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          Edit site
+        </a>
       </div>
     </div>
 
@@ -48,7 +57,10 @@
           <h2 class="card-title">Pages</h2>
           <p class="cell-muted m-0">Edit and publish every page on this site from one place.</p>
         </div>
-        <a href="{{ pages_manage_url }}" class="btn btn-secondary btn-sm">Add or import pages</a>
+        <a href="{{ pages_manage_url }}" class="btn btn-secondary btn-sm">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+          Add or import pages
+        </a>
       </div>
 
       <div class="site-page-list">
@@ -64,19 +76,25 @@
             {% if tenant.is_published %}Published{% else %}Draft{% endif %}
           </span>
           <div class="row-actions">
-            <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit content</a>
+            <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">
+              <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              Edit content
+            </a>
             {% if tenant.is_published %}
               <div class="action-menu" data-menu>
                 <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
                         id="home-actions-trigger-{{ tenant.pk }}" data-menu-trigger
                         aria-haspopup="menu" aria-expanded="false" aria-controls="home-actions-{{ tenant.pk }}"
                         aria-label="More actions for Home">
-                  <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
                 </button>
                 <div class="action-menu-popup" id="home-actions-{{ tenant.pk }}" role="menu"
                      aria-labelledby="home-actions-trigger-{{ tenant.pk }}" data-menu-position="fixed" hidden>
                   <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener"
-                     role="menuitem" tabindex="-1" data-menu-item>View</a>
+                     role="menuitem" tabindex="-1" data-menu-item>
+                    <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                    View
+                  </a>
                 </div>
               </div>
             {% endif %}
@@ -95,19 +113,22 @@
               {% if row.obj.is_published %}Published{% else %}Draft{% endif %}
             </span>
             <div class="row-actions">
-              <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit content</a>
+              <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">
+                <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                Edit content
+              </a>
               {% if row.urls.edit_html or row.obj.is_published %}
                 <div class="action-menu" data-menu>
                   <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
                           id="detail-page-actions-trigger-{{ row.obj.pk }}" data-menu-trigger
                           aria-haspopup="menu" aria-expanded="false" aria-controls="detail-page-actions-{{ row.obj.pk }}"
                           aria-label="More actions for {{ row.obj.title }}">
-                    <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
                   </button>
                   <div class="action-menu-popup" id="detail-page-actions-{{ row.obj.pk }}" role="menu"
                        aria-labelledby="detail-page-actions-trigger-{{ row.obj.pk }}" data-menu-position="fixed" hidden>
-                    {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" role="menuitem" tabindex="-1" data-menu-item>Edit HTML source</a>{% endif %}
-                    {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View</a>{% endif %}
+                    {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" role="menuitem" tabindex="-1" data-menu-item><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></svg>Edit HTML source</a>{% endif %}
+                    {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>View</a>{% endif %}
                   </div>
                 </div>
               {% endif %}
@@ -125,7 +146,10 @@
     <section class="card stack-4" id="members">
       <div class="row-between">
         <h2 class="card-title">Members</h2>
-        <button type="button" class="btn btn-secondary btn-sm" data-toggle="add-member">+ Add member</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="add-member">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+          <span data-toggle-label>Add member</span>
+        </button>
       </div>
 
       {% if members %}
@@ -162,7 +186,7 @@
                               id="member-actions-trigger-{{ m.pk }}" data-menu-trigger
                               aria-haspopup="menu" aria-expanded="false" aria-controls="member-actions-{{ m.pk }}"
                               aria-label="More actions for {{ m.user.username }}">
-                        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
                       </button>
                       <div class="action-menu-popup" id="member-actions-{{ m.pk }}" role="menu"
                            aria-labelledby="member-actions-trigger-{{ m.pk }}" data-menu-position="fixed" hidden>
@@ -170,7 +194,10 @@
                               onsubmit="return confirm('Remove {{ m.user.username }} from this site?');"
                               class="action-menu-danger" role="none">
                           {% csrf_token %}
-                          <button type="submit" role="menuitem" tabindex="-1" data-menu-item>Remove</button>
+                          <button type="submit" role="menuitem" tabindex="-1" data-menu-item>
+                            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
+                            Remove
+                          </button>
                         </form>
                       </div>
                     </div>
@@ -198,7 +225,10 @@
               <option value="{{ value }}" {% if value == 'editor' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          <button type="submit" class="btn btn-primary">Add member</button>
+          <button type="submit" class="btn btn-primary">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+            Add member
+          </button>
         </form>
         <hr class="section-rule-roomy">
 
@@ -403,7 +433,10 @@
       <h2>Danger zone</h2>
       <p>Deleting this site removes its content, history, members and uploads. This cannot be undone.</p>
       <details>
-        <summary class="btn btn-danger danger-summary">Delete site</summary>
+        <summary class="btn btn-danger danger-summary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
+          Delete site
+        </summary>
         <form method="post" action="{% url 'dashboard:tenant_delete' tenant.pk %}" class="stack-3 danger-form">
           {% csrf_token %}
           <div class="field">
@@ -413,7 +446,10 @@
             <input class="input" type="text" name="confirm_subdomain" id="confirm_subdomain" required autocomplete="off">
           </div>
           <div class="row-end">
-            <button type="submit" class="btn btn-danger">Permanently delete</button>
+            <button type="submit" class="btn btn-danger">
+              <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
+              Permanently delete
+            </button>
           </div>
         </form>
       </details>
@@ -425,13 +461,14 @@
       var toggle = document.querySelector('[data-toggle="add-member"]');
       var panel = document.getElementById("add-member-panel");
       if (!toggle || !panel) return;
+      var toggleLabel = toggle.querySelector("[data-toggle-label]");
       toggle.addEventListener("click", function () {
         if (panel.hasAttribute("hidden")) {
           panel.removeAttribute("hidden");
-          toggle.textContent = "Cancel";
+          if (toggleLabel) toggleLabel.textContent = "Cancel";
         } else {
           panel.setAttribute("hidden", "");
-          toggle.textContent = "+ Add member";
+          if (toggleLabel) toggleLabel.textContent = "Add member";
         }
       });
 

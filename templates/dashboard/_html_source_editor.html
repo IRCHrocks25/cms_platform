@@ -13,7 +13,7 @@
               title="Send raw HTML to AI and get back annotated HTML with data-section / data-edit markers">
         Annotate with AI
       </button>
-      <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm">Preview</button>
+      <button type="button" id="preview-toggle" class="btn btn-ghost btn-sm"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12a10.9 10.9 0 0 1 19.8 0 10.9 10.9 0 0 1-19.8 0Z"/><circle cx="12" cy="12" r="3"/></svg><span data-preview-label>Preview</span></button>
     </div>
   </div>
 
@@ -63,7 +63,7 @@
           <div class="compare-side-title">Your input</div>
           <div class="row compare-tabs">
             <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="code">Code</button>
-            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="preview">Preview</button>
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="left" data-view="preview"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12a10.9 10.9 0 0 1 19.8 0 10.9 10.9 0 0 1-19.8 0Z"/><circle cx="12" cy="12" r="3"/></svg>Preview</button>
           </div>
         </div>
         <div class="compare-pane">
@@ -77,7 +77,7 @@
           <div class="compare-side-title">AI annotated</div>
           <div class="row compare-tabs">
             <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="code">Code</button>
-            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="preview">Preview</button>
+            <button type="button" class="btn btn-ghost btn-sm compare-tab" data-side="right" data-view="preview"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12a10.9 10.9 0 0 1 19.8 0 10.9 10.9 0 0 1-19.8 0Z"/><circle cx="12" cy="12" r="3"/></svg>Preview</button>
           </div>
         </div>
         <div class="compare-pane">
@@ -121,18 +121,19 @@
     var iframe = document.getElementById("preview-iframe");
     var textarea = document.getElementById("id_html_source");
     if (!toggle || !panel || !iframe || !textarea) return;
+    var toggleLabel = toggle.querySelector("[data-preview-label]");
 
     function render() { iframe.srcdoc = textarea.value; }
 
     toggle.addEventListener("click", function () {
       if (panel.hasAttribute("hidden")) {
         panel.removeAttribute("hidden");
-        toggle.textContent = "Hide preview";
+        if (toggleLabel) toggleLabel.textContent = "Hide preview";
         render();
         panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
       } else {
         panel.setAttribute("hidden", "");
-        toggle.textContent = "Preview";
+        if (toggleLabel) toggleLabel.textContent = "Preview";
       }
     });
     refresh.addEventListener("click", render);
