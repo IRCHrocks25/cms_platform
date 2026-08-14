@@ -12,6 +12,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from django.utils.html import escape
 
+from core.ghl_embed import parse_ghl_embed_value
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -325,6 +326,9 @@ PREVIEW_BRIDGE_SCRIPT = """
 </style>
 """
 
+GHL_FORM_EMBED_SCRIPT = "https://link.msgsndr.com/js/form_embed.js"
+GHL_FORM_EMBED_BASE = "https://msgsndr.com/widget/form/"
+
 
 # Elements that may NOT legally contain block-level children (phrasing-content
 # hosts). Rich-text bound to one of these must be flattened: a contenteditable
@@ -466,6 +470,59 @@ def _apply_field(el, value: str, ftype: str) -> None:
         _insert_sanitized_html(el, value.strip())
         return
     el.string = value
+
+
+def _render_ghl_form_slot(soup, el, value: object, *, preview: bool) -> bool:
+    """Render one allowlisted GHL form slot; return whether script is needed."""
+    try:
+        parsed = parse_ghl_embed_value(value, expected_kind="form")
+    except ValueError:
+        parsed = None
+
+    if parsed is None:
+        if not preview:
+            el.decompose()
+            return False
+        el.clear()
+        placeholder = soup.new_tag("div")
+        placeholder["data-cms-ghl-empty"] = ""
+        placeholder.string = "No GHL form selected"
+        el.append(placeholder)
+        return False
+
+    _kind, form_id = parsed
+    label = (el.get("data-label") or "GHL form").strip()
+    el.clear()
+
+    iframe = soup.new_tag("iframe")
+    iframe["src"] = f"{GHL_FORM_EMBED_BASE}{form_id}"
+    iframe["id"] = f"inline-{form_id}"
+    iframe["data-ghl-form-id"] = form_id
+    iframe["title"] = label
+    iframe["style"] = (
+        "width: 100%; height: 100%; min-height: 500px; border: none;"
+    )
+    iframe["loading"] = "lazy"
+
+    if preview:
+        iframe["tabindex"] = "-1"
+        iframe["inert"] = ""
+        iframe["style"] += " pointer-events: none;"
+        note = soup.new_tag("div")
+        note["data-cms-ghl-preview-note"] = ""
+        note["role"] = "note"
+        note.string = "This is a preview, nothing is sent."
+        el.append(note)
+
+    el.append(iframe)
+    return True
+
+
+def _inject_ghl_form_script(soup) -> None:
+    if soup.find("script", src=GHL_FORM_EMBED_SCRIPT):
+        return
+    script = soup.new_tag("script", src=GHL_FORM_EMBED_SCRIPT)
+    (soup.find("body") or soup).append(script)
 
 
 def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> None:
@@ -855,6 +912,7 @@ def render_site(
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})
 
+    needs_ghl_form_script = False
     for el in soup.find_all(attrs={"data-edit": True}):
         full_id = el.get("data-edit", "").strip()
         if "." not in full_id:
@@ -868,7 +926,22 @@ def render_site(
             continue
 
         ftype = el.get("data-type", "text").strip() or "text"
+        if ftype == "ghl-embed":
+            kind = el.get("data-ghl-kind", "").strip()
+            if kind == "form":
+                needs_ghl_form_script = (
+                    _render_ghl_form_slot(
+                        soup, el, section_data[field], preview=preview
+                    )
+                    or needs_ghl_form_script
+                )
+            elif not preview:
+                el.decompose()
+            continue
         _apply_field(el, section_data[field], ftype)
+
+    if needs_ghl_form_script:
+        _inject_ghl_form_script(soup)
 
     if isinstance(content, dict) and isinstance(content.get("_styles"), dict):
         _apply_styles(soup, content["_styles"])
