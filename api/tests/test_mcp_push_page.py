@@ -36,6 +36,15 @@ HTML_SHRUNK = """
 HTML_RAW = "<html><body><h1>About us</h1><p>Plain copy</p></body></html>"
 
 
+def _embed_default_html(form_id: str) -> str:
+    return f"""
+<section data-section="contact" data-label="Contact">
+  <div data-edit="contact.embed" data-type="ghl-embed"
+       data-ghl-kind="form">form:{form_id}</div>
+</section>
+"""
+
+
 def _html_etag(html: str) -> str:
     return hashlib.sha256((html or "").encode("utf-8")).hexdigest()
 
@@ -447,3 +456,40 @@ class PushPageTests(TestCase):
         self.assertGreaterEqual(home.versions.count(), 2)
         self.assertEqual(result["structuredContent"]["url"], "https://alpha.sites.katek.app/")
         self.assertIsNone(result["structuredContent"]["page"])
+
+    def test_populated_embed_defaults_are_rejected_for_same_and_cross_tenant_ids(self):
+        home = self.tenant_a.template
+        original_html = home.html_source
+        original_versions = home.versions.count()
+        etag = _html_etag(original_html)
+
+        same_tenant = self._result(
+            self._call(
+                {
+                    "site": "alpha",
+                    "html": _embed_default_html("ALPHA_FORM"),
+                    "if_match": etag,
+                }
+            )
+        )
+        cross_tenant = self._result(
+            self._call(
+                {
+                    "site": "alpha",
+                    "html": _embed_default_html("BETA_PRIVATE_FORM"),
+                    "if_match": etag,
+                },
+                id=2,
+            )
+        )
+
+        self.assertTrue(same_tenant.get("isError"))
+        self.assertTrue(cross_tenant.get("isError"))
+        self.assertEqual(
+            same_tenant["content"][0]["text"],
+            cross_tenant["content"][0]["text"],
+        )
+        self.assertIn("must be empty", same_tenant["content"][0]["text"])
+        home.refresh_from_db()
+        self.assertEqual(home.html_source, original_html)
+        self.assertEqual(home.versions.count(), original_versions)

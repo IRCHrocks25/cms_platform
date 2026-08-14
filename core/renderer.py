@@ -12,6 +12,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from django.utils.html import escape
 
+from core.ghl_embed import parse_ghl_embed_value
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -139,7 +140,8 @@ PREVIEW_BRIDGE_SCRIPT = """
     // Only non-text fields are excluded. Styling a plain text field just turns
     // its value into inline HTML (a styled span).
     var t = host.getAttribute('data-type') || 'text';
-    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link';
+    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link' &&
+      t !== 'ghl-embed';
   }
   document.addEventListener('selectionchange', function () {
     var s = window.getSelection();
@@ -198,6 +200,7 @@ PREVIEW_BRIDGE_SCRIPT = """
         var value = entry[1];
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
+          if (t === 'ghl-embed') { return; }
           if (t === 'image') {
             el.setAttribute('src', value);
             // Mirror _apply_image: clear responsive/lazy attrs so the new src wins.
@@ -322,8 +325,35 @@ PREVIEW_BRIDGE_SCRIPT = """
      can still see and toggle them. The public site uses display:none instead. */
   .cms-hidden { opacity: 0.4 !important; outline: 2px dashed #f59e0b !important;
                 outline-offset: 2px; }
+  [data-cms-ghl-preview-slot] {
+    position: relative !important;
+    isolation: isolate;
+    min-height: 500px;
+  }
+  [data-cms-ghl-preview-note] {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 2;
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 16px;
+    pointer-events: auto;
+    overflow-wrap: anywhere;
+    background: rgba(16, 24, 40, 0.78);
+    color: #ffffff !important;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-align: center;
+  }
 </style>
 """
+
+GHL_FORM_EMBED_SCRIPT = "https://link.msgsndr.com/js/form_embed.js"
+GHL_FORM_EMBED_BASE = "https://msgsndr.com/widget/form/"
 
 
 # Elements that may NOT legally contain block-level children (phrasing-content
@@ -466,6 +496,62 @@ def _apply_field(el, value: str, ftype: str) -> None:
         _insert_sanitized_html(el, value.strip())
         return
     el.string = value
+
+
+def _render_ghl_form_slot(soup, el, value: object, *, preview: bool) -> bool:
+    """Render one allowlisted GHL form slot; return whether script is needed."""
+    try:
+        parsed = parse_ghl_embed_value(value, expected_kind="form")
+    except ValueError:
+        parsed = None
+
+    if parsed is None:
+        if not preview:
+            el.decompose()
+            return False
+        el.clear()
+        placeholder = soup.new_tag("div")
+        placeholder["data-cms-ghl-empty"] = ""
+        placeholder.string = "No GHL form selected"
+        el.append(placeholder)
+        return False
+
+    _kind, form_id = parsed
+    label = (el.get("data-label") or "GHL form").strip()
+    el.clear()
+
+    iframe = soup.new_tag("iframe")
+    iframe["src"] = f"{GHL_FORM_EMBED_BASE}{form_id}"
+    iframe["id"] = f"inline-{form_id}"
+    iframe["data-ghl-form-id"] = form_id
+    iframe["title"] = label
+    iframe["style"] = (
+        "width: 100%; height: 100%; min-height: 500px; border: none;"
+    )
+    iframe["loading"] = "lazy"
+
+    if preview:
+        el["data-cms-ghl-preview-slot"] = ""
+        iframe["sandbox"] = "allow-scripts"
+        iframe["aria-hidden"] = "true"
+        iframe["tabindex"] = "-1"
+        iframe["inert"] = ""
+        iframe["style"] += " pointer-events: none;"
+        note = soup.new_tag("div")
+        note["data-cms-ghl-preview-note"] = ""
+        note["role"] = "note"
+        note.string = "This is a preview, nothing is sent."
+        el.append(note)
+
+    el.append(iframe)
+    return True
+
+
+def _inject_ghl_form_script(soup) -> None:
+    if soup.find("script", src=GHL_FORM_EMBED_SCRIPT):
+        return
+    script = soup.new_tag("script", src=GHL_FORM_EMBED_SCRIPT)
+    (soup.find("body") or soup).append(script)
 
 
 def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> None:
@@ -855,6 +941,7 @@ def render_site(
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})
 
+    needs_ghl_form_script = False
     for el in soup.find_all(attrs={"data-edit": True}):
         full_id = el.get("data-edit", "").strip()
         if "." not in full_id:
@@ -863,12 +950,26 @@ def render_site(
         if section == "brand":
             continue
 
+        ftype = el.get("data-type", "text").strip() or "text"
         section_data = content.get(section) or {}
+        if ftype == "ghl-embed":
+            kind = el.get("data-ghl-kind", "").strip()
+            if kind == "form":
+                needs_ghl_form_script = (
+                    _render_ghl_form_slot(
+                        soup, el, section_data.get(field, ""), preview=preview
+                    )
+                    or needs_ghl_form_script
+                )
+            elif not preview:
+                el.decompose()
+            continue
         if field not in section_data:
             continue
-
-        ftype = el.get("data-type", "text").strip() or "text"
         _apply_field(el, section_data[field], ftype)
+
+    if needs_ghl_form_script:
+        _inject_ghl_form_script(soup)
 
     if isinstance(content, dict) and isinstance(content.get("_styles"), dict):
         _apply_styles(soup, content["_styles"])
@@ -894,11 +995,29 @@ def render_site(
 
 
 def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
-    """Fill missing fields with template defaults."""
+    """Fill missing fields with template defaults.
+
+    GHL embed choices are tenant content, never portable template defaults.
+    Clear legacy stored defaults before applying explicit, tenant-validated
+    content so an old template cannot route leads to another tenant.
+    """
     merged: dict[str, Any] = {}
+    embed_fields: set[tuple[str, str]] = set()
+    for section in schema.get("sections", []) or []:
+        for field in section.get("fields", []) or []:
+            if field.get("type") != "ghl-embed":
+                continue
+            field_id = str(field.get("id") or "")
+            if "." not in field_id:
+                continue
+            embed_fields.add(tuple(field_id.split(".", 1)))
+
     defaults = schema.get("defaults", {}) or {}
     for section_id, fields in defaults.items():
         merged[section_id] = dict(fields)
+        for embed_section, embed_field in embed_fields:
+            if embed_section == section_id:
+                merged[section_id][embed_field] = ""
     for section_id, fields in (content or {}).items():
         # Meta keys (e.g. "_hidden") are NOT sections — they hold editor state
         # like the list of hidden section/field ids. Copy them through verbatim;

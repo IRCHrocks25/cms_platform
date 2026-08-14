@@ -24,6 +24,8 @@
   var previewLoadingCopy = document.getElementById("preview-loading-copy");
   var previewRetry = document.getElementById("preview-retry");
   var previewTimeout = null;
+  var previewReloadAfterSave = false;
+  var ghlFormsRequest = null;
 
   // ---- helpers ---------------------------------------------------------
   // Minimal in-browser HTML scrub — neutralizes stored richtext before it is
@@ -107,7 +109,12 @@
       },
       body: JSON.stringify({ content: JSON.parse(snapshot) }),
     })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          if (!r.ok) return Promise.reject({ status: r.status, data: data });
+          return data;
+        });
+      })
       .then(function () {
         saveInFlight = false;
         if (saveQueued || JSON.stringify(content) !== snapshot) {
@@ -117,6 +124,10 @@
         }
         hasUnsavedChanges = false;
         setStatus("saved");
+        if (previewReloadAfterSave) {
+          previewReloadAfterSave = false;
+          reloadPreview();
+        }
       })
       .catch(function (error) {
         saveInFlight = false;
@@ -128,7 +139,7 @@
         } else if (error && error.status >= 500) {
           setStatus("error", "The server could not save your changes. Try again.");
         } else {
-          setStatus("error");
+          setStatus("error", error && error.data && error.data.error);
         }
       });
   }
@@ -594,6 +605,112 @@
     node.classList.add("cms-field-active");
   }
 
+  function loadGhlForms(force) {
+    if (force) ghlFormsRequest = null;
+    if (ghlFormsRequest) return ghlFormsRequest;
+    ghlFormsRequest = fetch(window.CMS.ghlFormsUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (!response.ok || !data.ok) {
+          return Promise.reject({ status: response.status, data: data });
+        }
+        return data.forms || [];
+      });
+    });
+    return ghlFormsRequest;
+  }
+
+  function initGhlFormPicker(node, fieldId, current) {
+    var select = node.querySelector("[data-ghl-picker]");
+    var status = node.querySelector("[data-ghl-picker-status]");
+    var retry = node.querySelector("[data-ghl-picker-retry]");
+    if (!select || !status) return;
+
+    function setPickerState(message, isError, canRetry) {
+      status.textContent = message;
+      status.classList.toggle("is-error", !!isError);
+      if (retry) retry.hidden = !canRetry;
+    }
+
+    function populate(forms) {
+      select.innerHTML = "";
+      var empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "No form selected";
+      select.appendChild(empty);
+      forms.forEach(function (form) {
+        var option = document.createElement("option");
+        option.value = form.value;
+        option.textContent = form.name;
+        option.title = form.name;
+        select.appendChild(option);
+      });
+      var known = forms.some(function (form) { return form.value === current; });
+      if (current && !known) {
+        var stale = document.createElement("option");
+        stale.value = current;
+        stale.textContent = "Current form (no longer available)";
+        select.appendChild(stale);
+      }
+      select.value = current;
+      select.disabled = !!window.CMS.readOnly;
+      if (current && !known) {
+        setPickerState(
+          "The selected form is no longer available. Choose another form.",
+          true,
+          false
+        );
+      } else {
+        var availability = forms.length
+          ? forms.length + (forms.length === 1 ? " form available" : " forms available")
+          : "No forms are available in this GoHighLevel location.";
+        setPickerState(
+          availability,
+          false,
+          false
+        );
+      }
+    }
+
+    function start(force) {
+      select.disabled = true;
+      select.innerHTML = '<option value="">Loading forms…</option>';
+      setPickerState("Connecting to GoHighLevel…", false, false);
+      loadGhlForms(force).then(populate).catch(function (error) {
+        select.innerHTML = '<option value="">Forms unavailable</option>';
+        select.disabled = true;
+        var message = error && error.data && error.data.error;
+        setPickerState(message || "Forms could not be loaded. Try again.", true, true);
+      });
+    }
+
+    select.addEventListener("change", function () {
+      var previous = current;
+      var next = select.value;
+      if (!next && window.CMS.published) {
+        select.value = previous;
+        setPickerState("Unpublish this page before removing its form.", true, false);
+        return;
+      }
+      if (!next && previous && !window.confirm(
+        "Remove this form? This page will stop capturing leads."
+      )) {
+        select.value = previous;
+        return;
+      }
+      current = next;
+      setValue(fieldId, next);
+      previewReloadAfterSave = true;
+      setPickerState(next ? "Form selected. Saving and refreshing preview…" : "No form selected.", false, false);
+      scheduleSave();
+    });
+    if (retry) retry.addEventListener("click", function () { start(true); });
+    start(false);
+  }
+
   // ---- bind fields -----------------------------------------------------
   function init() {
     // Tab switching (Content / Brand) is wired inline in editor.html so it is
@@ -602,6 +719,10 @@
       var fieldId = node.dataset.fieldId;
       var ftype = node.dataset.fieldType;
       var current = getValue(fieldId) || "";
+
+      if (ftype === "ghl-embed") {
+        initGhlFormPicker(node, fieldId, current);
+      }
 
       if (ftype === "text") {
         var input = node.querySelector("[data-bind]");

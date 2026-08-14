@@ -26,8 +26,12 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from core.ghl_embed import VALID_GHL_EMBED_KINDS, parse_ghl_embed_value
 
-VALID_FIELD_TYPES = {"text", "richtext", "image", "color", "link", "video"}
+
+VALID_FIELD_TYPES = {
+    "text", "richtext", "image", "color", "link", "video", "ghl-embed"
+}
 TOKEN_PATTERN = re.compile(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);")
 
 
@@ -189,20 +193,41 @@ def build_schema(html: str) -> dict[str, Any]:
 
             default = _extract_default(field_el, ftype)
 
+            ghl_kind = None
+            if ftype == "ghl-embed":
+                ghl_kind = field_el.get("data-ghl-kind", "").strip()
+                if not ghl_kind:
+                    raise ValueError(
+                        f"GHL embed field '{full_id}' requires data-ghl-kind."
+                    )
+                if ghl_kind not in VALID_GHL_EMBED_KINDS:
+                    raise ValueError(
+                        f"Unknown data-ghl-kind '{ghl_kind}' on field '{full_id}'."
+                    )
+                parsed_default = parse_ghl_embed_value(
+                    default, expected_kind=ghl_kind
+                )
+                if parsed_default is not None:
+                    raise ValueError(
+                        f"GHL embed field '{full_id}' must be empty in template "
+                        "HTML. Select the form as tenant content."
+                    )
+
             style_editable = (
                 ftype in ("text", "richtext", "link")
                 and field_el.get("data-style", "").strip().lower() != "off"
             )
 
-            section_entry["fields"].append(
-                {
-                    "id": full_id,
-                    "label": field_el.get("data-label", _humanize(field_part)),
-                    "type": ftype,
-                    "default": default,
-                    "style_editable": style_editable,
-                }
-            )
+            field_entry = {
+                "id": full_id,
+                "label": field_el.get("data-label", _humanize(field_part)),
+                "type": ftype,
+                "default": default,
+                "style_editable": style_editable,
+            }
+            if ghl_kind is not None:
+                field_entry["ghl_kind"] = ghl_kind
+            section_entry["fields"].append(field_entry)
             section_defaults[field_part] = default
 
         if section_entry["fields"]:

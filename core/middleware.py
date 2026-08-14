@@ -136,6 +136,11 @@ class FrameAncestorsCspMiddleware:
         else:
             entries = [e.strip() for e in raw.split(",") if e.strip()]
             sources = " ".join(["'self'", *entries]) if entries else "'self'"
+        # Do not add frame-src here. This middleware historically constrained
+        # only which parents may embed the CMS; adding a child-frame allowlist
+        # globally would silently break existing tenant-authored YouTube,
+        # Maps, Calendly, Vimeo, and other iframes. With no default-src in this
+        # policy, omitting frame-src also permits the fixed-host GHL form embed.
         self._header_value = f"frame-ancestors {sources};"
 
     def __call__(self, request):

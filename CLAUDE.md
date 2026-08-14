@@ -68,11 +68,13 @@ This is the core of the product. Templates are HTML files marked up with
          data-group="Home">            <!-- sidebar grouping -->
 
   <h1 data-edit="hero.title"           <!-- dotted: <section>.<field> -->
-      data-type="text"                 <!-- text|richtext|image|color|link -->
+      data-type="text"                 <!-- text|richtext|image|color|link|video|ghl-embed -->
       data-label="Headline">Welcome</h1>
 
   <img data-edit="hero.image" data-type="image" data-label="Photo" src="...">
   <a   data-edit="hero.cta"   data-type="link"  data-label="Button" href="...">
+  <div data-edit="hero.form" data-type="ghl-embed" data-ghl-kind="form"
+       data-label="Lead form"></div>
 
 </section>
 
@@ -92,6 +94,19 @@ Field types and what they bind to:
 | `image`   | `src` attribute                                |
 | `color`   | inline `background-color` (or `color` on span) |
 | `link`    | `href` attribute                               |
+| `video`   | `src` attribute                                |
+| `ghl-embed` | GHL form iframe selected by `form:<id>`      |
+
+`ghl-embed` currently supports only `data-ghl-kind="form"`; missing or
+unknown kinds fail at parse time. Values are empty or `form:<id>` (never a raw
+ID or URL). Empty public slots render nothing. Editor previews include the
+real iframe but disable interaction and state that nothing is sent.
+
+GHL form listing is tenant-scoped through `Tenant.ghl_location_id` and the
+matching `GhlInstall`; callers never choose a location ID. `forms.readonly` is
+part of the default OAuth scopes, so older installs must reconnect/re-consent.
+MCP exposes `list_embed_slots`, `list_ghl_forms`, and `set_embed_slot`; generic
+`patch_content` intentionally refuses embed fields.
 
 The parser is in `core/parser.py`. The renderer is in `core/renderer.py`.
 **These two files are the heart of the system — read them before changing

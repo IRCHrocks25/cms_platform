@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -17,6 +18,13 @@ User = get_user_model()
 SAMPLE_HTML = """
 <section data-section="hero" data-label="Hero" data-group="Home">
   <h1 data-edit="hero.title" data-type="text" data-label="Headline">Welcome</h1>
+</section>
+"""
+
+EMBED_HTML = """
+<section data-section="contact" data-label="Contact">
+  <div data-edit="contact.embed" data-type="ghl-embed"
+       data-ghl-kind="form"></div>
 </section>
 """
 
@@ -138,3 +146,30 @@ class ContentVersionServiceTests(TestCase):
         # Restore itself is undoable — current was snapshotted first.
         newest = self.tenant.versions.order_by("-saved_at").first()
         self.assertEqual(newest.snapshot, {"hero": {"title": "B"}})
+
+    @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
+    def test_restore_refuses_deleted_or_foreign_embed_form(self, list_forms):
+        template = self.tenant.template
+        template.html_source = EMBED_HTML
+        template.save()
+        self.tenant.content = {"contact": {"embed": "form:current_form"}}
+        self.tenant.is_published = True
+        self.tenant.save(update_fields=["content", "is_published", "updated_at"])
+        version = ContentVersion.objects.create(
+            tenant=self.tenant,
+            snapshot={"contact": {"embed": "form:deleted_or_foreign_form"}},
+            saved_by=self.user,
+            source=cv.SOURCE_DASHBOARD,
+        )
+        version_count = self.tenant.versions.count()
+        list_forms.return_value = [{"id": "current_form", "name": "Current"}]
+
+        with self.assertRaisesRegex(ValueError, "not available for this site"):
+            cv.restore_tenant_content(self.tenant, version, user=self.other)
+
+        self.tenant.refresh_from_db()
+        self.assertEqual(
+            self.tenant.content, {"contact": {"embed": "form:current_form"}}
+        )
+        self.assertEqual(self.tenant.versions.count(), version_count)
+        list_forms.assert_called_once_with(self.tenant)
