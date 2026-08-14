@@ -79,6 +79,24 @@
         This doesn't look like a working link — it'll still save.
       </span>
     </div>
+
+  {% elif field.type == 'ghl-embed' %}
+    <div class="cms-ghl-picker-wrap">
+      <select class="select cms-ghl-picker"
+              id="f-{{ field.id }}"
+              data-ghl-picker="{{ field.id }}"
+              aria-describedby="f-{{ field.id }}-status"
+              disabled>
+        <option value="">Loading forms…</option>
+      </select>
+      <span class="field-status cms-ghl-picker-status"
+            id="f-{{ field.id }}-status"
+            data-ghl-picker-status
+            role="status"
+            aria-live="polite">Connecting to GoHighLevel…</span>
+      <button type="button" class="btn btn-secondary btn-sm"
+              data-ghl-picker-retry hidden>Try again</button>
+    </div>
   {% endif %}
 
   {% if field.style_editable %}

@@ -140,7 +140,8 @@ PREVIEW_BRIDGE_SCRIPT = """
     // Only non-text fields are excluded. Styling a plain text field just turns
     // its value into inline HTML (a styled span).
     var t = host.getAttribute('data-type') || 'text';
-    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link';
+    return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link' &&
+      t !== 'ghl-embed';
   }
   document.addEventListener('selectionchange', function () {
     var s = window.getSelection();
@@ -199,6 +200,7 @@ PREVIEW_BRIDGE_SCRIPT = """
         var value = entry[1];
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
+          if (t === 'ghl-embed') { return; }
           if (t === 'image') {
             el.setAttribute('src', value);
             // Mirror _apply_image: clear responsive/lazy attrs so the new src wins.

@@ -34,10 +34,23 @@ class FrameAncestorsCspTests(TestCase):
     def test_wildcard_allows_any_parent(self):
         client = Client()
         r = client.get("/embed/")  # 404 — no template render, just middleware
-        self.assertEqual(r.get("Content-Security-Policy"), "frame-ancestors *;")
+        csp = r.get("Content-Security-Policy")
+        self.assertIn("frame-ancestors *;", csp)
+        self.assertIn("frame-src 'self' https://msgsndr.com https://*.msgsndr.com", csp)
+        self.assertIn("https://leadconnectorhq.com https://*.leadconnectorhq.com", csp)
 
     @override_settings(GHL_FRAME_ANCESTORS="")
     def test_empty_defaults_to_self_only(self):
         client = Client()
         r = client.get("/embed/")  # 404 — no template render, just middleware
-        self.assertEqual(r.get("Content-Security-Policy"), "frame-ancestors 'self';")
+        csp = r.get("Content-Security-Policy")
+        self.assertIn("frame-ancestors 'self';", csp)
+        self.assertIn("frame-src 'self' https://msgsndr.com", csp)
+
+    @override_settings(GHL_FRAME_ANCESTORS="")
+    def test_embed_frame_allowlist_does_not_change_parent_allowlist(self):
+        client = Client()
+        response = client.get("/embed/")
+        csp = response.get("Content-Security-Policy", "")
+        self.assertIn("frame-ancestors 'self';", csp)
+        self.assertNotIn("frame-ancestors 'self' https://msgsndr.com", csp)

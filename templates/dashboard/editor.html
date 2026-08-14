@@ -73,6 +73,13 @@
     </div>
   {% endif %}
 
+  {% if embed_warnings %}
+    <div class="editor-health-warning" role="alert">
+      <strong>This published page has no form selected</strong>
+      <div>Select a GoHighLevel form so visitors can submit their details.</div>
+    </div>
+  {% endif %}
+
   <div class="editor-mobile-switcher" role="tablist" aria-label="Editor view">
     <button type="button" class="active" role="tab" aria-selected="true" data-editor-view="edit">Edit</button>
     <button type="button" role="tab" aria-selected="false" data-editor-view="preview"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12a10.9 10.9 0 0 1 19.8 0 10.9 10.9 0 0 1-19.8 0Z"/><circle cx="12" cy="12" r="3"/></svg>Preview</button>
@@ -591,6 +598,7 @@
       uploadUrl: "{{ upload_url }}",
       videoUploadUrl: "{{ video_upload_url }}",
       galleryUrl: "{{ gallery_url }}",
+      ghlFormsUrl: "{{ ghl_forms_url }}",
       versionsUrl: "{{ versions_url }}",
       versionRestoreUrl: "{{ version_restore_url }}",
       previewUrl: "{{ preview_url }}",
@@ -598,6 +606,7 @@
       csrfToken: "{{ csrf_token }}",
       content: {{ content_json|safe }},
       readOnly: {% if scope == "tenant" and not client_editable %}true{% else %}false{% endif %},
+      published: {% if target_is_published %}true{% else %}false{% endif %},
     };
   </script>
   <script src="{% static_v 'js/editor.js' %}"></script>

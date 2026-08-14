@@ -44,7 +44,7 @@ from core.services import templates as template_svc
 from core import ghl_crypto
 from core import ghl_oauth
 from core.models import GhlAgencyInstall, GhlInstall
-from core.services import ghl_connect
+from core.services import ghl_connect, ghl_embed_slots, ghl_forms
 from core.urls_helpers import build_tenant_url_bundle, tenant_public_url
 
 
@@ -1523,6 +1523,12 @@ def tenant_save(request, pk):
 
 
 @agency_operator_required
+@require_GET
+def tenant_ghl_forms(request, pk):
+    return _ghl_forms_json(get_object_or_404(Tenant, pk=pk))
+
+
+@agency_operator_required
 @require_POST
 def tenant_publish(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
@@ -1579,6 +1585,12 @@ def tenant_preview_self(request):
 @require_POST
 def tenant_save_self(request):
     return _save_content(request, request.tenant)
+
+
+@tenant_member_required
+@require_GET
+def tenant_ghl_forms_self(request):
+    return _ghl_forms_json(request.tenant)
 
 
 @tenant_member_required
@@ -2241,6 +2253,7 @@ def _render_editor(request, tenant, *, scope, page=None):
     # history is home-only for now — pages pass empty version URLs and the
     # editor hides the History button (see editor.html).
     if scope == "tenant":
+        ghl_forms_url = reverse("dashboard:tenant_ghl_forms_self")
         upload_url = reverse("dashboard:tenant_upload_self")
         video_upload_url = reverse("dashboard:tenant_video_upload_self")
         gallery_url = reverse("dashboard:tenant_media_gallery_self")
@@ -2262,6 +2275,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             versions_url = version_restore_url = ""
             live_url = f"/{page.slug}/"
     else:
+        ghl_forms_url = reverse("dashboard:tenant_ghl_forms", args=[tenant.pk])
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
         video_upload_url = reverse("dashboard:tenant_video_upload", args=[tenant.pk])
         gallery_url = reverse("dashboard:tenant_media_gallery", args=[tenant.pk])
@@ -2313,6 +2327,13 @@ def _render_editor(request, tenant, *, scope, page=None):
     if scope == "tenant":
         client_editable = _client_may_edit_content(request, editable)
 
+    embed_warnings = []
+    if editable.is_published:
+        embed_warnings = [
+            slot for slot in ghl_embed_slots.get_embed_slots(schema, editable.content)
+            if not slot["value"]
+        ]
+
     return render(
         request,
         "dashboard/editor.html",
@@ -2343,6 +2364,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "upload_url": upload_url,
             "video_upload_url": video_upload_url,
             "gallery_url": gallery_url,
+            "ghl_forms_url": ghl_forms_url,
             "versions_url": versions_url,
             "version_restore_url": version_restore_url,
             "publish_url": publish_url,
@@ -2353,6 +2375,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "live_url": live_url,
             "scope": scope,
             "client_editable": client_editable,
+            "embed_warnings": embed_warnings,
             "nav_section": "pages" if scope == "tenant" and page else "editor",
         },
     )
@@ -2457,6 +2480,24 @@ def _save_content(request, editable):
 
     _normalize_styles(content)
 
+    template = editable.template
+    schema = (
+        build_schema(template.html_source)
+        if template and template.html_source
+        else ((template.schema if template else None) or {"sections": []})
+    )
+    tenant = editable if isinstance(editable, Tenant) else editable.tenant
+    try:
+        ghl_embed_slots.validate_embed_content_update(
+            tenant=tenant,
+            schema=schema,
+            current_content=editable.content,
+            new_content=content,
+            is_published=editable.is_published,
+        )
+    except ghl_embed_slots.GhlEmbedValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
     # Version history is the tenant home's rolling-10 snapshots. Inner pages
     # don't have undo yet (backlog), so only snapshot when editing the home.
     # Shared with MCP patch_content via core.services.content_versions.
@@ -2474,6 +2515,26 @@ def _save_content(request, editable):
         editable.save(update_fields=["content", "updated_at"])
 
     return JsonResponse({"ok": True, "updated_at": editable.updated_at.isoformat()})
+
+
+def _ghl_forms_json(tenant):
+    try:
+        forms = ghl_forms.list_forms_for_tenant(tenant)
+    except ghl_forms.GhlFormsUnavailable as exc:
+        status = 503 if exc.code == "temporarily_unavailable" else 409
+        return JsonResponse(
+            {"ok": False, "code": exc.code, "error": exc.public_message},
+            status=status,
+        )
+    return JsonResponse(
+        {
+            "ok": True,
+            "forms": [
+                {**form, "value": f'form:{form["id"]}'}
+                for form in forms
+            ],
+        }
+    )
 
 
 # --------------------------------------------------------------------------- #

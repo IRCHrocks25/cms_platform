@@ -136,7 +136,16 @@ class FrameAncestorsCspMiddleware:
         else:
             entries = [e.strip() for e in raw.split(",") if e.strip()]
             sources = " ".join(["'self'", *entries]) if entries else "'self'"
-        self._header_value = f"frame-ancestors {sources};"
+        # GHL forms can render through either the current msgsndr host or a
+        # LeadConnector host. Keep those origins in frame-src only: allowing a
+        # child frame must never broaden which parents may embed the CMS.
+        frame_sources = (
+            "'self' https://msgsndr.com https://*.msgsndr.com "
+            "https://leadconnectorhq.com https://*.leadconnectorhq.com"
+        )
+        self._header_value = (
+            f"frame-ancestors {sources}; frame-src {frame_sources};"
+        )
 
     def __call__(self, request):
         response = self.get_response(request)
