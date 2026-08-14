@@ -1067,9 +1067,9 @@
 .editor-health-warning {
   margin: 16px 24px 0;
   padding: 14px 16px;
-  border: 1px solid var(--color-warn-strong, #f4c66a);
+  border: 1px solid color-mix(in srgb, var(--color-warn) 40%, white);
   border-radius: var(--radius-md);
-  background: var(--color-warn-soft, #fff8eb);
+  background: var(--color-warn-soft);
 }
 .editor-health-warning strong { display: block; margin-bottom: 4px; }
 .editor-health-warning div { color: var(--color-text-soft); font-size: 13px; }

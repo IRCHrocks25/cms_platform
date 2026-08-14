@@ -629,10 +629,10 @@
     var retry = node.querySelector("[data-ghl-picker-retry]");
     if (!select || !status) return;
 
-    function setPickerState(message, isError) {
+    function setPickerState(message, isError, canRetry) {
       status.textContent = message;
       status.classList.toggle("is-error", !!isError);
-      if (retry) retry.hidden = !isError;
+      if (retry) retry.hidden = !canRetry;
     }
 
     function populate(forms) {
@@ -657,21 +657,33 @@
       }
       select.value = current;
       select.disabled = !!window.CMS.readOnly;
-      setPickerState(
-        forms.length ? forms.length + (forms.length === 1 ? " form available" : " forms available") : "No forms are available in this GoHighLevel location.",
-        false
-      );
+      if (current && !known) {
+        setPickerState(
+          "The selected form is no longer available. Choose another form.",
+          true,
+          false
+        );
+      } else {
+        var availability = forms.length
+          ? forms.length + (forms.length === 1 ? " form available" : " forms available")
+          : "No forms are available in this GoHighLevel location.";
+        setPickerState(
+          availability,
+          false,
+          false
+        );
+      }
     }
 
     function start(force) {
       select.disabled = true;
       select.innerHTML = '<option value="">Loading forms…</option>';
-      setPickerState("Connecting to GoHighLevel…", false);
+      setPickerState("Connecting to GoHighLevel…", false, false);
       loadGhlForms(force).then(populate).catch(function (error) {
         select.innerHTML = '<option value="">Forms unavailable</option>';
         select.disabled = true;
         var message = error && error.data && error.data.error;
-        setPickerState(message || "Forms could not be loaded. Try again.", true);
+        setPickerState(message || "Forms could not be loaded. Try again.", true, true);
       });
     }
 
@@ -680,7 +692,7 @@
       var next = select.value;
       if (!next && window.CMS.published) {
         select.value = previous;
-        setPickerState("Unpublish this page before removing its form.", true);
+        setPickerState("Unpublish this page before removing its form.", true, false);
         return;
       }
       if (!next && previous && !window.confirm(
@@ -692,7 +704,7 @@
       current = next;
       setValue(fieldId, next);
       previewReloadAfterSave = true;
-      setPickerState(next ? "Form selected. Saving and refreshing preview…" : "No form selected.", false);
+      setPickerState(next ? "Form selected. Saving and refreshing preview…" : "No form selected.", false, false);
       scheduleSave();
     });
     if (retry) retry.addEventListener("click", function () { start(true); });

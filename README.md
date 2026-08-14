@@ -18,7 +18,8 @@ idea end-to-end on one machine.
   - 1–6 sections → single scroll
   - 7–15 → sidebar nav
   - 16+ → sidebar + search
-- Field types: `text`, `richtext`, `image`, `color`, `link`
+- Field types: `text`, `richtext`, `image`, `color`, `link`, `video`,
+  `ghl-embed` (GHL forms)
 - **Live preview iframe** with click-to-edit
 - **Click on form** → highlights element in preview
 - **Click on preview** → focuses the field in the form
@@ -108,6 +109,10 @@ OAuth discovery is at that well-known URL and
   <span data-edit="hero.bg" data-type="color" data-label="Background"
         style="background: #fff">
 
+  <!-- Phase 1 GHL embed slot: form is the only supported kind. -->
+  <div data-edit="hero.form" data-type="ghl-embed"
+       data-ghl-kind="form" data-label="Lead form"></div>
+
 </section>
 
 <!-- Brand tokens -->
@@ -119,7 +124,26 @@ OAuth discovery is at that well-known URL and
 </style>
 ```
 
-Field types: `text`, `richtext`, `image`, `color`, `link` (default: `text`).
+Field types: `text`, `richtext`, `image`, `color`, `link`, `video`, and
+`ghl-embed` (default: `text`). A GHL form slot stores either an empty string or
+the self-describing value `form:<id>`; raw IDs and unknown embed kinds are
+rejected while parsing or saving.
+
+### GoHighLevel form slots
+
+The editor loads forms asynchronously from the site's bound GHL location.
+Existing installations must reconnect/re-consent after this feature ships so
+their token includes the `forms.readonly` scope. OAuth tokens remain on the
+server, and the forms route accepts no caller-supplied location ID.
+
+Published pages warn when a form slot is empty and cannot have a populated
+slot cleared until they are unpublished. Editor previews show the real embed
+behind a submission shield and visibly state, “This is a preview, nothing is
+sent.” Public empty slots render nothing.
+
+MCP clients can use `list_embed_slots`, `list_ghl_forms`, and
+`set_embed_slot`. Form writes require a current content etag and a `form:<id>`
+returned for that same tenant.
 
 ---
 

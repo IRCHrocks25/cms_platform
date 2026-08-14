@@ -133,4 +133,3 @@ class GhlEmbedRendererTests(SimpleTestCase):
         slot = soup.find(attrs={"data-edit": "contact.embed"})
         self.assertIsNotNone(slot)
         self.assertIn("No GHL form selected", slot.get_text(" ", strip=True))
-
