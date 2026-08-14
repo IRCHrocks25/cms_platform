@@ -99,6 +99,22 @@ def restore_tenant_content(
     if version.tenant_id != tenant.pk:
         raise ValueError("version does not belong to tenant")
 
+    proposed = deepcopy(version.snapshot or {})
+    # A historical snapshot can contain a form that was deleted or belongs to
+    # another location. Re-run the same tenant-scoped validation used by live
+    # dashboard/MCP writes before taking the undo snapshot or mutating content.
+    from core.parser import build_schema
+    from core.services import ghl_embed_slots
+
+    schema = build_schema(tenant.template.html_source)
+    ghl_embed_slots.validate_embed_content_update(
+        tenant=tenant,
+        schema=schema,
+        current_content=tenant.content or {},
+        new_content=proposed,
+        is_published=tenant.is_published,
+    )
+
     with transaction.atomic():
         ContentVersion.objects.create(
             tenant=tenant,
@@ -106,7 +122,7 @@ def restore_tenant_content(
             saved_by=user if getattr(user, "pk", None) else None,
             source=SOURCE_DASHBOARD,
         )
-        tenant.content = deepcopy(version.snapshot or {})
+        tenant.content = proposed
         tenant.save(update_fields=["content", "updated_at"])
         _trim_versions(tenant, source=SOURCE_DASHBOARD, keep=DASHBOARD_KEEP)
         _trim_versions(tenant, source=SOURCE_MCP, keep=MCP_KEEP)

@@ -2572,14 +2572,17 @@ def _version_restore(request, tenant):
     # Shared path with editor saves / MCP writes.
     from core.services import content_versions as cv
 
-    cv.restore_tenant_content(tenant, version, user=request.user)
+    try:
+        cv.restore_tenant_content(tenant, version, user=request.user)
+    except ghl_embed_slots.GhlEmbedValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     return JsonResponse({"ok": True})
 
 
 def _version_preview(tenant, version_id):
     version = get_object_or_404(tenant.versions, id=version_id)
     content = merge_with_defaults(tenant.template.schema, version.snapshot)
-    html = render_site(tenant.template.html_source, content, preview=False)
+    html = render_site(tenant.template.html_source, content, preview=True)
     return HttpResponse(html)
 
 

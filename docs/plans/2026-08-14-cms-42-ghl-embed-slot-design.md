@@ -70,6 +70,9 @@ or a selected form no longer returned by GHL, receive a visible warning in the
 shared editor used by both dashboards. Unsetting a populated embed slot asks
 for explicit confirmation; the server also refuses an empty embed write on a
 published page so a crafted dashboard request cannot bypass the warning.
+Restoring historical content revalidates changed form IDs against the tenant's
+current form list before writing, and version previews use the same submission
+shield as the live editor preview.
 
 MCP adds dedicated tools to list embed slots, set an embed slot, and enumerate
 available GHL forms. These tools reuse tenant authorization and the same

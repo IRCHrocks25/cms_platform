@@ -58,6 +58,8 @@ Tests are added before implementation for:
   and another tenant's form IDs, with no template mutation;
 - fail-closed rendering of legacy populated defaults;
 - refusal to restore an archived template version with a populated default;
+- refusal to restore a content snapshot containing a now-deleted or foreign
+  form, with historical previews protected by the submission shield;
 - `_current_schema` protection in both `list_embed_slots` and
   `set_embed_slot`;
 - populated public output omitting every preview-only control;

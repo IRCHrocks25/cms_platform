@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Page, Template, Tenant, TenantMembership
+from core.models import ContentVersion, Page, Template, Tenant, TenantMembership
 from core.services.ghl_forms import GhlFormsUnavailable
 
 
@@ -287,3 +287,50 @@ class GhlEmbedDashboardWriteTests(TestCase):
         self.assertEqual(response.status_code, 400)
         page.refresh_from_db()
         self.assertEqual(page.content["contact"]["embed"], "form:existing")
+
+    @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
+    def test_content_restore_cannot_reintroduce_deleted_or_foreign_form(
+        self, list_forms
+    ):
+        version = ContentVersion.objects.create(
+            tenant=self.tenant,
+            snapshot={
+                "contact": {
+                    "title": "Old contact",
+                    "embed": "form:deleted_or_foreign",
+                }
+            },
+            saved_by=self.member,
+        )
+        list_forms.return_value = [{"id": "existing", "name": "Current"}]
+
+        response = self.client.post(
+            reverse("dashboard:tenant_version_restore_self"),
+            data=json.dumps({"version_id": version.pk}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not available", response.json()["error"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content["contact"]["embed"], "form:existing")
+
+    def test_content_version_preview_uses_submission_shield(self):
+        version = ContentVersion.objects.create(
+            tenant=self.tenant,
+            snapshot={
+                "contact": {
+                    "title": "Old contact",
+                    "embed": "form:historical",
+                }
+            },
+            saved_by=self.member,
+        )
+
+        response = self.client.get(
+            reverse("dashboard:tenant_version_preview_self", args=[version.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'sandbox="allow-scripts"')
+        self.assertContains(response, "This is a preview, nothing is sent.")
