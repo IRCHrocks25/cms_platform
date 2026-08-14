@@ -9,8 +9,10 @@ from django.conf import settings
 from django.db import transaction
 
 from core.models import CustomDomain, Page, RESERVED_PAGE_SLUGS, Template, Tenant
+from core.parser import build_schema
 from core.services import content_versions as cv
 from core.services import custom_domains as custom_domains_svc
+from core.services import ghl_embed_slots, ghl_forms
 from core.services.accounts import (
     AccountSeedError,
     CustomDomainError,
@@ -82,6 +84,14 @@ def _require_scope(auth: ResolvedAuth, site: str) -> Optional[TenantScope]:
     if tenant is None:
         return None
     return auth.for_tenant(tenant)
+
+
+def _current_schema(editable, stored_schema: dict[str, Any]) -> dict[str, Any]:
+    """Reparse annotations so older stored schemas cannot bypass new rules."""
+    template = editable.template
+    if template and template.html_source:
+        return build_schema(template.html_source)
+    return stored_schema
 
 
 def list_pages(auth: ResolvedAuth, *, site: str) -> dict[str, Any]:
@@ -202,6 +212,132 @@ def get_content(
             "value": value,
             "is_default": is_default,
             "content_etag": content_mod.content_etag(stored),
+        }
+    )
+
+
+def list_embed_slots(
+    auth: ResolvedAuth, *, site: str, page: Optional[str] = None
+) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, schema, stored = content_mod.resolve_editable(scope.tenant, page)
+    except LookupError:
+        return page_access_denied(site, page or "")
+    schema = _current_schema(editable, schema)
+    return tool_success(
+        {
+            "site": scope.tenant.subdomain,
+            "page": None if isinstance(editable, Tenant) else editable.slug,
+            "published": editable.is_published,
+            "slots": ghl_embed_slots.get_embed_slots(schema, stored),
+            "content_etag": content_mod.content_etag(stored),
+        }
+    )
+
+
+def list_ghl_forms(auth: ResolvedAuth, *, site: str) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        forms = ghl_forms.list_forms_for_tenant(scope.tenant)
+    except ghl_forms.GhlFormsUnavailable as exc:
+        return tool_error(exc.public_message)
+    return tool_success(
+        {
+            "site": scope.tenant.subdomain,
+            "forms": [
+                {**form, "value": f'form:{form["id"]}'} for form in forms
+            ],
+        }
+    )
+
+
+def set_embed_slot(
+    auth: ResolvedAuth,
+    *,
+    site: str,
+    field: str,
+    value: str,
+    if_match: str,
+    page: Optional[str] = None,
+) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, schema, stored = content_mod.resolve_editable(scope.tenant, page)
+    except LookupError:
+        return page_access_denied(site, page or "")
+    schema = _current_schema(editable, schema)
+
+    template = editable.template
+    if not template.is_client_editable and not (
+        getattr(auth.user, "is_superuser", False)
+        or getattr(auth.user, "is_staff", False)
+    ):
+        return tool_error(
+            "This site isn't set up for editing yet — contact your agency."
+        )
+
+    current_etag = content_mod.content_etag(stored)
+    if if_match != current_etag:
+        return tool_conflict(
+            "Conflict (409): content has changed since if_match. "
+            "Re-read with list_embed_slots and retry."
+        )
+
+    slots = {
+        slot["id"]: slot
+        for slot in ghl_embed_slots.get_embed_slots(schema, stored)
+    }
+    slot = slots.get(field)
+    if slot is None or slot["kind"] != "form":
+        return tool_error(f"Unknown GHL form embed slot '{field}'.")
+    if value == slot["value"]:
+        return tool_success(
+            {
+                "site": scope.tenant.subdomain,
+                "page": None if isinstance(editable, Tenant) else editable.slug,
+                "field": field,
+                "value": value,
+                "content_etag": current_etag,
+            }
+        )
+
+    try:
+        new_content = content_mod.write_field(stored, field, value)
+        ghl_embed_slots.validate_embed_content_update(
+            tenant=scope.tenant,
+            schema=schema,
+            current_content=stored,
+            new_content=new_content,
+            is_published=editable.is_published,
+        )
+    except ValueError as exc:
+        return tool_error(str(exc))
+
+    if isinstance(editable, Tenant):
+        cv.save_tenant_content(
+            editable,
+            new_content,
+            user=auth.user,
+            source=cv.SOURCE_MCP,
+        )
+    else:
+        editable.content = new_content
+        editable.save(update_fields=["content", "updated_at"])
+    editable.refresh_from_db()
+    return tool_success(
+        {
+            "site": scope.tenant.subdomain,
+            "page": None if isinstance(editable, Tenant) else editable.slug,
+            "field": field,
+            "value": value,
+            "content_etag": content_mod.content_etag(editable.content or {}),
         }
     )
 
@@ -500,6 +636,7 @@ def patch_content(
         )
     except LookupError:
         return page_access_denied(site, page or "")
+    schema = _current_schema(editable, schema)
 
     tpl = editable.template
     if not tpl.is_client_editable and not (
@@ -521,6 +658,15 @@ def patch_content(
         content_mod.read_field(schema, stored, field)
     except KeyError:
         return tool_error(f"Unknown field '{field}'.")
+
+    if any(
+        slot["id"] == field
+        for slot in ghl_embed_slots.get_embed_slots(schema, stored)
+    ):
+        return tool_error(
+            "GHL embed fields must be changed with set_embed_slot so tenant "
+            "form ownership and published-page safeguards are enforced."
+        )
 
     try:
         new_content = content_mod.write_field(stored, field, value)
@@ -943,6 +1089,9 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_page": get_page,
     "get_page_html": get_page_html,
     "get_content": get_content,
+    "list_embed_slots": list_embed_slots,
+    "set_embed_slot": set_embed_slot,
+    "list_ghl_forms": list_ghl_forms,
     "list_templates": list_templates,
     "create_client_account": create_client_account,
     "publish_site": publish_site,
@@ -1148,6 +1297,130 @@ TOOLS_LIST: list[dict[str, Any]] = [
             },
         },
         "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "list_embed_slots",
+        "description": (
+            "List GHL embed slots and current kind-prefixed values for a site page."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {
+                    "type": ["string", "null"],
+                    "description": "Page slug; omit/null for home",
+                },
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "page", "published", "slots", "content_etag"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {"type": ["string", "null"]},
+                "published": {"type": "boolean"},
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "label", "kind", "value"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "kind": {"type": "string", "enum": ["form"]},
+                            "value": {
+                                "type": "string",
+                                "description": "Empty or form:<id>",
+                            },
+                        },
+                    },
+                },
+                "content_etag": {"type": "string"},
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "list_ghl_forms",
+        "description": (
+            "List forms from the site's bound GoHighLevel location. "
+            "Values are ready to pass to set_embed_slot."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {"site": {"type": "string"}},
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "forms"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "forms": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "name", "value"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "string"},
+                            "name": {"type": "string"},
+                            "value": {
+                                "type": "string",
+                                "description": "form:<id>",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "set_embed_slot",
+        "description": (
+            "Set an existing GHL form embed slot. Requires form:<id> from "
+            "list_ghl_forms and a current content_etag from list_embed_slots. "
+            "A populated slot cannot be cleared while its page is published."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site", "field", "value", "if_match"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {
+                    "type": ["string", "null"],
+                    "description": "Page slug; omit/null for home",
+                },
+                "field": {"type": "string"},
+                "value": {
+                    "type": "string",
+                    "description": "form:<id>, or empty to unset an unpublished page",
+                },
+                "if_match": {"type": "string"},
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["site", "page", "field", "value", "content_etag"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {"type": ["string", "null"]},
+                "field": {"type": "string"},
+                "value": {"type": "string"},
+                "content_etag": {"type": "string"},
+            },
+        },
+        "annotations": WRITE_ANNOTATIONS,
     },
     {
         "name": "list_templates",
