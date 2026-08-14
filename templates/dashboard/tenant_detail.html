@@ -65,7 +65,21 @@
           </span>
           <div class="row-actions">
             <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
-            {% if tenant.is_published %}<a href="{{ site_urls.public_url }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+            {% if tenant.is_published %}
+              <div class="action-menu" data-menu>
+                <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                        id="home-actions-trigger-{{ tenant.pk }}" data-menu-trigger
+                        aria-haspopup="menu" aria-expanded="false" aria-controls="home-actions-{{ tenant.pk }}"
+                        aria-label="More actions for Home">
+                  <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                </button>
+                <div class="action-menu-popup" id="home-actions-{{ tenant.pk }}" role="menu"
+                     aria-labelledby="home-actions-trigger-{{ tenant.pk }}" data-menu-position="fixed" hidden>
+                  <a href="{{ site_urls.public_url }}" target="_blank" rel="noopener"
+                     role="menuitem" tabindex="-1" data-menu-item>View</a>
+                </div>
+              </div>
+            {% endif %}
           </div>
         </article>
         {% for row in pages %}
@@ -82,8 +96,21 @@
             </span>
             <div class="row-actions">
               <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
-              {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" class="btn btn-ghost btn-sm">HTML</a>{% endif %}
-              {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>{% endif %}
+              {% if row.urls.edit_html or row.obj.is_published %}
+                <div class="action-menu" data-menu>
+                  <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                          id="detail-page-actions-trigger-{{ row.obj.pk }}" data-menu-trigger
+                          aria-haspopup="menu" aria-expanded="false" aria-controls="detail-page-actions-{{ row.obj.pk }}"
+                          aria-label="More actions for {{ row.obj.title }}">
+                    <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                  </button>
+                  <div class="action-menu-popup" id="detail-page-actions-{{ row.obj.pk }}" role="menu"
+                       aria-labelledby="detail-page-actions-trigger-{{ row.obj.pk }}" data-menu-position="fixed" hidden>
+                    {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" role="menuitem" tabindex="-1" data-menu-item>Edit HTML</a>{% endif %}
+                    {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View</a>{% endif %}
+                  </div>
+                </div>
+              {% endif %}
             </div>
           </article>
         {% empty %}
@@ -129,11 +156,25 @@
                 </td>
                 <td class="cell-muted" data-label="Added">{{ m.created_at|naturaltime }}</td>
                 <td class="right" data-label="Actions">
-                  <form method="post" action="{% url 'dashboard:tenant_member_remove' tenant.pk m.pk %}"
-                        onsubmit="return confirm('Remove {{ m.user.username }} from this site?');" class="inline-form">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
-                  </form>
+                  <div class="row-actions">
+                    <div class="action-menu" data-menu>
+                      <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                              id="member-actions-trigger-{{ m.pk }}" data-menu-trigger
+                              aria-haspopup="menu" aria-expanded="false" aria-controls="member-actions-{{ m.pk }}"
+                              aria-label="More actions for {{ m.user.username }}">
+                        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                      </button>
+                      <div class="action-menu-popup" id="member-actions-{{ m.pk }}" role="menu"
+                           aria-labelledby="member-actions-trigger-{{ m.pk }}" data-menu-position="fixed" hidden>
+                        <form method="post" action="{% url 'dashboard:tenant_member_remove' tenant.pk m.pk %}"
+                              onsubmit="return confirm('Remove {{ m.user.username }} from this site?');"
+                              class="action-menu-danger" role="none">
+                          {% csrf_token %}
+                          <button type="submit" role="menuitem" tabindex="-1" data-menu-item>Remove</button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
                 </td>
               </tr>
             {% endfor %}

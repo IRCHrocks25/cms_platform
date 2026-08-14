@@ -82,9 +82,24 @@
                 </td>
                 <td class="right" data-label="Actions">
                   <div class="row-actions">
-                    <a href="{{ tenant.public_url }}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">View site ↗</a>
                     <a href="{% url 'dashboard:tenant_editor' tenant.pk %}" class="btn btn-secondary btn-sm">Edit</a>
-                    <a href="{% url 'dashboard:tenant_detail' tenant.pk %}" class="btn btn-ghost btn-sm">Details</a>
+                    <div class="action-menu" data-menu>
+                      <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                              id="site-actions-trigger-{{ tenant.pk }}" data-menu-trigger
+                              aria-haspopup="menu" aria-expanded="false"
+                              aria-controls="site-actions-{{ tenant.pk }}"
+                              aria-label="More actions for {{ tenant.name }}">
+                        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                      </button>
+                      <div class="action-menu-popup" id="site-actions-{{ tenant.pk }}" role="menu"
+                           aria-labelledby="site-actions-trigger-{{ tenant.pk }}"
+                           data-menu-position="fixed" hidden>
+                        <a href="{{ tenant.public_url }}" target="_blank" rel="noopener"
+                           role="menuitem" tabindex="-1" data-menu-item>View site</a>
+                        <a href="{% url 'dashboard:tenant_detail' tenant.pk %}"
+                           role="menuitem" tabindex="-1" data-menu-item>Details</a>
+                      </div>
+                    </div>
                   </div>
                 </td>
               </tr>

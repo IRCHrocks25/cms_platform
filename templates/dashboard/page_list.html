@@ -196,15 +196,27 @@
               </span>
               <div class="row-actions">
                 <a href="{{ row.urls.edit }}" class="btn btn-primary btn-sm">Edit page</a>
-                {% if row.obj.is_published %}
-                  <a href="{{ row.urls.live }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View</a>
-                {% endif %}
-                <form method="post" action="{{ row.urls.publish }}" class="inline-form">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-secondary btn-sm">
-                    {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
+                <div class="action-menu" data-menu>
+                  <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                          id="client-page-actions-trigger-{{ row.obj.pk }}" data-menu-trigger
+                          aria-haspopup="menu" aria-expanded="false" aria-controls="client-page-actions-{{ row.obj.pk }}"
+                          aria-label="More actions for {{ row.obj.title }}">
+                    <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
                   </button>
-                </form>
+                  <div class="action-menu-popup" id="client-page-actions-{{ row.obj.pk }}" role="menu"
+                       aria-labelledby="client-page-actions-trigger-{{ row.obj.pk }}" data-menu-position="fixed" hidden>
+                    {% if row.obj.is_published %}
+                      <a href="{{ row.urls.live }}" target="_blank" rel="noopener"
+                         role="menuitem" tabindex="-1" data-menu-item>View</a>
+                    {% endif %}
+                    <form method="post" action="{{ row.urls.publish }}" role="none">
+                      {% csrf_token %}
+                      <button type="submit" role="menuitem" tabindex="-1" data-menu-item>
+                        {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             </article>
           {% endfor %}
@@ -240,25 +252,32 @@
                 <td class="right" data-label="Actions">
                   <div class="row-actions">
                     <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
-                    {% if row.urls.edit_html %}
-                      <a href="{{ row.urls.edit_html }}" class="btn btn-ghost btn-sm">Edit HTML</a>
-                    {% endif %}
-                    {% if row.obj.is_published %}
-                      <a href="{{ row.urls.live }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
-                    {% endif %}
-                    <form method="post" action="{{ row.urls.publish }}" class="inline-form">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-ghost btn-sm">
-                        {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
+                    <div class="action-menu" data-menu>
+                      <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                              id="agency-page-actions-trigger-{{ row.obj.pk }}" data-menu-trigger
+                              aria-haspopup="menu" aria-expanded="false" aria-controls="agency-page-actions-{{ row.obj.pk }}"
+                              aria-label="More actions for {{ row.obj.title }}">
+                        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
                       </button>
-                    </form>
-                    {% if can_manage_pages %}
-                      <form method="post" action="{{ row.urls.delete }}" class="inline-form"
-                            onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-ghost btn-sm text-danger">Delete</button>
-                      </form>
-                    {% endif %}
+                      <div class="action-menu-popup" id="agency-page-actions-{{ row.obj.pk }}" role="menu"
+                           aria-labelledby="agency-page-actions-trigger-{{ row.obj.pk }}" data-menu-position="fixed" hidden>
+                        {% if row.urls.edit_html %}<a href="{{ row.urls.edit_html }}" role="menuitem" tabindex="-1" data-menu-item>Edit HTML</a>{% endif %}
+                        {% if row.obj.is_published %}<a href="{{ row.urls.live }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View</a>{% endif %}
+                        <form method="post" action="{{ row.urls.publish }}" role="none">
+                          {% csrf_token %}
+                          <button type="submit" role="menuitem" tabindex="-1" data-menu-item>
+                            {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
+                          </button>
+                        </form>
+                        {% if can_manage_pages %}
+                          <form method="post" action="{{ row.urls.delete }}" class="action-menu-danger" role="none"
+                                onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
+                            {% csrf_token %}
+                            <button type="submit" role="menuitem" tabindex="-1" data-menu-item>Delete</button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    </div>
                   </div>
                 </td>
               </tr>

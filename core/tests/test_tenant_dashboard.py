@@ -193,6 +193,7 @@ class TenantDashboardAccessTests(TestCase):
 
         self.assertContains(response, "About us")
         self.assertContains(response, reverse("dashboard:page_editor_self", args=[page.pk]))
+        self.assertContains(response, 'aria-label="More actions for About us"')
         self.assertNotContains(response, "Edit HTML")
         self.assertNotContains(response, reverse("dashboard:page_delete_self", args=[page.pk]))
 

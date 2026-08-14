@@ -65,6 +65,18 @@ class AgencyAdminAccessTests(TestCase):
             response = c.get(url)
             self.assertEqual(response.status_code, 403, msg=f"failed for {url}")
 
+    def test_sites_list_uses_accessible_row_action_menu(self):
+        c = self._client()
+        c.force_login(self.staff)
+
+        response = c.get(reverse("dashboard:tenant_list"))
+
+        self.assertContains(response, 'aria-label="More actions for Acme"')
+        self.assertContains(response, 'aria-haspopup="menu"')
+        self.assertContains(response, 'role="menu"')
+        self.assertContains(response, 'role="menuitem"')
+        self.assertContains(response, 'data-menu-position="fixed"')
+
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class AgencyHomeStatsTests(TestCase):
@@ -104,6 +116,8 @@ class TenantDetailPagesTests(TestCase):
         page = Page.objects.create(
             tenant=tenant, template=page_template, title="About us", slug="about",
         )
+        member = User.objects.create_user("detail-member", password="x")
+        TenantMembership.objects.create(tenant=tenant, user=member, role="editor")
         client = Client(HTTP_HOST="localhost")
         client.force_login(staff)
 
@@ -114,6 +128,12 @@ class TenantDetailPagesTests(TestCase):
         self.assertContains(response, "About us")
         self.assertContains(response, f'href="{reverse("dashboard:page_editor", args=[tenant.pk, page.pk])}"')
         self.assertContains(response, f'href="{reverse("dashboard:page_list", args=[tenant.pk])}"')
+        self.assertContains(response, 'aria-label="More actions for About us"')
+        self.assertContains(response, 'aria-label="More actions for detail-member"')
+        self.assertContains(response, 'class="select select-sm"')
+
+        pages_response = client.get(reverse("dashboard:page_list", args=[tenant.pk]))
+        self.assertContains(pages_response, 'aria-label="More actions for About us"')
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")

@@ -536,6 +536,16 @@ class BlogDashboardTests(TestCase):
         r = self._agency().get(reverse("dashboard:blog_list", args=[self.tenant.pk]))
         self.assertEqual(r.status_code, 200)
 
+    def test_blog_rows_use_accessible_action_menu(self):
+        post = _post(self.tenant, "Menu-ready post", status=BlogPost.STATUS_PUBLISHED)
+
+        response = self._agency().get(reverse("dashboard:blog_list", args=[self.tenant.pk]))
+
+        self.assertContains(response, 'aria-label="More actions for Menu-ready post"')
+        self.assertContains(response, 'aria-haspopup="menu"')
+        self.assertContains(response, 'data-menu-position="fixed"')
+        self.assertContains(response, reverse("dashboard:blog_edit", args=[self.tenant.pk, post.pk]))
+
     def test_blog_form_tools_use_accessible_menu_markup(self):
         response = self._tenant().get(reverse("dashboard:blog_create_self"))
 

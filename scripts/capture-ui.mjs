@@ -14,6 +14,9 @@ const base = argument("base", "http://127.0.0.1:8000").replace(/\/$/, "");
 const path = argument("path", "/dashboard/");
 const output = argument("out");
 const inspectSelector = argument("inspect");
+const clickSelector = argument("click");
+const scrollSelector = argument("scroll-to");
+const menuAuditLabel = argument("menu-audit");
 const tabAuditCount = Number(argument("tab-audit", "0"));
 const width = Number(argument("width", "1280"));
 const height = Number(argument("height", "900"));
@@ -118,6 +121,70 @@ try {
 
   await command("Page.navigate", { url: `${base}${path}` });
   await pause(1100);
+  if (scrollSelector) {
+    await command("Runtime.evaluate", {
+      expression: `document.querySelector(${JSON.stringify(scrollSelector)})?.scrollIntoView({ block: 'start' })`,
+    });
+    await pause(300);
+  }
+  if (clickSelector) {
+    const clickResult = await command("Runtime.evaluate", {
+      expression: `(() => {
+        const element = document.querySelector(${JSON.stringify(clickSelector)});
+        if (!element) return false;
+        element.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    if (!clickResult.result.value) throw new Error(`Click target was not found: ${clickSelector}`);
+    await pause(300);
+  }
+  if (menuAuditLabel) {
+    async function press(key, code, windowsVirtualKeyCode) {
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode });
+      await command("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode });
+    }
+    let reachedTrigger = false;
+    for (let index = 0; index < 80; index += 1) {
+      await press("Tab", "Tab", 9);
+      const label = await command("Runtime.evaluate", {
+        expression: "document.activeElement?.getAttribute('aria-label') || ''",
+        returnByValue: true,
+      });
+      if (label.result.value.startsWith(menuAuditLabel)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    if (!reachedTrigger) throw new Error(`Menu trigger was not reachable by Tab: ${menuAuditLabel}`);
+    await press("ArrowDown", "ArrowDown", 40);
+    const opened = await command("Runtime.evaluate", {
+      expression: `({
+        expanded: document.activeElement?.closest('[data-menu]')?.querySelector('[data-menu-trigger]')?.getAttribute('aria-expanded'),
+        firstItem: document.activeElement?.textContent?.trim(),
+      })`,
+      returnByValue: true,
+    });
+    await press("ArrowDown", "ArrowDown", 40);
+    const moved = await command("Runtime.evaluate", {
+      expression: "document.activeElement?.textContent?.trim()",
+      returnByValue: true,
+    });
+    await press("Escape", "Escape", 27);
+    const closed = await command("Runtime.evaluate", {
+      expression: `({
+        label: document.activeElement?.getAttribute('aria-label'),
+        expanded: document.activeElement?.getAttribute('aria-expanded'),
+      })`,
+      returnByValue: true,
+    });
+    const result = { opened: opened.result.value, movedTo: moved.result.value, closed: closed.result.value };
+    console.log(JSON.stringify({ menuAudit: result }, null, 2));
+    if (result.opened.expanded !== "true" || result.closed.expanded !== "false" || !result.closed.label?.startsWith(menuAuditLabel)) {
+      throw new Error("Row menu keyboard contract failed");
+    }
+  }
   if (inspectSelector) {
     const inspection = await command("Runtime.evaluate", {
       expression: `(() => {

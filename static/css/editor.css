@@ -1038,37 +1038,6 @@
 }
 .status-dot.error { background: var(--color-danger, #b91c1c); box-shadow: 0 0 0 4px rgba(185, 28, 28, .12); }
 .editor-tools { position: relative; }
-.editor-tools-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 20;
-  width: 184px;
-  padding: 6px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-white);
-  box-shadow: var(--shadow-lg);
-}
-.editor-tools-menu[hidden] { display: none !important; }
-.editor-tools-menu a, .editor-tools-menu button {
-  display: block;
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-.editor-tools-menu a:hover, .editor-tools-menu button:hover,
-.editor-tools-menu a:focus-visible, .editor-tools-menu button:focus-visible {
-  background: var(--color-surface-2);
-  outline: none;
-}
 .editor-readonly-notice {
   margin: 16px 24px 0;
   padding: 14px 16px;

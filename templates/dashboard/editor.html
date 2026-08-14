@@ -36,11 +36,11 @@
         <span id="save-text">All changes saved</span>
         <button type="button" class="save-retry" id="save-retry" hidden>Retry</button>
       </div>
-      <div class="editor-tools" data-menu>
+      <div class="editor-tools action-menu" data-menu>
         <button type="button" class="btn btn-secondary" id="editor-tools-trigger"
                 data-menu-trigger aria-haspopup="menu" aria-expanded="false"
                 aria-controls="editor-tools-menu">Tools</button>
-        <div class="editor-tools-menu" id="editor-tools-menu" role="menu"
+        <div class="editor-tools-menu action-menu-popup" id="editor-tools-menu" role="menu"
              aria-labelledby="editor-tools-trigger" hidden>
           {% if live_url %}<a href="{{ live_url }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View site</a>{% endif %}
           <a href="{{ page_list_url }}" role="menuitem" tabindex="-1" data-menu-item>Pages</a>

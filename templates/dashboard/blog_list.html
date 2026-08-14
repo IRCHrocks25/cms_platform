@@ -83,14 +83,26 @@
                 <td class="right" data-label="Actions">
                   <div class="row-actions">
                     <a href="{{ row.urls.edit }}" class="btn btn-secondary btn-sm">Edit</a>
-                    {% if row.post.status == 'published' %}
-                      <a href="{{ row.urls.view }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View ↗</a>
-                    {% endif %}
-                    <form method="post" action="{{ row.urls.delete }}" class="inline-form"
-                          onsubmit="return confirm('Delete “{{ row.post.title|escapejs }}”? This cannot be undone.');">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-ghost btn-sm">Delete</button>
-                    </form>
+                    <div class="action-menu" data-menu>
+                      <button type="button" class="btn btn-ghost btn-sm row-menu-trigger"
+                              id="blog-actions-trigger-{{ row.post.pk }}" data-menu-trigger
+                              aria-haspopup="menu" aria-expanded="false" aria-controls="blog-actions-{{ row.post.pk }}"
+                              aria-label="More actions for {{ row.post.title }}">
+                        <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/></svg>
+                      </button>
+                      <div class="action-menu-popup" id="blog-actions-{{ row.post.pk }}" role="menu"
+                           aria-labelledby="blog-actions-trigger-{{ row.post.pk }}" data-menu-position="fixed" hidden>
+                        {% if row.post.status == 'published' %}
+                          <a href="{{ row.urls.view }}" target="_blank" rel="noopener"
+                             role="menuitem" tabindex="-1" data-menu-item>View</a>
+                        {% endif %}
+                        <form method="post" action="{{ row.urls.delete }}" class="action-menu-danger" role="none"
+                              onsubmit="return confirm('Delete “{{ row.post.title|escapejs }}”? This cannot be undone.');">
+                          {% csrf_token %}
+                          <button type="submit" role="menuitem" tabindex="-1" data-menu-item>Delete</button>
+                        </form>
+                      </div>
+                    </div>
                   </div>
                 </td>
               </tr>

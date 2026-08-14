@@ -47,12 +47,31 @@ function closeMenu(menu, { returnFocus = false } = {}) {
   if (returnFocus) menu.trigger.focus();
 }
 
+function positionMenu(menu) {
+  if (menu.popup.dataset.menuPosition !== "fixed") return;
+  const gutter = 12;
+  const gap = 8;
+  const triggerRect = menu.trigger.getBoundingClientRect();
+  const popupRect = menu.popup.getBoundingClientRect();
+  const left = Math.min(
+    window.innerWidth - popupRect.width - gutter,
+    Math.max(gutter, triggerRect.right - popupRect.width),
+  );
+  const fitsBelow = triggerRect.bottom + gap + popupRect.height <= window.innerHeight - gutter;
+  const top = fitsBelow
+    ? triggerRect.bottom + gap
+    : Math.max(gutter, triggerRect.top - popupRect.height - gap);
+  menu.popup.style.left = `${left}px`;
+  menu.popup.style.top = `${top}px`;
+}
+
 function openMenu(menu, focusIndex = 0) {
   menus.forEach((candidate) => {
     if (candidate !== menu) closeMenu(candidate);
   });
   menu.popup.hidden = false;
   menu.trigger.setAttribute("aria-expanded", "true");
+  positionMenu(menu);
   menu.items[focusIndex]?.focus();
 }
 
@@ -116,6 +135,9 @@ document.addEventListener("click", (event) => {
     if (menu.isOpen() && !menu.root.contains(event.target)) closeMenu(menu);
   });
 });
+
+window.addEventListener("resize", () => menus.forEach((menu) => closeMenu(menu)));
+window.addEventListener("scroll", () => menus.forEach((menu) => closeMenu(menu)), true);
 
 document.addEventListener("focusin", (event) => {
   event.target.closest?.("[data-sidebar-label]")?.classList.add("is-label-visible");

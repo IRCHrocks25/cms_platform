@@ -25,11 +25,11 @@
     </div>
 
     <div class="row blog-editor-actions">
-      <div class="editor-tools" data-menu>
+      <div class="editor-tools action-menu" data-menu>
         <button type="button" class="btn btn-secondary" id="blog-tools-trigger"
                 data-menu-trigger aria-haspopup="menu" aria-expanded="false"
                 aria-controls="blog-tools-menu">Tools</button>
-        <div class="editor-tools-menu" id="blog-tools-menu" role="menu"
+        <div class="editor-tools-menu action-menu-popup" id="blog-tools-menu" role="menu"
              aria-labelledby="blog-tools-trigger" hidden>
           {% if view_url and post.status == 'published' %}
             <a href="{{ view_url }}" target="_blank" rel="noopener" role="menuitem" tabindex="-1" data-menu-item>View post</a>
