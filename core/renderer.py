@@ -923,22 +923,21 @@ def render_site(
         if section == "brand":
             continue
 
-        section_data = content.get(section) or {}
-        if field not in section_data:
-            continue
-
         ftype = el.get("data-type", "text").strip() or "text"
+        section_data = content.get(section) or {}
         if ftype == "ghl-embed":
             kind = el.get("data-ghl-kind", "").strip()
             if kind == "form":
                 needs_ghl_form_script = (
                     _render_ghl_form_slot(
-                        soup, el, section_data[field], preview=preview
+                        soup, el, section_data.get(field, ""), preview=preview
                     )
                     or needs_ghl_form_script
                 )
             elif not preview:
                 el.decompose()
+            continue
+        if field not in section_data:
             continue
         _apply_field(el, section_data[field], ftype)
 
@@ -969,11 +968,29 @@ def render_site(
 
 
 def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
-    """Fill missing fields with template defaults."""
+    """Fill missing fields with template defaults.
+
+    GHL embed choices are tenant content, never portable template defaults.
+    Clear legacy stored defaults before applying explicit, tenant-validated
+    content so an old template cannot route leads to another tenant.
+    """
     merged: dict[str, Any] = {}
+    embed_fields: set[tuple[str, str]] = set()
+    for section in schema.get("sections", []) or []:
+        for field in section.get("fields", []) or []:
+            if field.get("type") != "ghl-embed":
+                continue
+            field_id = str(field.get("id") or "")
+            if "." not in field_id:
+                continue
+            embed_fields.add(tuple(field_id.split(".", 1)))
+
     defaults = schema.get("defaults", {}) or {}
     for section_id, fields in defaults.items():
         merged[section_id] = dict(fields)
+        for embed_section, embed_field in embed_fields:
+            if embed_section == section_id:
+                merged[section_id][embed_field] = ""
     for section_id, fields in (content or {}).items():
         # Meta keys (e.g. "_hidden") are NOT sections — they hold editor state
         # like the list of hidden section/field ids. Copy them through verbatim;

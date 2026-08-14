@@ -358,6 +358,46 @@ class McpGhlEmbedTests(TestCase):
         self.assertTrue(result["isError"])
         self.assertIn("set_embed_slot", result["content"][0]["text"])
 
+    def test_list_embed_slots_reparses_current_html_when_stored_schema_is_stale(self):
+        stale = self.tenant_a.template.schema
+        stale["sections"][0]["fields"][1]["type"] = "text"
+        Template.objects.filter(pk=self.tenant_a.template_id).update(schema=stale)
+
+        result = self._result(
+            self._call("list_embed_slots", {"site": "alpha"})
+        )
+
+        self.assertFalse(result["isError"])
+        self.assertEqual(
+            result["structuredContent"]["slots"][0]["id"], "contact.embed"
+        )
+
+    @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
+    def test_set_embed_slot_reparses_current_html_when_stored_schema_is_stale(
+        self, list_forms
+    ):
+        stale = self.tenant_a.template.schema
+        stale["sections"][0]["fields"][1]["type"] = "text"
+        Template.objects.filter(pk=self.tenant_a.template_id).update(schema=stale)
+        list_forms.return_value = [{"id": "alpha_new", "name": "New lead"}]
+
+        result = self._result(
+            self._call(
+                "set_embed_slot",
+                {
+                    "site": "alpha",
+                    "field": "contact.embed",
+                    "value": "form:alpha_new",
+                    "if_match": content_etag(self.tenant_a.content),
+                },
+            )
+        )
+
+        self.assertFalse(result["isError"])
+        self.tenant_a.refresh_from_db()
+        self.assertEqual(self.tenant_a.content["contact"]["embed"], "form:alpha_new")
+        list_forms.assert_called_once_with(self.tenant_a)
+
     def test_stale_etag_writes_nothing(self):
         result = self._call(
             "set_embed_slot",

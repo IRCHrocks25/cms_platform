@@ -9,10 +9,13 @@ from core.models import GhlInstall, Tenant
 from core.services.ghl_connect import ensure_fresh_location_token
 
 
-@dataclass
+@dataclass(eq=False)
 class GhlFormsUnavailable(Exception):
     code: str
     public_message: str
+
+    def __post_init__(self) -> None:
+        super().__init__(self.public_message)
 
     def __str__(self) -> str:
         return self.public_message

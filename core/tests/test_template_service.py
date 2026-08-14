@@ -28,6 +28,13 @@ HTML_B = """
 
 RAW = "<html><body><p>x</p></body></html>"
 
+HTML_EMBED_DEFAULT = """
+<section data-section="contact" data-label="Contact">
+  <div data-edit="contact.embed" data-type="ghl-embed"
+       data-ghl-kind="form">form:archived_form</div>
+</section>
+"""
+
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class AssignTemplateTests(TestCase):
@@ -216,6 +223,23 @@ class TemplateVersionServiceTests(TestCase):
         self.tpl.refresh_from_db()
         self.assertNotEqual(self.tpl.schema.get("sections"), v1.schema.get("sections"))
         self.assertIn("hero", {s["id"] for s in self.tpl.schema.get("sections", [])})
+
+    def test_restore_refuses_archived_populated_embed_default(self):
+        version = TemplateVersion.objects.create(
+            template=self.tpl,
+            number=1,
+            html_source=HTML_EMBED_DEFAULT,
+            schema={"sections": [], "defaults": {}},
+            saved_by=self.user,
+        )
+        original_html = self.tpl.html_source
+
+        with self.assertRaisesRegex(ValueError, "must be empty"):
+            tpl_svc.restore_template_version(self.tpl, version, user=self.user)
+
+        self.tpl.refresh_from_db()
+        self.assertEqual(self.tpl.html_source, original_html)
+        self.assertEqual(self.tpl.versions.count(), 1)
 
 
 def _field_ids(schema: dict) -> set[str]:

@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup
 from django.test import SimpleTestCase
 
 from core.parser import build_schema
-from core.renderer import render_site
+from core.renderer import merge_with_defaults, render_site
 
 
 FORM_SLOT = """
@@ -27,12 +27,11 @@ class GhlEmbedParserTests(SimpleTestCase):
         self.assertEqual(field["default"], "")
         self.assertFalse(field["style_editable"])
 
-    def test_kind_prefixed_default_is_preserved(self):
+    def test_kind_prefixed_default_is_rejected(self):
         html = FORM_SLOT.replace("></div>", ">form:abc_123-Z</div>")
-        schema = build_schema(html)
 
-        field = schema["sections"][0]["fields"][0]
-        self.assertEqual(field["default"], "form:abc_123-Z")
+        with self.assertRaisesRegex(ValueError, "must be empty"):
+            build_schema(html)
 
     def test_missing_kind_is_rejected_at_parse_time(self):
         html = FORM_SLOT.replace(' data-ghl-kind="form"', "")
@@ -75,6 +74,32 @@ class GhlEmbedRendererTests(SimpleTestCase):
             "script", src="https://link.msgsndr.com/js/form_embed.js"
         )
         self.assertEqual(len(scripts), 1)
+
+    def test_legacy_template_default_fails_closed_but_stored_content_wins(self):
+        legacy_html = FORM_SLOT.replace("></div>", ">form:legacy_form</div>")
+        schema = build_schema(FORM_SLOT)
+        schema["defaults"]["contact"]["embed"] = "form:legacy_form"
+
+        without_content = BeautifulSoup(
+            render_site(legacy_html, merge_with_defaults(schema, {})), "lxml"
+        )
+        with_content = BeautifulSoup(
+            render_site(
+                legacy_html,
+                merge_with_defaults(
+                    schema, {"contact": {"embed": "form:tenant_form"}}
+                ),
+            ),
+            "lxml",
+        )
+
+        self.assertIsNone(without_content.find("iframe"))
+        self.assertNotIn("legacy_form", str(without_content))
+        iframe = with_content.find(
+            "iframe", attrs={"data-ghl-form-id": "tenant_form"}
+        )
+        self.assertIsNotNone(iframe)
+        self.assertNotIn("legacy_form", str(with_content))
 
     def test_multiple_form_slots_share_one_resize_script(self):
         html = FORM_SLOT.replace(

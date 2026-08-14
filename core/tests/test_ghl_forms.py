@@ -149,3 +149,13 @@ class TenantGhlFormsServiceTests(TestCase):
 
         self.assertEqual(raised.exception.code, "temporarily_unavailable")
         self.assertNotIn("secret", raised.exception.public_message)
+
+    def test_unavailable_error_keeps_normal_exception_contract(self):
+        service = self._service()
+        error = service.GhlFormsUnavailable(
+            code="not_connected", public_message="Reconnect GoHighLevel."
+        )
+
+        self.assertEqual(error.args, ("Reconnect GoHighLevel.",))
+        self.assertEqual(str(error), "Reconnect GoHighLevel.")
+        self.assertIsInstance(hash(error), int)

@@ -274,8 +274,8 @@ def set_embed_slot(
         return page_access_denied(site, page or "")
     schema = _current_schema(editable, schema)
 
-    template = editable.template
-    if not template.is_client_editable and not (
+    template = getattr(editable, "template", None)
+    if (template is None or not template.is_client_editable) and not (
         getattr(auth.user, "is_superuser", False)
         or getattr(auth.user, "is_staff", False)
     ):
@@ -734,6 +734,8 @@ def _push_html_onto_template(
             label=label,
         )
     except FieldLossError as exc:
+        return tool_error(str(exc)), None
+    except ValueError as exc:
         return tool_error(str(exc)), None
     return None, result
 

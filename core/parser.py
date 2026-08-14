@@ -204,7 +204,14 @@ def build_schema(html: str) -> dict[str, Any]:
                     raise ValueError(
                         f"Unknown data-ghl-kind '{ghl_kind}' on field '{full_id}'."
                     )
-                parse_ghl_embed_value(default, expected_kind=ghl_kind)
+                parsed_default = parse_ghl_embed_value(
+                    default, expected_kind=ghl_kind
+                )
+                if parsed_default is not None:
+                    raise ValueError(
+                        f"GHL embed field '{full_id}' must be empty in template "
+                        "HTML. Select the form as tenant content."
+                    )
 
             style_editable = (
                 ftype in ("text", "richtext", "link")
