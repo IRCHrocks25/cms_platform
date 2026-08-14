@@ -125,8 +125,10 @@ OAuth discovery is at that well-known URL and
 ```
 
 Field types: `text`, `richtext`, `image`, `color`, `link`, `video`, and
-`ghl-embed` (default: `text`). A GHL form slot stores either an empty string or
-the self-describing value `form:<id>`; raw IDs and unknown embed kinds are
+`ghl-embed` (default: `text`). A GHL form annotation must be empty in template
+HTML; form selection is tenant content, never a portable template default.
+Saved slots store either an empty string or the self-describing value
+`form:<id>`; raw IDs, populated embed defaults, and unknown embed kinds are
 rejected while parsing or saving.
 
 ### GoHighLevel form slots
@@ -138,8 +140,9 @@ server, and the forms route accepts no caller-supplied location ID.
 
 Published pages warn when a form slot is empty and cannot have a populated
 slot cleared until they are unpublished. Editor previews show the real embed
-behind a submission shield and visibly state, “This is a preview, nothing is
-sent.” Public empty slots render nothing.
+inside a sandbox that omits form-submission permission and behind a full-slot,
+high-contrast shield stating, “This is a preview, nothing is sent.” Public
+empty slots render nothing.
 
 MCP clients can use `list_embed_slots`, `list_ghl_forms`, and
 `set_embed_slot`. Form writes require a current content etag and a `form:<id>`

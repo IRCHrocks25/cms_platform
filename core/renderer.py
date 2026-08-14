@@ -325,6 +325,30 @@ PREVIEW_BRIDGE_SCRIPT = """
      can still see and toggle them. The public site uses display:none instead. */
   .cms-hidden { opacity: 0.4 !important; outline: 2px dashed #f59e0b !important;
                 outline-offset: 2px; }
+  [data-cms-ghl-preview-slot] {
+    position: relative !important;
+    isolation: isolate;
+    min-height: 500px;
+  }
+  [data-cms-ghl-preview-note] {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 2;
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 16px;
+    pointer-events: auto;
+    overflow-wrap: anywhere;
+    background: rgba(16, 24, 40, 0.78);
+    color: #ffffff !important;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-align: center;
+  }
 </style>
 """
 
@@ -507,6 +531,9 @@ def _render_ghl_form_slot(soup, el, value: object, *, preview: bool) -> bool:
     iframe["loading"] = "lazy"
 
     if preview:
+        el["data-cms-ghl-preview-slot"] = ""
+        iframe["sandbox"] = "allow-scripts"
+        iframe["aria-hidden"] = "true"
         iframe["tabindex"] = "-1"
         iframe["inert"] = ""
         iframe["style"] += " pointer-events: none;"

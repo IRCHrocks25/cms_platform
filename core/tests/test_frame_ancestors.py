@@ -36,8 +36,7 @@ class FrameAncestorsCspTests(TestCase):
         r = client.get("/embed/")  # 404 — no template render, just middleware
         csp = r.get("Content-Security-Policy")
         self.assertIn("frame-ancestors *;", csp)
-        self.assertIn("frame-src 'self' https://msgsndr.com https://*.msgsndr.com", csp)
-        self.assertIn("https://leadconnectorhq.com https://*.leadconnectorhq.com", csp)
+        self.assertNotIn("frame-src", csp)
 
     @override_settings(GHL_FRAME_ANCESTORS="")
     def test_empty_defaults_to_self_only(self):
@@ -45,7 +44,20 @@ class FrameAncestorsCspTests(TestCase):
         r = client.get("/embed/")  # 404 — no template render, just middleware
         csp = r.get("Content-Security-Policy")
         self.assertIn("frame-ancestors 'self';", csp)
-        self.assertIn("frame-src 'self' https://msgsndr.com", csp)
+        self.assertNotIn("frame-src", csp)
+
+    @override_settings(GHL_FRAME_ANCESTORS="")
+    def test_does_not_constrain_existing_template_child_iframes(self):
+        client = Client()
+        response = client.get("/embed/")
+        csp = response.get("Content-Security-Policy", "")
+
+        # CMS-42 must not silently block pre-existing YouTube, Maps, Vimeo,
+        # Calendly, or other template-authored iframes. With no default-src in
+        # this policy, omitting frame-src preserves the historical behavior
+        # while still constraining who may frame the CMS via frame-ancestors.
+        self.assertNotIn("frame-src", csp)
+        self.assertEqual(csp, "frame-ancestors 'self';")
 
     @override_settings(GHL_FRAME_ANCESTORS="")
     def test_embed_frame_allowlist_does_not_change_parent_allowlist(self):

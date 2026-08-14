@@ -18,7 +18,8 @@
 - Create: `core/tests/test_ghl_embed_slots.py`
 
 1. Write parser tests proving `ghl-embed` fields retain `ghl_kind="form"`,
-   defaults use `form:<id>`, and missing/unknown kinds raise at parse time.
+   defaults must be empty, and populated defaults plus missing/unknown kinds
+   raise at parse time.
 2. Run `uv run python manage.py test core.tests.test_ghl_embed_slots -v 2` and
    verify the tests fail because the field type/kind is unsupported.
 3. Add `ghl-embed` to the field types, parse `data-ghl-kind`, and validate the
@@ -27,8 +28,10 @@
    malformed values, escaping/opaque ID validation, one auto-resize script,
    and the non-interactive preview notice.
 5. Run the focused tests and verify renderer cases fail.
-6. Implement the minimal allowlisted form renderer and preview submission
-   shield, including bridge support for preview reload after a picker change.
+6. Implement the minimal allowlisted form renderer and structural preview
+   submission shield (`sandbox="allow-scripts"` without `allow-forms`, plus a
+   full-slot overlay), including bridge support for preview reload after a
+   picker change.
 7. Run the focused tests until green, then refactor shared value parsing into
    one helper used by renderer and write paths.
 8. Commit the parser/renderer slice.
@@ -111,10 +114,11 @@
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-1. Write failing CSP tests proving `frame-src` permits the exact GHL hosts and
-   `frame-ancestors` retains its current self/configured/wildcard behavior.
-2. Extend CSP composition without replacing an existing response CSP and make
-   both directives independently testable.
+1. Write failing CSP tests proving `frame-ancestors` retains its current
+   self/configured/wildcard behavior and no global `frame-src` restriction is
+   introduced for existing template-authored iframes.
+2. Preserve the existing parent-only CSP composition without replacing an
+   existing response CSP.
 3. Update the annotation and GHL integration documentation for `ghl-embed`,
    `data-ghl-kind="form"`, `form:<id>`, scope/re-consent, and preview behavior.
 4. Run focused tests, then `uv run python manage.py test` and `npm run

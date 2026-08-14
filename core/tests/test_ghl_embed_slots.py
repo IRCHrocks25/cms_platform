@@ -74,6 +74,10 @@ class GhlEmbedRendererTests(SimpleTestCase):
             "script", src="https://link.msgsndr.com/js/form_embed.js"
         )
         self.assertEqual(len(scripts), 1)
+        self.assertFalse(iframe.has_attr("sandbox"))
+        self.assertIsNone(soup.find(attrs={"data-cms-ghl-preview-note": True}))
+        self.assertIsNone(soup.find(attrs={"data-cms-ghl-preview-slot": True}))
+        self.assertNotIn("data-cms-ghl-preview-note", str(soup))
 
     def test_legacy_template_default_fails_closed_but_stored_content_wins(self):
         legacy_html = FORM_SLOT.replace("></div>", ">form:legacy_form</div>")
@@ -142,15 +146,29 @@ class GhlEmbedRendererTests(SimpleTestCase):
 
         iframe = soup.find("iframe", attrs={"data-ghl-form-id": "abc123"})
         self.assertIsNotNone(iframe)
+        self.assertEqual(iframe.get("sandbox"), ["allow-scripts"])
+        self.assertNotIn("allow-forms", iframe.get("sandbox", []))
         self.assertEqual(iframe.get("tabindex"), "-1")
         self.assertTrue(iframe.has_attr("inert"))
         self.assertIn("pointer-events: none", iframe.get("style", ""))
+        slot = soup.find(attrs={"data-cms-ghl-preview-slot": True})
+        self.assertIsNotNone(slot)
+        self.assertIs(slot.find("iframe"), iframe)
         note = soup.find(attrs={"data-cms-ghl-preview-note": True})
         self.assertIsNotNone(note)
         self.assertEqual(
             note.get_text(" ", strip=True),
             "This is a preview, nothing is sent.",
         )
+        preview_css = "\n".join(
+            style.get_text() for style in soup.find_all("style")
+        )
+        self.assertIn("[data-cms-ghl-preview-slot]", preview_css)
+        self.assertIn("[data-cms-ghl-preview-note]", preview_css)
+        self.assertIn("position: absolute", preview_css)
+        self.assertIn("inset: 0", preview_css)
+        self.assertIn("pointer-events: auto", preview_css)
+        self.assertIn("background: rgba(16, 24, 40, 0.78)", preview_css)
 
     def test_empty_preview_keeps_a_visible_editable_placeholder(self):
         soup = self._soup("", preview=True)

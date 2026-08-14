@@ -7,8 +7,9 @@ allowed `data-ghl-kind`, `form`. Calendar, survey, payment-link, chat, and a
 CMS-native form implementation remain out of scope.
 
 Embed values are self-describing strings in the form `form:<id>`. This is the
-owner-approved contract for parser defaults, saved content, renderer input,
-editor changes, and MCP writes.
+owner-approved contract for saved tenant content, renderer input, editor
+changes, and MCP writes. Template defaults must remain empty because template
+parsing has no tenant context in which to validate form ownership.
 
 ## Considered approaches
 
@@ -38,15 +39,18 @@ loading, empty, disconnected, revoked, and retry states.
 
 `core/parser.py` recognizes `ghl-embed`, requires `data-ghl-kind`, and rejects
 anything except `form` with a parse-time exception. The schema field records
-`ghl_kind: "form"`; its default is an empty string or a valid `form:<id>` value.
+`ghl_kind: "form"`; its default must be an empty string. Populated embed
+defaults are rejected before any template write or version restore, and legacy
+stored defaults are cleared when content is merged.
 
 `core/renderer.py` replaces a populated form slot with the allowlisted GHL form
 iframe at `https://msgsndr.com/widget/form/<id>` and includes GHL's
 `form_embed.js` auto-resize script. It never interpolates an arbitrary URL.
 Empty or malformed values render no embed on public pages. Preview rendering
-shows the real form while an overlay prevents pointer/keyboard submission and
-announces, “This is a preview, nothing is sent.” Live picker changes reload the
-server-rendered preview so the iframe behavior does not need a second,
+shows the real form inside `sandbox="allow-scripts"` without `allow-forms`,
+while a full-slot high-contrast overlay prevents pointer/keyboard interaction
+and announces, “This is a preview, nothing is sent.” Live picker changes reload
+the server-rendered preview so the iframe behavior does not need a second,
 client-only renderer.
 
 `core/ghl_oauth.py` owns the raw `GET /forms/` request and adds
@@ -81,11 +85,12 @@ either dashboard or MCP, and that every upstream request carries tenant A's
 bound location ID rather than caller-controlled input. Form IDs are parsed as
 opaque IDs, not URLs, before the renderer constructs a fixed-host iframe.
 
-The response CSP adds a `frame-src` allowlist for `https://msgsndr.com` and
-`https://*.leadconnectorhq.com` (including the script/API host required by the
-official embed) while leaving the existing configurable `frame-ancestors`
-directive unchanged. Tests assert both directives independently so allowing a
-child frame cannot weaken who may frame Katek Sites.
+The response CSP continues to emit only the existing configurable
+`frame-ancestors` directive. It deliberately adds no `frame-src`: this policy
+has no `default-src`, so GHL embeds remain permitted without silently blocking
+pre-existing YouTube, Maps, Vimeo, Calendly, or other template-authored
+iframes. Tests assert the parent restriction and the absence of a new
+child-frame restriction independently.
 
 ## User-facing states
 
