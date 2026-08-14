@@ -45,9 +45,9 @@
               data-confirm="Remove {{ d.obj.domain }}?"
               method="post"
               action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk d.obj.pk %}"
-              class="inline-form">
+              class="inline-form text-danger">
           {% csrf_token %}
-          <button type="submit" class="btn btn-ghost">Remove</button>
+          <button type="submit" class="btn btn-ghost"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Remove</button>
         </form>
       </div>
     {% else %}
@@ -80,7 +80,7 @@
               data-target="#custom-domain-section"
               method="post"
               action="{% url 'dashboard:tenant_custom_domain_verify' tenant.pk d.obj.pk %}"
-              class="inline-form">
+              class="inline-form text-danger">
           {% csrf_token %}
           <button type="submit" class="btn btn-primary">Check DNS verification</button>
         </form>
@@ -91,7 +91,7 @@
               action="{% url 'dashboard:tenant_custom_domain_delete' tenant.pk d.obj.pk %}"
               class="inline-form">
           {% csrf_token %}
-          <button type="submit" class="btn btn-ghost">Remove</button>
+          <button type="submit" class="btn btn-ghost"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Remove</button>
         </form>
       </div>
     {% endif %}

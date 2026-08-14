@@ -71,6 +71,17 @@ class TenantDashboardAccessTests(TestCase):
         self.assertContains(response, "Acme")
         self.assertTemplateUsed(response, "dashboard/editor.html")
 
+    def test_editor_tools_use_accessible_menu_markup(self):
+        c = self._client("acme.localhost")
+        c.force_login(self.member)
+
+        response = c.get("/dashboard/")
+
+        self.assertContains(response, 'aria-haspopup="menu"')
+        self.assertContains(response, 'aria-expanded="false"')
+        self.assertContains(response, 'role="menu"')
+        self.assertContains(response, 'role="menuitem"')
+
     def test_staff_on_tenant_host_sees_editor(self):
         c = self._client("acme.localhost")
         c.force_login(self.staff)
@@ -106,6 +117,18 @@ class TenantDashboardAccessTests(TestCase):
         response = c.get("/dashboard/")
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "dashboard/home.html")
+
+    def test_authenticated_shell_has_persistent_desktop_sidebar_toggle(self):
+        c = self._client("localhost")
+        c.force_login(self.staff)
+
+        response = c.get("/dashboard/")
+
+        self.assertContains(response, 'id="sidebar-collapse-toggle"')
+        self.assertContains(response, 'aria-controls="app-sidebar"')
+        self.assertContains(response, 'aria-expanded="true"')
+        self.assertContains(response, 'cms.sidebar.collapsed')
+        self.assertContains(response, 'data-sidebar-label="Sites"')
 
     # ---------- other tenant-scoped URLs ---------- #
 
@@ -170,6 +193,7 @@ class TenantDashboardAccessTests(TestCase):
 
         self.assertContains(response, "About us")
         self.assertContains(response, reverse("dashboard:page_editor_self", args=[page.pk]))
+        self.assertContains(response, 'aria-label="More actions for About us"')
         self.assertNotContains(response, "Edit HTML")
         self.assertNotContains(response, reverse("dashboard:page_delete_self", args=[page.pk]))
 

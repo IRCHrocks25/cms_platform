@@ -63,6 +63,9 @@ services:
       # Never point this at the production database.
       DATABASE_URL: ${DATABASE_URL}
       TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-staging.sites.katek.app}
+      # Explicit production-safety opt-in for `manage.py seed_demo_data`.
+      # This variable must never be copied to docker-compose.yml.
+      ALLOW_DEMO_SEED: "1"
 
       IFRAME_EMBED: ${IFRAME_EMBED:-0}
 

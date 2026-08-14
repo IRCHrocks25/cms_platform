@@ -1,5 +1,5 @@
 """Pages are created from pasted HTML (each gets its own dedicated Template)
-and their HTML is editable afterwards via an agency-only "Edit HTML" action.
+and their HTML is editable afterwards via an agency-only "Edit HTML source" action.
 No template picker; editing a page's HTML never touches another page.
 """
 from django.contrib.auth.models import User

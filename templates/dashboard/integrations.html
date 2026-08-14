@@ -99,9 +99,10 @@
                       {% csrf_token %}
                       <input type="hidden" name="agency_id" value="{{ card.agency.pk }}">
                       <input type="hidden" name="location_id" value="{{ loc.id }}">
-                      <select name="tenant_id" required class="select select-sm integration-select">
+                      <select name="tenant_id" required class="select select-sm integration-select"
+                              data-selected-option-title title="Choose site">
                         <option value="">Choose site...</option>
-                        {% for t in tenants %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}
+                        {% for t in tenants %}<option value="{{ t.pk }}" title="{{ t.name }}">{{ t.name }}</option>{% endfor %}
                       </select>
                       <button class="btn btn-primary btn-sm" type="submit">Bind</button>
                     </form>
@@ -220,10 +221,11 @@
                   <form method="post" action="{% url 'dashboard:integrations_bind_orphan' %}" class="integration-inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="install_id" value="{{ i.pk }}">
-                    <select name="tenant_id" class="select select-sm integration-select" required>
+                    <select name="tenant_id" class="select select-sm integration-select" required
+                            data-selected-option-title title="Link to site">
                       <option value="">Link to site…</option>
                       {% for t in tenants %}
-                      <option value="{{ t.pk }}">{{ t.name }}</option>
+                      <option value="{{ t.pk }}" title="{{ t.name }}">{{ t.name }}</option>
                       {% endfor %}
                     </select>
                     <button class="btn btn-secondary btn-sm" type="submit">Link</button>

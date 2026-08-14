@@ -70,13 +70,20 @@ The database starts empty. After the first deploy, seed it:
 # from the Dokploy UI: staging → sites → Terminal, or via docker exec
 python manage.py migrate          # runs automatically via entrypoint.sh
 python manage.py createsuperuser
+python manage.py seed_demo_data   # idempotent, staging-only sample content
 ```
 
-Then sign in at `https://staging.sites.katek.app/login/` and create a Template
-plus a client site the same way the README's first-run smoke test does. **Do not
-restore a production dump into staging** — it carries real client content and
-real user rows, and the app cannot send them mail from here but can still show
-their data to anyone with the staging URL.
+The demo seeder creates visibly namespaced templates, sites, pages, posts, and
+team members for UI review. Re-run it safely after a staging reset; it updates
+its deterministic manifest without duplicating rows. Remove only that manifest
+with `python manage.py seed_demo_data --clear`. Both operations refuse to run
+unless `ALLOW_DEMO_SEED=1`, which this staging compose sets and production does
+not.
+
+Then sign in at `https://staging.sites.katek.app/login/`. **Do not restore a
+production dump into staging** — it carries real client content and real user
+rows, and the app cannot send them mail from here but can still show their data
+to anyone with the staging URL.
 
 ## Deploying a branch
 
