@@ -1,109 +1,60 @@
-# Content Overrides and HTML Save Fixes Implementation Plan
+# Content Overrides and HTML Save Fixes Implementation Plan (v2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make an agency HTML re-upload actually reach the visitor, and stop the dashboard reporting success for writes that changed nothing.
+**Goal:** Make an agency HTML re-upload actually reach the visitor, stop the dashboard reporting success for writes that changed nothing, and never silently discard a value a client authored.
 
-**Architecture:** Two layers. Layer 1 is three self-contained correctness fixes in the save path (reject blank HTML, keep the operator's candidate on a field-loss conflict, refuse to append a byte-identical version). Layer 2 introduces a sparse-overrides invariant for `Tenant.content` / `Page.content`: stored content holds only values that differ from the template's current defaults, so `merge_with_defaults` stays the single display merge and new template defaults flow through. A one-off reconciliation command migrates existing rows.
+**Architecture:** Two releases. Release 1 is four self-contained save-path fixes that touch no stored data. Release 2 introduces **explicit authorship**: `Tenant.content` / `Page.content` store only fields the client actually edited, tracked in a sticky `_authored` meta key, so a template's new defaults flow through every field the client never touched while authored values are frozen forever.
 
-**Tech Stack:** Django 5.1.2 on Python 3.12, PostgreSQL in prod / SQLite locally, BeautifulSoup + lxml for parsing, no new dependencies.
-
----
-
-## Background
-
-Read these before starting:
-
-- `CLAUDE.md` in the repo root, especially "Constraints / non-goals" and "Known sharp edges".
-- `core/parser.py` and `core/renderer.py`. The repo calls these the heart of the system.
-- The incident this plan closes: site `denny`, Template id 128, accumulated 7 byte-identical `TemplateVersion` rows while the operator was told "Template updated." every time. The public page never changed.
-
-Two verified defects and one verified root cause:
-
-1. `dashboard/views.py:248` falls back to the stored HTML when `html_source` is missing, empty, or whitespace-only, then saves and reports success.
-2. `templates/dashboard/template_form.html:101` renders `template.html_source|default:form_data.html_source`. On a `FieldLossError` re-render the old value is truthy, so the conflict page hands the operator back the **old** HTML. Confirming from that page saves the old bytes. This is the mechanism that produced the 7 identical versions.
-3. `core/renderer.py:858-871` writes stored content over every surviving `data-edit` id, and `core/services/accounts.py:127` seeds `tenant.content` from schema defaults at creation, so every field is populated from day one and masks any newly uploaded HTML.
-
-## Semantics this plan locks in
-
-Stated once here so every task agrees:
-
-- **Meta keys** are top-level keys starting with `_` (`_styles`, `_global`, `_tokens`, `_hidden`). They are never pruned and never treated as sections.
-- **An override** is a stored `content[section][field]` whose value differs from `defaults[section][field]`.
-- **Pruning** removes stored fields whose value equals the corresponding default. A section left with no fields is removed.
-- **Dormant fields are kept.** A stored field with no corresponding default (the template dropped or renamed it) is preserved, because template swap-back and field-loss confirmation both rely on it. `core/tests/test_template_service.py` and `core/tests/test_tenant_template_swap.py` assert this today.
-- **Setting a field to its current default means "follow the template".** It does not mean "freeze this literal forever".
-
-## File Structure
-
-| File | Responsibility |
-|---|---|
-| `core/services/content_overrides.py` | **Create.** Pure functions: `prune_to_overrides`, `is_untouched`. No Django model imports, so it is trivially testable. |
-| `core/services/templates.py` | **Modify.** No-op HTML detection, row locking, and the template-transition reconciliation call. |
-| `core/services/accounts.py:127,163` | **Modify.** Stop seeding content from defaults. |
-| `core/services/content_versions.py` | **Modify.** Prune on save and on restore. |
-| `dashboard/views.py:239-300` | **Modify.** Reject blank HTML; pass an explicit `html_value`; report an unchanged save honestly. |
-| `dashboard/views.py:2426-2476` | **Modify.** `_save_content` prunes before persisting. |
-| `templates/dashboard/template_form.html:101` | **Modify.** Stop preferring the model value over bound form data. |
-| `templates/dashboard/_html_source_editor.html:248-253` | **Modify.** Dispatch `input` after assigning `textarea.value`. |
-| `api/mcp/tools.py` | **Modify.** `push_page` no-op response, `patch_content` pruning, `_content_still_template_defaults` rewrite. |
-| `core/management/commands/reconcile_content.py` | **Create.** `--dry-run` by default; migrates existing rows to the sparse invariant. |
-| `core/tests/test_content_overrides.py` | **Create.** Unit tests for the pure functions. |
-| `core/tests/test_html_save_guards.py` | **Create.** Layer 1 regression tests. |
-| `core/tests/test_content_reconcile.py` | **Create.** Layer 2 integration tests. |
-
-## Test environment
-
-The repo's `.venv` is Python 3.14 with Django 5.2.15 and is broken per `CLAUDE.md:402`. Build a correct one first:
-
-```bash
-cd /home/bernardjr/Desktop/Code/work/katalyst-ai/cms_platform
-uv venv --python 3.12 .venv-3.12
-VIRTUAL_ENV=$PWD/.venv-3.12 uv pip install -r requirements.txt
-.venv-3.12/bin/python -c "import django; print(django.get_version())"   # expect 5.1.2
-```
-
-Five rendering tests error on `Missing staticfiles manifest entry for 'css/dashboard.css'` in a bare checkout. That is a pre-existing environment issue, not caused by this work. Any test in this plan that renders a dashboard template must carry:
-
-```python
-PLAIN_STATIC = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-}
-```
-
-applied with `@override_settings(STORAGES=PLAIN_STATIC)`.
-
-Run the full suite with:
-
-```bash
-.venv-3.12/bin/python manage.py test 2>&1 | tail -20
-```
+**Tech Stack:** Django 5.1.2 on Python 3.12, PostgreSQL in prod / SQLite locally, BeautifulSoup + lxml, no new dependencies.
 
 ---
 
-## Phase 0: Safety rails (human, before any deploy)
+## Revision history
 
-These are not code tasks. They gate Phase 3.
+**v1 was reviewed and rejected** (`gpt-5.6-sol` at high effort, verdict "do not ship"). The review is at `scratchpad/codex-plan-review.md`. v2 exists because of it. Four errors it found, all since verified against the code:
 
-- [ ] **Step 1: Back up the production database**
+1. v1's no-op early return discarded operator metadata edits (`dashboard/views.py:243-247` mutates `name`/`description`/`editing_mode` in memory and relies on `save_template_version` to persist them).
+2. v1's Phase 3 ran `reconcile_content` on production *before* deploying the code that contains it. Impossible.
+3. v1's invariant contradicted itself: reconciliation pruned against **old** defaults while the autosave and the migration pruned against **current** defaults, so a template default converging on an earlier client edit silently reclassified it.
+4. v1 claimed full coverage of the first review. It missed the MCP `if_match` race, `page_edit_html`'s unconditional success message, admin write paths, and legacy `ContentVersion.snapshot` rows.
 
-Dokploy panel at `dokploy.katek.app`, project `cms-dashboard`, environment `production` (`RTqjeg8in9kGVOmJ6L_Cc`). Take a manual Postgres backup and confirm the dump file exists and is non-zero before continuing. Record the backup id and timestamp in the PR description.
+v1 also mispredicted the test fallout. See "Expected test fallout" below for the corrected list.
 
-- [ ] **Step 2: Confirm production autoDeploy is still off**
+## The semantics decision (settled)
 
-`deploy/STAGING.md` states production has `autoDeploy` off and staging has it on, both tracking `main`. Verify in Dokploy before merging anything, because the whole staging rehearsal depends on a merge to `main` not shipping production.
+**Authored values freeze forever.** A field the client explicitly edited keeps its value across every subsequent template change, even if a later template default happens to equal it. A field the client never edited follows the template.
+
+Equality alone cannot express this, which is what broke v1. Authorship is therefore stored explicitly.
+
+**Mechanism:** a meta key `_authored`, a sorted list of dotted `section.field` ids the client has set. It is a meta key, so it is never pruned and never treated as a section. Membership is **sticky**: once an id is in `_authored` it stays until the client resets that field.
+
+Equality is used exactly once, in the one-time migration, to infer authorship for rows that predate the mechanism. After that it is never used again.
+
+**What this buys over equality-based pruning:** a template default that later converges on a client's value cannot silently reclassify it, because membership does not depend on the value.
+
+**What it cannot do:** the migration's inference is "differs from the *old* default". A site already masked by a historical template default change holds seeded values that differ from today's default; those will be misread as authored and will keep masking. The migration cannot fix that and must not claim to. It emits an exception report for a human instead (Task 9).
+
+## Invariant
+
+Stored content holds:
+
+- `_authored`: sorted list of dotted ids the client has set.
+- `content[section][field]` for exactly the ids in `_authored`, plus **dormant** ids (an authored id whose field no longer exists in the schema, kept so a template swap-back or field-loss confirmation restores it).
+- Other meta keys (`_styles`, `_global`, `_tokens`, `_hidden`) verbatim.
+
+Nothing else. `merge_with_defaults` remains the single display merge.
 
 ---
 
-## Phase 1: Save-path correctness
+## Release 1: save-path correctness
 
-Three independent fixes. Each is shippable on its own and none of them touch stored content.
+No stored data changes. Shippable on its own. This is what closes the incident.
 
-### Task 1: Reject blank HTML in `template_detail`
+### Task 1: Reject blank HTML, preserving what the operator typed
 
 **Files:**
-- Modify: `dashboard/views.py:248`
+- Modify: `dashboard/views.py` (`template_detail`)
 - Test: `core/tests/test_html_save_guards.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -124,6 +75,7 @@ OLD = (
     '<html><body>'
     '<section data-section="hero" data-label="Hero">'
     '<h1 data-edit="hero.title" data-type="text">Old headline</h1>'
+    '<p data-edit="hero.sub" data-type="text">Old sub</p>'
     '</section></body></html>'
 )
 NEW_SAME_FIELDS = OLD.replace("Old headline", "New headline")
@@ -140,36 +92,42 @@ class BlankHtmlRejectedTest(TestCase):
     def setUp(self):
         self.staff = User.objects.create_user("ops", password="pw", is_staff=True)
         self.client.force_login(self.staff)
-        self.tpl = Template.objects.create(name="T", html_source=OLD)
-        self.tpl.versions.all().delete()
+        self.tpl = Template.objects.create(name="T", description="d", html_source=OLD)
 
     def _post(self, **extra):
-        data = {"name": "T", "description": "", "editing_mode": "editable"}
+        data = {"name": "Renamed", "description": "new desc",
+                "editing_mode": "editable"}
         data.update(extra)
         return self.client.post(f"/dashboard/templates/{self.tpl.pk}/", data)
 
     def test_missing_html_source_is_rejected(self):
+        before = self.tpl.versions.count()
         resp = self._post()
         self.tpl.refresh_from_db()
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(self.tpl.html_source, OLD)
-        self.assertEqual(self.tpl.versions.count(), 0)
+        self.assertEqual(self.tpl.versions.count(), before)
         msgs = [str(m) for m in get_messages(resp.wsgi_request)]
         self.assertIn("HTML source cannot be empty.", msgs)
-
-    def test_empty_html_source_is_rejected(self):
-        resp = self._post(html_source="")
-        self.tpl.refresh_from_db()
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(self.tpl.html_source, OLD)
-        self.assertEqual(self.tpl.versions.count(), 0)
 
     def test_whitespace_only_html_source_is_rejected(self):
         resp = self._post(html_source="   \n\t  ")
         self.tpl.refresh_from_db()
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(self.tpl.html_source, OLD)
-        self.assertEqual(self.tpl.versions.count(), 0)
+
+    def test_rejection_does_not_persist_metadata(self):
+        self._post()
+        self.tpl.refresh_from_db()
+        self.assertEqual(self.tpl.name, "T")
+        self.assertEqual(self.tpl.description, "d")
+
+    def test_rejection_redisplays_what_the_operator_typed(self):
+        resp = self._post()
+        body = resp.content.decode()
+        self.assertIn("Renamed", body)
+        self.assertIn("new desc", body)
+        self.assertIn("Old headline", body)   # html_value falls back to the stored HTML
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -178,23 +136,18 @@ class BlankHtmlRejectedTest(TestCase):
 .venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.BlankHtmlRejectedTest -v 2
 ```
 
-Expected: all three fail. Today the view returns 302 and appends a version.
+Expected: 4 failures. Today the view returns 302 and appends a version.
 
 - [ ] **Step 3: Implement**
 
-In `dashboard/views.py`, inside `template_detail`'s `if request.method == "POST":` block, replace:
+In `dashboard/views.py`, `template_detail`, the POST branch currently opens by mutating the model. Replace the opening of that branch so validation happens **before** any mutation:
 
 ```python
-        html_source = request.POST.get("html_source") or template.html_source
-```
-
-with:
-
-```python
+    if request.method == "POST":
         html_source = request.POST.get("html_source") or ""
         if not html_source.strip():
-            # A blank field is never "keep the current HTML" — that fallback
-            # silently turned failed uploads into successful-looking no-ops.
+            # A blank field is never "keep the current HTML". That fallback is
+            # what turned failed uploads into successful-looking no-ops.
             messages.error(request, "HTML source cannot be empty.")
             return render(
                 request,
@@ -204,18 +157,25 @@ with:
                     "tenants_using": list(
                         template.tenants.only("id", "name", "subdomain").order_by("name")
                     ),
-                    "form_data": {
-                        "name": template.name,
-                        "description": template.description,
-                        "html_source": template.html_source,
-                        "editing_mode": template.editing_mode,
-                    },
+                    # Bound data, so the operator does not lose what they typed.
+                    "form_data": request.POST,
+                    # ...except the HTML itself, which is what they failed to supply.
+                    "html_value": template.html_source,
                 },
                 status=400,
             )
+
+        template.name = (request.POST.get("name") or template.name).strip()
+        template.description = (request.POST.get("description") or "").strip()
+        mode = (request.POST.get("editing_mode") or "").strip()
+        if mode in {Template.EDITING_RAW, Template.EDITING_EDITABLE}:
+            template.editing_mode = mode
+        allow_field_loss = request.POST.get("allow_field_loss") in (
+            "1", "true", "on", "yes",
+        )
 ```
 
-Note this returns **before** the `template.name` / `template.description` / `template.editing_mode` assignments take effect in the database, because nothing is saved on this path. Move the blank check above those assignments so a rejected submit cannot half-apply metadata.
+`request.POST` is safe to pass as `form_data` here because the browser submits every named input, per the `form_data` warning in `CLAUDE.md`.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -223,7 +183,7 @@ Note this returns **before** the `template.name` / `template.description` / `tem
 .venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.BlankHtmlRejectedTest -v 2
 ```
 
-Expected: 3 tests, OK.
+Expected: 4 tests, OK. (`test_rejection_redisplays_what_the_operator_typed` needs Task 2's `html_value` wiring; if it fails on that alone, do Task 2 and re-run.)
 
 - [ ] **Step 5: Commit**
 
@@ -234,8 +194,10 @@ git commit -m "fix(dashboard): reject blank html_source instead of silently re-s
 
 ### Task 2: Keep the operator's candidate on a field-loss conflict
 
+This is the defect that produced the incident.
+
 **Files:**
-- Modify: `dashboard/views.py:264-282`, `templates/dashboard/template_form.html:101`
+- Modify: `templates/dashboard/template_form.html:101`, `dashboard/views.py` (every render of that template), `templates/dashboard/_html_source_editor.html:248-253`
 - Test: `core/tests/test_html_save_guards.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -284,7 +246,7 @@ class FieldLossKeepsCandidateTest(TestCase):
 .venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.FieldLossKeepsCandidateTest -v 2
 ```
 
-Expected: `test_conflict_page_shows_the_submitted_html_not_the_old_one` fails on `AssertionError: 'Unannotated rewrite' not found`. The second test already passes; it is there to prove the fix does not break confirmation.
+Expected: `test_conflict_page_shows_the_submitted_html_not_the_old_one` fails on `'Unannotated rewrite' not found`.
 
 - [ ] **Step 3: Implement**
 
@@ -300,15 +262,19 @@ with:
         {% include "dashboard/_html_source_editor.html" with html_value=html_value|default_if_none:'' %}
 ```
 
-Then make every render of `template_form.html` pass an explicit `html_value`, mirroring what `page_edit_html` already does. In `dashboard/views.py`:
+Then supply `html_value` at **every** render of `template_form.html` in `dashboard/views.py`. There are five:
 
-- `template_create` GET: `"html_value": STARTER_TEMPLATE_HTML`
-- `template_create` POST error path: `"html_value": html_source`
-- `template_detail` GET: `"html_value": template.html_source`
-- `template_detail` blank-reject path (Task 1): `"html_value": template.html_source`
-- `template_detail` `FieldLossError` path: `"html_value": html_source` (the candidate)
+| Location | `html_value` |
+|---|---|
+| `template_create` GET | `STARTER_TEMPLATE_HTML` |
+| `template_create` POST, missing-name/HTML branch | `request.POST.get("html_source") or ""` |
+| `template_create` POST, name-too-long branch | `request.POST.get("html_source") or ""` |
+| `template_detail` GET | `template.html_source` |
+| `template_detail` POST, `FieldLossError` branch | `html_source` (the candidate) |
 
-Keep `form_data` as-is for the other fields. It still needs every key the template references, per the `form_data` warning in `CLAUDE.md`.
+Task 1 adds a sixth (the blank rejection); it is already written above.
+
+Leave `form_data` in place for the other fields.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -316,18 +282,16 @@ Keep `form_data` as-is for the other fields. It still needs every key the templa
 .venv-3.12/bin/python manage.py test core.tests.test_html_save_guards -v 2
 ```
 
-Expected: 5 tests, OK.
+Expected: 6 tests, OK.
 
 - [ ] **Step 5: Fix the annotator's stale-editor sync**
 
-In `templates/dashboard/_html_source_editor.html:248-253`, the fallback path assigns `textarea.value` without notifying CodeMirror. Add the dispatch immediately after the assignment:
+`templates/dashboard/_html_source_editor.html:248-253` assigns `textarea.value` without notifying CodeMirror. `frontend/code-editor.js:69-74` listens for `input`. Add the dispatch immediately after the assignment:
 
 ```javascript
       textarea.value = annotated;
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
 ```
-
-`frontend/code-editor.js:69` listens for `input` and re-dispatches into the CodeMirror document, so this keeps the visible editor and the submitted field in step.
 
 - [ ] **Step 6: Commit**
 
@@ -337,11 +301,13 @@ git add dashboard/views.py templates/dashboard/template_form.html \
 git commit -m "fix(dashboard): keep submitted HTML on field-loss conflict re-render"
 ```
 
-### Task 3: Refuse to append a byte-identical version
+### Task 3: One lock, honest no-op, no lost metadata
 
 **Files:**
-- Modify: `core/services/templates.py:99-218`, `dashboard/views.py:283`, `api/mcp/tools.py:563-592`
+- Modify: `core/services/templates.py`, `dashboard/views.py` (`template_detail`, `page_edit_html`, `_annotate_template_in_background`), `api/mcp/tools.py` (`push_page`, `_push_html_onto_template`)
 - Test: `core/tests/test_html_save_guards.py`
+
+Everything the write decision depends on must be read from the locked row. v1 computed `old_fields`, `lost` and `affected` from a possibly stale caller object, then wrote that stale object.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -370,7 +336,18 @@ class NoOpVersionTest(TestCase):
         result = template_svc.save_template_version(self.tpl, OLD, user=self.user)
         self.assertTrue(result.unchanged)
         self.assertEqual(self.tpl.versions.count(), before)
-        self.assertEqual(result.version.number, before)
+
+    def test_version_is_cut_when_latest_does_not_archive_current_bytes(self):
+        # Admin/direct Template.save() can move html_source without a version.
+        template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        self.tpl.html_source = NEW_SAME_FIELDS
+        self.tpl.save()
+        before = self.tpl.versions.count()
+        result = template_svc.save_template_version(
+            self.tpl, NEW_SAME_FIELDS, user=self.user,
+        )
+        self.assertFalse(result.unchanged)
+        self.assertEqual(self.tpl.versions.count(), before + 1)
 
     def test_changed_html_still_creates_a_version(self):
         template_svc.save_template_version(self.tpl, OLD, user=self.user)
@@ -380,42 +357,67 @@ class NoOpVersionTest(TestCase):
         )
         self.assertFalse(result.unchanged)
         self.assertEqual(self.tpl.versions.count(), before + 1)
+
+
+@override_settings(STORAGES=PLAIN_STATIC)
+class NoOpKeepsMetadataTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("ops4", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+        self.tpl = Template.objects.create(name="Before", description="", html_source=OLD)
+
+    def test_unchanged_html_still_saves_a_rename(self):
+        resp = self.client.post(
+            f"/dashboard/templates/{self.tpl.pk}/",
+            {"name": "After", "description": "now described",
+             "editing_mode": "editable", "html_source": OLD},
+        )
+        self.tpl.refresh_from_db()
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.tpl.name, "After")
+        self.assertEqual(self.tpl.description, "now described")
+        msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+        self.assertIn("No HTML changes — metadata saved.", msgs)
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-.venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.NoOpVersionTest -v 2
+.venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.NoOpVersionTest core.tests.test_html_save_guards.NoOpKeepsMetadataTest -v 2
 ```
 
-Expected: fails on `SaveTemplateResult` having no `unchanged` attribute.
+Expected: failures on the missing `unchanged` attribute.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement the service**
 
-In `core/services/templates.py`, add `unchanged: bool = False` to the `SaveTemplateResult` dataclass, then rewrite the body of `save_template_version`:
+In `core/services/templates.py`, add `unchanged: bool = False` to `SaveTemplateResult`, then replace the body of `save_template_version` with:
 
 ```python
-    old_fields = _dotted_field_ids(template.schema)
-    new_schema = build_schema(html_source)
-    new_fields = _dotted_field_ids(new_schema)
-    lost = old_fields - new_fields
-
-    affected: list[dict[str, Any]] = []
-    if lost:
-        affected = _affected_published(template, lost)
-        if affected and not allow_field_loss:
-            raise FieldLossError(lost, affected)
-
     with transaction.atomic():
-        # Lock the row so two concurrent writers cannot both compute the same
-        # next_number and collide on uniq_template_version_number.
+        # Everything the write decision depends on is read from the locked row.
+        # Reading from the caller's possibly-stale instance let a writer validate
+        # against A while overwriting B.
         locked = Template.objects.select_for_update().get(pk=template.pk)
-        latest = (
-            template.versions.select_for_update().order_by("-number").first()
-        )
-        # A brand-new template has no versions yet: always cut v1, even though
-        # html_source already equals what the caller is "saving".
-        if latest is not None and locked.html_source == html_source:
+
+        old_fields = _dotted_field_ids(locked.schema)
+        new_schema = build_schema(html_source)
+        lost = old_fields - _dotted_field_ids(new_schema)
+
+        affected: list[dict[str, Any]] = []
+        if lost:
+            affected = _affected_published(locked, lost)
+            if affected and not allow_field_loss:
+                raise FieldLossError(lost, affected)
+
+        latest = locked.versions.order_by("-number").first()
+        # Only treat this as a no-op when the latest version genuinely archives
+        # the bytes that are live. A direct Template.save() (admin) can move
+        # html_source without cutting a version.
+        if (
+            latest is not None
+            and latest.html_source == locked.html_source == html_source
+        ):
+            _sync(template, locked)
             return SaveTemplateResult(
                 template=template,
                 version=latest,
@@ -424,17 +426,17 @@ In `core/services/templates.py`, add `unchanged: bool = False` to the `SaveTempl
                 unchanged=True,
             )
 
-        template.html_source = html_source
-        template.save()  # re-derives schema
-        next_number = (latest.number if latest is not None else 0) + 1
+        locked.html_source = html_source
+        locked.save()  # re-derives schema
         version = TemplateVersion.objects.create(
-            template=template,
-            number=next_number,
-            html_source=template.html_source,
-            schema=template.schema or {},
+            template=locked,
+            number=(latest.number if latest is not None else 0) + 1,
+            html_source=locked.html_source,
+            schema=locked.schema or {},
             label=label or "",
             saved_by=user if getattr(user, "pk", None) else None,
         )
+        _sync(template, locked)
 
     return SaveTemplateResult(
         template=template,
@@ -444,42 +446,154 @@ In `core/services/templates.py`, add `unchanged: bool = False` to the `SaveTempl
     )
 ```
 
-`select_for_update()` is a no-op on SQLite outside a transaction but harmless; it does real work on the production Postgres.
+`FieldLossError` is raised inside `atomic()`. It propagates out and rolls the block back, which is correct: nothing was written yet. Add the helper above `save_template_version`:
 
-In `dashboard/views.py:283`, make the flash honest:
+```python
+def _sync(caller: Template, locked: Template) -> None:
+    """Copy the committed state back onto the caller's instance so callers that
+    keep using their object (and the dashboard's message logic) see the truth."""
+    caller.html_source = locked.html_source
+    caller.schema = locked.schema
+```
+
+**Note for the implementer:** `template_detail` mutates `name`/`description`/`editing_mode` on its own instance before calling this. Those must be persisted separately now (next step) rather than riding on the service's `template.save()`.
+
+- [ ] **Step 4: Implement the callers**
+
+`dashboard/views.py`, `template_detail`, replacing the current call and success message:
+
+```python
+        try:
+            result = template_svc.save_template_version(
+                template,
+                html_source,
+                user=request.user,
+                allow_field_loss=allow_field_loss,
+            )
+        except template_svc.FieldLossError as exc:
+            ...  # unchanged except for html_value, see Task 2
+        # Metadata is edited on this instance and is no longer persisted by the
+        # service on a no-op, so save it explicitly either way.
+        template.save(update_fields=["name", "description", "editing_mode", "updated_at"])
+        if result.unchanged:
+            messages.info(request, "No HTML changes — metadata saved.")
+        else:
+            messages.success(request, "Template updated.")
+        return redirect("dashboard:template_detail", pk=template.pk)
+```
+
+`dashboard/views.py`, `page_edit_html`, replacing the unconditional success at line 2084:
+
+```python
+            if result.unchanged:
+                messages.info(request, f"No HTML changes for “{page.title}”.")
+            else:
+                messages.success(request, f"HTML updated for “{page.title}”.")
+```
+
+with `result = template_svc.save_template_version(...)` capturing the return value.
+
+`dashboard/views.py`, `_annotate_template_in_background`, after the service call:
 
 ```python
         if result.unchanged:
-            messages.info(request, "No HTML changes — nothing to save.")
-        else:
-            messages.success(request, "Template updated.")
+            logger.info("Sibling annotation returned unchanged HTML for template=%s", template_id)
+            return
 ```
 
-This requires capturing the return value: change `template_svc.save_template_version(...)` to `result = template_svc.save_template_version(...)`.
+`api/mcp/tools.py`, `_push_html_onto_template`: delete the pre-transaction `if_match` comparison and pass the expected etag into the service instead. Add a parameter to `save_template_version`:
 
-In `api/mcp/tools.py`, `push_page` already returns `result.version.number` and the current etag, so an unchanged push now returns the existing version rather than a new one. Add `"unchanged": result.unchanged` to both `tool_success` payloads in `push_page` so a caller can tell.
+```python
+def save_template_version(
+    template: Template,
+    html_source: str,
+    *,
+    user,
+    allow_field_loss: bool = False,
+    label: str = "",
+    expect_html_etag: Optional[str] = None,
+) -> SaveTemplateResult:
+```
 
-- [ ] **Step 4: Run the whole suite**
+and immediately after `locked = ...` inside the transaction:
+
+```python
+        if expect_html_etag is not None:
+            import hashlib
+            current = hashlib.sha256((locked.html_source or "").encode("utf-8")).hexdigest()
+            if current != expect_html_etag:
+                raise ConcurrentWriteError(
+                    "Conflict (409): template has changed since if_match. "
+                    "Re-read and retry with the current etag."
+                )
+```
+
+Define `class ConcurrentWriteError(Exception)` next to `FieldLossError`, and have `_push_html_onto_template` catch it and return `tool_conflict(str(exc))`. This closes the time-of-check/time-of-use gap: the comparison now happens under the same lock as the write.
+
+Add `"unchanged": result.unchanged` to both `tool_success` payloads in `push_page`.
+
+- [ ] **Step 5: Run the full suite**
 
 ```bash
-.venv-3.12/bin/python manage.py test 2>&1 | tail -20
+.venv-3.12/bin/python manage.py test 2>&1 | tail -30
 ```
 
-Expected: the 5 pre-existing staticfiles errors and nothing else. If `test_mcp_push_page.py` or `test_template_service.py` fail, read them: they may assert a version count that this change deliberately alters. Update those assertions and say so in the commit message.
+See "Expected test fallout". Anything not on that list is a regression: read it, do not paper over it.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add core/services/templates.py dashboard/views.py api/mcp/tools.py \
         core/tests/test_html_save_guards.py
-git commit -m "fix(templates): no version row for a byte-identical save; lock version allocation"
+git commit -m "fix(templates): single-lock write path, honest no-op, if_match under the lock"
+```
+
+### Task 4: Close the admin bypass
+
+**Files:**
+- Modify: `core/admin.py`
+- Test: `core/tests/test_html_save_guards.py`
+
+`TemplateAdmin.readonly_fields` is `("schema", "created_at", "updated_at")`, so `html_source` is editable and a save there skips versioning, field-loss checks and the etag discipline entirely. `TenantAdmin` and `PageAdmin` leave `content` editable, which will break the Release 2 invariant.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+class AdminCannotBypassTheServiceTest(TestCase):
+    def test_template_html_source_is_readonly_in_admin(self):
+        from django.contrib import admin as dj_admin
+        from core.models import Page, Template, Tenant
+
+        self.assertIn("html_source", dj_admin.site._registry[Template].readonly_fields)
+        self.assertIn("content", dj_admin.site._registry[Tenant].readonly_fields)
+        self.assertIn("content", dj_admin.site._registry[Page].readonly_fields)
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+.venv-3.12/bin/python manage.py test core.tests.test_html_save_guards.AdminCannotBypassTheServiceTest -v 2
+```
+
+- [ ] **Step 3: Implement**
+
+In `core/admin.py`, add `"html_source"` to `TemplateAdmin.readonly_fields` and `"content"` to `TenantAdmin.readonly_fields` and `PageAdmin.readonly_fields`, adding the attribute where it does not exist yet. Add a one-line comment on each pointing at `core/services/templates.py` as the supported write path.
+
+- [ ] **Step 4: Run it and watch it pass, then commit**
+
+```bash
+.venv-3.12/bin/python manage.py test core.tests.test_html_save_guards -v 2
+git add core/admin.py core/tests/test_html_save_guards.py
+git commit -m "fix(admin): make html_source and content read-only so writes go through the services"
 ```
 
 ---
 
-## Phase 2: Sparse content overrides
+## Release 2: explicit authorship
 
-### Task 4: The pure canonicalizer
+Do not start until Release 1 is deployed and the production dry run in Release 2 Phase B has been reviewed.
+
+### Task 5: The authorship module
 
 **Files:**
 - Create: `core/services/content_overrides.py`
@@ -492,7 +606,10 @@ Create `core/tests/test_content_overrides.py`:
 ```python
 from django.test import SimpleTestCase
 
-from core.services.content_overrides import is_untouched, prune_to_overrides
+from core.services.content_overrides import (
+    AUTHORED_KEY, authored_ids, infer_authored, is_untouched,
+    prune_to_authored, record_authored,
+)
 
 DEFAULTS = {
     "hero": {"title": "Old headline", "cta": "#contact"},
@@ -500,65 +617,79 @@ DEFAULTS = {
 }
 
 
-class PruneToOverridesTest(SimpleTestCase):
-    def test_values_equal_to_defaults_are_dropped(self):
-        content = {"hero": {"title": "Old headline", "cta": "#contact"}}
-        self.assertEqual(prune_to_overrides(content, DEFAULTS), {})
+class PruneToAuthoredTest(SimpleTestCase):
+    def test_unauthored_fields_are_dropped_even_when_they_differ(self):
+        content = {"hero": {"title": "seeded or stale"}, AUTHORED_KEY: []}
+        self.assertEqual(prune_to_authored(content), {AUTHORED_KEY: []})
 
-    def test_values_differing_from_defaults_survive(self):
-        content = {"hero": {"title": "Client wrote this", "cta": "#contact"}}
-        self.assertEqual(
-            prune_to_overrides(content, DEFAULTS),
-            {"hero": {"title": "Client wrote this"}},
-        )
+    def test_authored_fields_survive_even_when_equal_to_a_default(self):
+        content = {"hero": {"title": "Old headline"}, AUTHORED_KEY: ["hero.title"]}
+        self.assertEqual(prune_to_authored(content), content)
 
-    def test_dormant_fields_with_no_default_are_kept(self):
-        content = {"gone": {"headline": "from an older template"}}
-        self.assertEqual(prune_to_overrides(content, DEFAULTS), content)
-
-    def test_meta_keys_pass_through_untouched(self):
+    def test_meta_keys_pass_through(self):
         content = {
-            "hero": {"title": "Old headline"},
-            "_hidden": ["about"],
-            "_styles": {"hero.title": {"color": "#fff"}},
-            "_global": {},
-            "_tokens": {"blue": "#2A5EB0"},
+            "hero": {"title": "x"},
+            AUTHORED_KEY: ["hero.title"],
+            "_hidden": ["about"], "_styles": {"hero.title": {"color": "#fff"}},
+            "_global": {}, "_tokens": {"blue": "#2A5EB0"},
         }
-        self.assertEqual(
-            prune_to_overrides(content, DEFAULTS),
-            {
-                "_hidden": ["about"],
-                "_styles": {"hero.title": {"color": "#fff"}},
-                "_global": {},
-                "_tokens": {"blue": "#2A5EB0"},
-            },
-        )
+        self.assertEqual(prune_to_authored(content), content)
 
-    def test_empty_and_none_inputs_are_safe(self):
-        self.assertEqual(prune_to_overrides(None, DEFAULTS), {})
-        self.assertEqual(prune_to_overrides({}, DEFAULTS), {})
-        self.assertEqual(prune_to_overrides({"hero": None}, DEFAULTS), {})
-
-    def test_no_defaults_means_everything_is_an_override(self):
-        content = {"hero": {"title": "x"}}
-        self.assertEqual(prune_to_overrides(content, {}), content)
+    def test_missing_authored_key_means_nothing_is_authored(self):
+        self.assertEqual(prune_to_authored({"hero": {"title": "x"}}), {})
 
     def test_input_is_not_mutated(self):
-        content = {"hero": {"title": "Old headline"}}
-        prune_to_overrides(content, DEFAULTS)
-        self.assertEqual(content, {"hero": {"title": "Old headline"}})
+        content = {"hero": {"title": "x"}, AUTHORED_KEY: []}
+        prune_to_authored(content)
+        self.assertEqual(content, {"hero": {"title": "x"}, AUTHORED_KEY: []})
+
+
+class RecordAuthoredTest(SimpleTestCase):
+    def test_a_changed_field_becomes_authored(self):
+        out = record_authored(
+            previous={"hero": {"title": "a"}},
+            incoming={"hero": {"title": "b"}},
+            already=["about.body"],
+        )
+        self.assertEqual(out, ["about.body", "hero.title"])
+
+    def test_membership_is_sticky(self):
+        out = record_authored(
+            previous={"hero": {"title": "b"}},
+            incoming={"hero": {"title": "b"}},
+            already=["hero.title"],
+        )
+        self.assertEqual(out, ["hero.title"])
+
+    def test_meta_keys_never_become_authored(self):
+        out = record_authored(
+            previous={}, incoming={"_hidden": ["x"]}, already=[],
+        )
+        self.assertEqual(out, [])
+
+
+class InferAuthoredTest(SimpleTestCase):
+    def test_values_differing_from_the_old_default_are_inferred_authored(self):
+        content = {"hero": {"title": "Client wrote this", "cta": "#contact"}}
+        self.assertEqual(infer_authored(content, DEFAULTS), ["hero.title"])
+
+    def test_fields_with_no_default_are_inferred_authored(self):
+        content = {"gone": {"headline": "from an older template"}}
+        self.assertEqual(infer_authored(content, DEFAULTS), ["gone.headline"])
+
+    def test_a_fully_seeded_blob_infers_nothing(self):
+        content = {"hero": {"title": "Old headline", "cta": "#contact"},
+                   "about": {"body": "Old body"}}
+        self.assertEqual(infer_authored(content, DEFAULTS), [])
 
 
 class IsUntouchedTest(SimpleTestCase):
-    def test_empty_content_is_untouched(self):
+    def test_no_authored_ids_means_untouched(self):
         self.assertTrue(is_untouched({}))
-        self.assertTrue(is_untouched(None))
+        self.assertTrue(is_untouched({AUTHORED_KEY: [], "_hidden": []}))
 
-    def test_meta_only_content_is_untouched(self):
-        self.assertTrue(is_untouched({"_styles": {}, "_hidden": []}))
-
-    def test_any_override_means_touched(self):
-        self.assertFalse(is_untouched({"hero": {"title": "x"}}))
+    def test_any_authored_id_means_touched(self):
+        self.assertFalse(is_untouched({AUTHORED_KEY: ["hero.title"]}))
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -567,41 +698,59 @@ class IsUntouchedTest(SimpleTestCase):
 .venv-3.12/bin/python manage.py test core.tests.test_content_overrides -v 2
 ```
 
-Expected: `ModuleNotFoundError: No module named 'core.services.content_overrides'`.
+Expected: `ModuleNotFoundError`.
 
 - [ ] **Step 3: Implement**
 
 Create `core/services/content_overrides.py`:
 
 ```python
-"""Sparse-overrides invariant for Tenant.content / Page.content.
+"""Explicit authorship for Tenant.content / Page.content.
 
-Stored content holds only what differs from the template's defaults, so
-``merge_with_defaults`` stays the single display merge and a newly uploaded
-template's defaults reach the visitor instead of being masked by a value the
-client never typed.
+A field the client edited keeps its value across every later template change.
+A field they never edited follows the template. Equality cannot express that:
+a template default can later converge on a value the client authored, and an
+equality rule would then silently reclassify it as "following the template".
 
-Meta namespaces (``_styles``, ``_global``, ``_tokens``, ``_hidden``) are editor
-state, not fields, and pass through untouched. Fields with no matching default
-are *dormant*, not stale: a template swap-back or a field-loss confirmation is
-expected to bring them back, and existing tests assert they survive.
+So authorship is stored, not inferred. ``_authored`` holds the dotted ids the
+client has set. Membership is sticky: it survives the value later matching a
+default. Equality is used exactly once, by ``infer_authored``, to bootstrap
+rows that predate this mechanism.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Iterable
+
+AUTHORED_KEY = "_authored"
 
 
 def _is_meta(key: Any) -> bool:
     return isinstance(key, str) and key.startswith("_")
 
 
-def prune_to_overrides(
-    content: dict[str, Any] | None, defaults: dict[str, Any] | None
-) -> dict[str, Any]:
-    """Return a copy of ``content`` holding only values that differ from
-    ``defaults``, plus every meta key verbatim."""
+def authored_ids(content: dict[str, Any] | None) -> list[str]:
+    raw = (content or {}).get(AUTHORED_KEY)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return sorted({x for x in raw if isinstance(x, str) and "." in x})
+
+
+def _flatten(content: dict[str, Any] | None) -> dict[str, Any]:
+    """{"hero": {"title": "x"}} -> {"hero.title": "x"}, meta keys excluded."""
+    out: dict[str, Any] = {}
+    for section_id, section in (content or {}).items():
+        if _is_meta(section_id) or not isinstance(section, dict):
+            continue
+        for field, value in section.items():
+            out[f"{section_id}.{field}"] = value
+    return out
+
+
+def prune_to_authored(content: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only authored fields, plus every meta key verbatim."""
+    keep = set(authored_ids(content))
     out: dict[str, Any] = {}
     for section_id, section in (content or {}).items():
         if _is_meta(section_id):
@@ -609,57 +758,85 @@ def prune_to_overrides(
             continue
         if not isinstance(section, dict):
             continue
-        section_defaults = (defaults or {}).get(section_id)
-        if not isinstance(section_defaults, dict):
-            section_defaults = {}
         kept = {
             field: deepcopy(value)
             for field, value in section.items()
-            if field not in section_defaults or section_defaults[field] != value
+            if f"{section_id}.{field}" in keep
         }
         if kept:
             out[section_id] = kept
     return out
 
 
+def record_authored(
+    *,
+    previous: dict[str, Any] | None,
+    incoming: dict[str, Any] | None,
+    already: Iterable[str],
+) -> list[str]:
+    """Sticky union of ``already`` with every field whose value changed."""
+    before = _flatten(previous)
+    after = _flatten(incoming)
+    changed = {
+        field_id for field_id, value in after.items()
+        if field_id not in before or before[field_id] != value
+    }
+    return sorted(set(already) | changed)
+
+
+def infer_authored(
+    content: dict[str, Any] | None, defaults: dict[str, Any] | None
+) -> list[str]:
+    """One-time bootstrap: a stored value that differs from its default (or has
+    no default) is assumed authored. This is the only place equality is used,
+    and it cannot see values that matched a *historical* default."""
+    out: list[str] = []
+    for field_id, value in _flatten(content).items():
+        section_id, field = field_id.split(".", 1)
+        section_defaults = (defaults or {}).get(section_id)
+        if not isinstance(section_defaults, dict) or field not in section_defaults:
+            out.append(field_id)
+        elif section_defaults[field] != value:
+            out.append(field_id)
+    return sorted(out)
+
+
 def is_untouched(content: dict[str, Any] | None) -> bool:
-    """True when nothing but meta state is stored, i.e. no field overrides."""
-    return not any(not _is_meta(key) for key in (content or {}))
+    """True when the client has authored nothing."""
+    return not authored_ids(content)
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [ ] **Step 4: Run it and watch it pass, then commit**
 
 ```bash
 .venv-3.12/bin/python manage.py test core.tests.test_content_overrides -v 2
-```
-
-Expected: 10 tests, OK.
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add core/services/content_overrides.py core/tests/test_content_overrides.py
-git commit -m "feat(content): add sparse-overrides canonicalizer"
+git commit -m "feat(content): explicit authorship module"
 ```
 
-### Task 5: Reconcile stored content when a template's HTML changes
+### Task 6: Maintain authorship on every write path
 
 **Files:**
-- Modify: `core/services/templates.py`
-- Test: `core/tests/test_content_reconcile.py`
+- Modify: `dashboard/views.py` (`_save_content`), `api/mcp/tools.py` (`patch_content`), `core/services/accounts.py`, `core/services/content_versions.py`
+- Test: `core/tests/test_content_authorship.py`
+
+Under A there is **no reconciliation on template change**. If content only ever holds authored fields, a new template's defaults reach every other field automatically. That removes v1's cross-row fan-out transaction and the lock-ordering hazard with it.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `core/tests/test_content_reconcile.py`:
+Create `core/tests/test_content_authorship.py`:
 
 ```python
-from django.contrib.auth.models import User
-from django.test import TestCase
+import json
 
-from core.models import Page, Template, Tenant
+from django.contrib.auth.models import User
+from django.test import TestCase, override_settings
+
+from core.models import Template, Tenant
 from core.parser import build_schema
 from core.renderer import merge_with_defaults, render_site
 from core.services import templates as template_svc
+from core.services.content_overrides import AUTHORED_KEY
 
 OLD = (
     '<html><body>'
@@ -670,151 +847,6 @@ OLD = (
 )
 NEW = OLD.replace("Old headline", "New headline").replace("Old sub", "New sub")
 
-
-class TemplateChangeReconcilesContentTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user("ops", password="pw", is_staff=True)
-        self.owner = User.objects.create_user("client", password="pw")
-        self.tpl = Template.objects.create(name="T", html_source=OLD)
-        self.tenant = Tenant.objects.create(
-            name="Denny", subdomain="denny", template=self.tpl, owner=self.owner,
-            content=merge_with_defaults(build_schema(OLD), {}),
-            is_published=True,
-        )
-
-    def test_untouched_content_lets_the_new_html_through(self):
-        template_svc.save_template_version(
-            self.tpl, NEW, user=self.user, allow_field_loss=True,
-        )
-        self.tenant.refresh_from_db()
-        html = render_site(
-            self.tpl.html_source,
-            merge_with_defaults(self.tpl.schema, self.tenant.content),
-        )
-        self.assertIn("New headline", html)
-        self.assertNotIn("Old headline", html)
-
-    def test_a_real_client_edit_survives_the_template_change(self):
-        self.tenant.content["hero"]["title"] = "Client wrote this"
-        self.tenant.save(update_fields=["content"])
-        template_svc.save_template_version(
-            self.tpl, NEW, user=self.user, allow_field_loss=True,
-        )
-        self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.content["hero"]["title"], "Client wrote this")
-        html = render_site(
-            self.tpl.html_source,
-            merge_with_defaults(self.tpl.schema, self.tenant.content),
-        )
-        self.assertIn("Client wrote this", html)
-        self.assertIn("New sub", html)   # unedited field follows the template
-
-    def test_meta_state_survives(self):
-        self.tenant.content["_hidden"] = ["hero"]
-        self.tenant.content["_tokens"] = {"blue": "#000000"}
-        self.tenant.save(update_fields=["content"])
-        template_svc.save_template_version(
-            self.tpl, NEW, user=self.user, allow_field_loss=True,
-        )
-        self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.content["_hidden"], ["hero"])
-        self.assertEqual(self.tenant.content["_tokens"], {"blue": "#000000"})
-
-    def test_pages_on_the_same_template_are_reconciled_too(self):
-        page_tpl = Template.objects.create(name="P", html_source=OLD, tenant=self.tenant)
-        page = Page.objects.create(
-            tenant=self.tenant, template=page_tpl, title="About", slug="about",
-            content=merge_with_defaults(build_schema(OLD), {}),
-        )
-        template_svc.save_template_version(
-            page_tpl, NEW, user=self.user, allow_field_loss=True,
-        )
-        page.refresh_from_db()
-        self.assertEqual(page.content, {})
-
-    def test_an_unchanged_save_does_not_touch_content(self):
-        before = dict(self.tenant.content)
-        template_svc.save_template_version(self.tpl, OLD, user=self.user)
-        self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.content, before)
-```
-
-- [ ] **Step 2: Run it and watch it fail**
-
-```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile -v 2
-```
-
-Expected: `test_untouched_content_lets_the_new_html_through` fails with "Old headline" still rendered.
-
-- [ ] **Step 3: Implement**
-
-In `core/services/templates.py`, import the canonicalizer at the top:
-
-```python
-from core.services.content_overrides import prune_to_overrides
-```
-
-Then inside `save_template_version`, capture the old defaults **before** `template.save()` re-derives the schema, and reconcile every consumer inside the same transaction after the write:
-
-```python
-    old_defaults = (template.schema or {}).get("defaults") or {}
-```
-
-Put that line immediately after `old_fields = _dotted_field_ids(template.schema)`.
-
-Then, inside the `with transaction.atomic():` block, after `TemplateVersion.objects.create(...)`:
-
-```python
-        # Values a client never typed (equal to the OLD defaults) must not mask
-        # the new HTML. Genuine overrides and dormant fields are preserved.
-        for _label, row, content, _published in _sites_using_template(template):
-            pruned = prune_to_overrides(content, old_defaults)
-            if pruned != (content or {}):
-                row.content = pruned
-                row.save(update_fields=["content", "updated_at"])
-```
-
-`_sites_using_template` already yields both `Tenant` and `Page` rows for the template, which is what covers a shared template feeding several sites.
-
-- [ ] **Step 4: Run it and watch it pass**
-
-```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile -v 2
-```
-
-Expected: 5 tests, OK.
-
-- [ ] **Step 5: Run the full suite and fix fallout**
-
-```bash
-.venv-3.12/bin/python manage.py test 2>&1 | tail -30
-```
-
-`core/tests/test_renderer_preserves_unedited.py`, `core/tests/test_template_service.py` and `core/tests/test_tenant_template_swap.py` are the likely failures. Read each before changing it. Preserve any assertion about **dormant** fields surviving; those are intentional. Change assertions that encode "a seeded default is stored forever", because that is the behaviour this task removes.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add core/services/templates.py core/tests/test_content_reconcile.py
-git commit -m "feat(content): prune seeded defaults when a template's HTML changes"
-```
-
-### Task 6: Enforce the invariant on every content write path
-
-**Files:**
-- Modify: `dashboard/views.py:2426-2476`, `core/services/content_versions.py`, `core/services/accounts.py:127,163`, `api/mcp/tools.py` (`patch_content`)
-- Test: `core/tests/test_content_reconcile.py`
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `core/tests/test_content_reconcile.py`:
-
-```python
-import json
-
-from django.test import override_settings
-
 PLAIN_STATIC = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
@@ -822,7 +854,7 @@ PLAIN_STATIC = {
 
 
 @override_settings(STORAGES=PLAIN_STATIC)
-class WritePathsStaySparseTest(TestCase):
+class AuthorshipTest(TestCase):
     def setUp(self):
         self.staff = User.objects.create_user("ops", password="pw", is_staff=True)
         self.client.force_login(self.staff)
@@ -833,130 +865,144 @@ class WritePathsStaySparseTest(TestCase):
             content={}, is_published=True,
         )
 
-    def test_editor_autosave_of_the_full_merged_blob_is_pruned(self):
-        merged = merge_with_defaults(build_schema(OLD), {})
-        merged["hero"]["title"] = "Client wrote this"
-        resp = self.client.post(
+    def _autosave(self, content):
+        return self.client.post(
             f"/dashboard/sites/{self.tenant.pk}/save/",
-            data=json.dumps({"content": merged}),
+            data=json.dumps({"content": content}),
             content_type="application/json",
         )
-        self.assertEqual(resp.status_code, 200)
+
+    def test_new_tenant_starts_empty(self):
+        self.assertEqual(self.tenant.content, {})
+
+    def test_autosave_of_the_full_blob_stores_only_what_changed(self):
+        merged = merge_with_defaults(build_schema(OLD), {})
+        merged["hero"]["title"] = "Client wrote this"
+        self.assertEqual(self._autosave(merged).status_code, 200)
         self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.content, {"hero": {"title": "Client wrote this"}})
-
-    def test_new_tenant_starts_with_empty_content(self):
-        from core.services import accounts
-
-        result = accounts.create_tenant_account(
-            name="Fresh", subdomain="fresh", template=self.tpl,
-            username="freshuser", created_by=self.staff,
+        self.assertEqual(
+            self.tenant.content,
+            {"hero": {"title": "Client wrote this"}, AUTHORED_KEY: ["hero.title"]},
         )
-        self.assertEqual(result.tenant.content, {})
-```
 
-Read `core/services/accounts.py` for the real signature of the creation helper and adjust the second test's call to match it. Do not invent parameters.
+    def test_unedited_fields_follow_a_new_template(self):
+        merged = merge_with_defaults(build_schema(OLD), {})
+        merged["hero"]["title"] = "Client wrote this"
+        self._autosave(merged)
+        template_svc.save_template_version(
+            self.tpl, NEW, user=self.staff, allow_field_loss=True,
+        )
+        self.tenant.refresh_from_db()
+        html = render_site(
+            self.tpl.html_source,
+            merge_with_defaults(self.tpl.schema, self.tenant.content),
+        )
+        self.assertIn("Client wrote this", html)   # authored, frozen
+        self.assertIn("New sub", html)             # never edited, follows template
+        self.assertNotIn("Old sub", html)
+
+    def test_a_converging_default_does_not_reclassify_an_authored_field(self):
+        merged = merge_with_defaults(build_schema(OLD), {})
+        merged["hero"]["title"] = "New headline"   # equals the FUTURE default
+        self._autosave(merged)
+        template_svc.save_template_version(
+            self.tpl, NEW, user=self.staff, allow_field_loss=True,
+        )
+        # A later template change must not move this field.
+        later = NEW.replace("New headline", "Third headline")
+        template_svc.save_template_version(
+            self.tpl, later, user=self.staff, allow_field_loss=True,
+        )
+        self.tenant.refresh_from_db()
+        self.assertIn("hero.title", self.tenant.content[AUTHORED_KEY])
+        html = render_site(
+            self.tpl.html_source,
+            merge_with_defaults(self.tpl.schema, self.tenant.content),
+        )
+        self.assertIn("New headline", html)
+        self.assertNotIn("Third headline", html)
+```
 
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile.WritePathsStaySparseTest -v 2
+.venv-3.12/bin/python manage.py test core.tests.test_content_authorship -v 2
 ```
-
-Expected: the autosave test fails because the full merged blob is stored verbatim.
 
 - [ ] **Step 3: Implement**
 
 `dashboard/views.py`, in `_save_content`, immediately after `_normalize_styles(content)`:
 
 ```python
-    # The editor posts the whole merged blob on every autosave. Store only what
-    # differs from the template's current defaults so a later HTML upload is not
-    # masked by values the client never typed.
-    schema = editable.template.schema or {}
-    content = prune_to_overrides(content, schema.get("defaults") or {})
+    # The editor posts the whole merged blob on every autosave. Keep only what
+    # the client has actually authored, so a later HTML upload reaches every
+    # other field.
+    previous = merge_with_defaults(editable.template.schema or {}, editable.content)
+    content[AUTHORED_KEY] = record_authored(
+        previous=previous,
+        incoming=content,
+        already=authored_ids(editable.content),
+    )
+    content = prune_to_authored(content)
 ```
 
-with `from core.services.content_overrides import prune_to_overrides` added to the imports.
+with `from core.services.content_overrides import (AUTHORED_KEY, authored_ids, prune_to_authored, record_authored)` added to the imports.
 
-`core/services/accounts.py:127`, replace:
+`api/mcp/tools.py`, in `patch_content`, after `new_content = content_mod.write_field(...)`:
 
 ```python
-            content=template.schema.get("defaults", {}) or {},
+    new_content[AUTHORED_KEY] = sorted(set(authored_ids(stored)) | {field})
+    new_content = prune_to_authored(new_content)
 ```
 
-with:
+`core/services/accounts.py`, replace the seeding at line 127:
 
 ```python
             content={},
 ```
 
-and at line 163, replace the two-line reseed with:
+and at line 163:
 
 ```python
             tenant.content = {}
             tenant.save(update_fields=["content", "updated_at"])
 ```
 
-`api/mcp/tools.py`, in `patch_content`, after `new_content = content_mod.write_field(...)`:
+`core/services/content_versions.py`, in `restore_tenant_content`, prune the snapshot so a legacy fat snapshot cannot reintroduce the masking bug:
 
 ```python
-    new_content = prune_to_overrides(
-        new_content, (tpl.schema or {}).get("defaults") or {}
-    )
+        tenant.content = prune_to_authored(deepcopy(version.snapshot or {}))
 ```
 
-`core/services/content_versions.py`, in `restore_tenant_content`, replace:
+Leave `save_tenant_content` alone; its callers prune before calling it, and pruning inside would rewrite an MCP caller's etag mid-transaction.
 
-```python
-        tenant.content = deepcopy(version.snapshot or {})
-```
-
-with:
-
-```python
-        defaults = (tenant.template.schema or {}).get("defaults") or {}
-        tenant.content = prune_to_overrides(deepcopy(version.snapshot or {}), defaults)
-```
-
-Do **not** prune inside `save_tenant_content`. Its callers already prune, and pruning there would silently rewrite an MCP caller's `if_match` etag mid-transaction.
-
-- [ ] **Step 4: Run it and watch it pass**
+- [ ] **Step 4: Run it and watch it pass, then commit**
 
 ```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile -v 2
-```
-
-Expected: 7 tests, OK.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add dashboard/views.py core/services/accounts.py core/services/content_versions.py \
-        api/mcp/tools.py core/tests/test_content_reconcile.py
-git commit -m "feat(content): enforce sparse overrides on every write path"
+.venv-3.12/bin/python manage.py test core.tests.test_content_authorship -v 2
+git add dashboard/views.py api/mcp/tools.py core/services/accounts.py \
+        core/services/content_versions.py core/tests/test_content_authorship.py
+git commit -m "feat(content): track authorship on every write path"
 ```
 
 ### Task 7: Rewrite the publish guard
 
 **Files:**
 - Modify: `api/mcp/tools.py:217-242`
-- Test: `api/tests/test_mcp_publish_guard.py` (extend whichever existing file covers `publish_site`; find it with `grep -rl "_content_still_template_defaults\|publish_site" api/tests`)
+- Test: whichever `api/tests` module covers `publish_site` (find with `grep -rl "_content_still_template_defaults\|publish_site" api/tests`)
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 def test_untouched_site_is_still_untouched_after_a_template_update(self):
-    # Seeded-then-pruned content is {}, so an HTML update must not make the
-    # site look edited to the publish guard.
     template_svc.save_template_version(
         self.tenant.template, NEW, user=self.staff, allow_field_loss=True,
     )
     self.tenant.refresh_from_db()
     self.assertTrue(_content_still_template_defaults(self.tenant))
 
-def test_a_client_override_makes_it_touched(self):
-    self.tenant.content = {"hero": {"title": "Client wrote this"}}
+def test_an_authored_field_makes_it_touched(self):
+    self.tenant.content = {"hero": {"title": "x"}, "_authored": ["hero.title"]}
     self.tenant.save(update_fields=["content"])
     self.assertFalse(_content_still_template_defaults(self.tenant))
 
@@ -968,88 +1014,104 @@ def test_meta_only_content_is_still_untouched(self):
 
 - [ ] **Step 2: Run it and watch it fail**
 
-The current implementation compares stored old defaults against the new schema defaults, so the first test fails after a template update.
+The current implementation compares stored old defaults against the new schema's defaults, so the first test fails after any template update.
 
 - [ ] **Step 3: Implement**
 
-Replace the body of `_content_still_template_defaults` in `api/mcp/tools.py` with:
+Replace `_content_still_template_defaults` in `api/mcp/tools.py` with:
 
 ```python
 def _content_still_template_defaults(tenant: Tenant) -> bool:
-    """True when the site holds no field overrides, only meta editor state.
+    """True when the client has authored nothing.
 
-    Under the sparse-overrides invariant (``core/services/content_overrides``)
-    stored content *is* the override set, so "untouched" is simply "no
-    non-meta keys". The old blob-comparison drifted after any template update,
-    because it compared the old defaults it had stored against the new
-    schema's defaults.
+    The old blob comparison drifted after any template update: it compared the
+    defaults it had stored against the *new* schema's defaults, so an untouched
+    site started reading as edited.
     """
     return is_untouched(tenant.content)
 ```
 
-with `from core.services.content_overrides import is_untouched` added to the imports. Delete the now-unused `_public` helper.
+Add `from core.services.content_overrides import is_untouched` and delete the unused `_public` helper.
 
-- [ ] **Step 4: Run the MCP test module**
+- [ ] **Step 4: Run, then commit**
 
 ```bash
 .venv-3.12/bin/python manage.py test api.tests -v 2 2>&1 | tail -20
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add api/mcp/tools.py api/tests/
-git commit -m "fix(mcp): base the publish guard on overrides, not a defaults blob compare"
+git commit -m "fix(mcp): base the publish guard on authorship"
 ```
 
-### Task 8: The reconciliation management command
+### Task 8: The migration command
 
 **Files:**
 - Create: `core/management/commands/reconcile_content.py`
-- Test: `core/tests/test_content_reconcile.py`
+- Test: `core/tests/test_content_authorship.py`
 
-Existing rows still hold fully-seeded blobs. Tasks 5 and 6 only fix rows that get written after deploy. This command migrates the rest, and its dry run is how we validate against production data without restoring a dump anywhere.
+Migrates legacy fat rows **and** legacy `ContentVersion.snapshot` rows. Concurrency-safe: each row is refetched under `select_for_update()` and its `updated_at` verified, in bounded batches.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `core/tests/test_content_reconcile.py`:
+Append to `core/tests/test_content_authorship.py`:
 
 ```python
 from io import StringIO
 
 from django.core.management import call_command
 
+from core.models import ContentVersion
+
 
 class ReconcileCommandTest(TestCase):
     def setUp(self):
-        owner = User.objects.create_user("client", password="pw")
+        owner = User.objects.create_user("c", password="pw")
         self.tpl = Template.objects.create(name="T", html_source=OLD)
+        seeded = merge_with_defaults(build_schema(OLD), {})
+        seeded["hero"]["title"] = "Client wrote this"
         self.tenant = Tenant.objects.create(
-            name="Denny", subdomain="denny", template=self.tpl, owner=owner,
-            content=merge_with_defaults(build_schema(OLD), {}),
-            is_published=True,
+            name="D", subdomain="d", template=self.tpl, owner=owner,
+            content=seeded, is_published=True,
         )
-        self.tenant.content["hero"]["title"] = "Client wrote this"
-        self.tenant.save(update_fields=["content"])
+        ContentVersion.objects.create(
+            tenant=self.tenant,
+            snapshot=merge_with_defaults(build_schema(OLD), {}),
+            source="dashboard",
+        )
 
     def test_dry_run_reports_but_does_not_write(self):
         out = StringIO()
         call_command("reconcile_content", stdout=out)
         self.tenant.refresh_from_db()
-        self.assertIn("hero.sub", out.getvalue())
         self.assertIn("DRY RUN", out.getvalue())
         self.assertIn("Old sub", str(self.tenant.content))
 
-    def test_apply_prunes_defaults_and_keeps_overrides(self):
+    def test_apply_keeps_the_authored_field_and_drops_the_seeded_ones(self):
         call_command("reconcile_content", "--apply", stdout=StringIO())
         self.tenant.refresh_from_db()
-        self.assertEqual(self.tenant.content, {"hero": {"title": "Client wrote this"}})
+        self.assertEqual(
+            self.tenant.content,
+            {"hero": {"title": "Client wrote this"}, AUTHORED_KEY: ["hero.title"]},
+        )
+
+    def test_apply_canonicalises_legacy_snapshots(self):
+        call_command("reconcile_content", "--apply", stdout=StringIO())
+        snap = ContentVersion.objects.get(tenant=self.tenant).snapshot
+        self.assertEqual(snap.get(AUTHORED_KEY), [])
+
+    def test_apply_is_idempotent(self):
+        call_command("reconcile_content", "--apply", stdout=StringIO())
+        self.tenant.refresh_from_db()
+        first = dict(self.tenant.content)
+        out = StringIO()
+        call_command("reconcile_content", stdout=out)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, first)
+        self.assertIn("0 row(s) would change", out.getvalue())
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile.ReconcileCommandTest -v 2
+.venv-3.12/bin/python manage.py test core.tests.test_content_authorship.ReconcileCommandTest -v 2
 ```
 
 Expected: `CommandError: Unknown command: 'reconcile_content'`.
@@ -1059,192 +1121,165 @@ Expected: `CommandError: Unknown command: 'reconcile_content'`.
 Create `core/management/commands/reconcile_content.py`:
 
 ```python
-"""Migrate Tenant.content / Page.content to the sparse-overrides invariant.
+"""Bootstrap explicit authorship on rows that predate it.
 
-Dry run by default. Prints, per row, which stored fields are being dropped as
-equal to the current template default and which are kept as real overrides, so
-the output can be reviewed against production before anything is written.
+Dry run by default. For each Tenant / Page it infers which stored fields the
+client authored (value differs from the current template default, or has no
+default), writes that into ``_authored``, and drops the rest.
+
+It CANNOT see a value that matched a *historical* default: such a value differs
+from today's default and is kept as authored. Those rows are listed in the
+exception report for a human to check.
 """
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from core.models import Page, Tenant
-from core.services.content_overrides import prune_to_overrides
+from core.models import ContentVersion, Page, Tenant
+from core.services.content_overrides import (
+    AUTHORED_KEY, infer_authored, prune_to_authored,
+)
+
+BATCH = 100
 
 
 class Command(BaseCommand):
-    help = "Prune stored content down to genuine overrides."
+    help = "Bootstrap _authored and drop unauthored stored fields."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--apply", action="store_true",
-            help="Write the changes. Without this the command only reports.",
-        )
-        parser.add_argument(
-            "--subdomain", default="",
-            help="Limit to one tenant subdomain (and its pages).",
-        )
+        parser.add_argument("--apply", action="store_true",
+                            help="Write. Without this the command only reports.")
+        parser.add_argument("--subdomain", default="",
+                            help="Limit to one tenant subdomain and its pages.")
 
     def handle(self, *args, **options):
         apply_changes = options["apply"]
         only = (options["subdomain"] or "").strip()
 
-        tenants = Tenant.objects.select_related("template")
-        pages = Page.objects.select_related("template", "tenant")
+        targets = []
+        tq = Tenant.objects.only("pk", "subdomain")
+        pq = Page.objects.select_related("tenant").only("pk", "slug", "tenant__subdomain")
         if only:
-            tenants = tenants.filter(subdomain=only)
-            pages = pages.filter(tenant__subdomain=only)
+            tq = tq.filter(subdomain=only)
+            pq = pq.filter(tenant__subdomain=only)
+        targets += [(Tenant, t.pk, f"site:{t.subdomain}") for t in tq]
+        targets += [(Page, p.pk, f"page:{p.tenant.subdomain}/{p.slug}") for p in pq]
 
-        rows = [(f"site:{t.subdomain}", t) for t in tenants]
-        rows += [(f"page:{p.tenant.subdomain}/{p.slug}", p) for p in pages]
-
-        total_dropped = 0
-        total_kept = 0
         changed = 0
+        exceptions = []
 
-        for label, row in rows:
-            if row.template_id is None:
-                self.stdout.write(f"{label}: SKIP (no template)")
-                continue
-            defaults = (row.template.schema or {}).get("defaults") or {}
-            before = row.content or {}
-            after = prune_to_overrides(before, defaults)
-
-            dropped = sorted(
-                f"{s}.{f}"
-                for s, fields in before.items()
-                if not s.startswith("_") and isinstance(fields, dict)
-                for f in fields
-                if f not in (after.get(s) or {})
-            )
-            kept = sorted(
-                f"{s}.{f}"
-                for s, fields in after.items()
-                if not s.startswith("_") and isinstance(fields, dict)
-                for f in fields
-            )
-            total_dropped += len(dropped)
-            total_kept += len(kept)
-
-            if after == before:
-                self.stdout.write(f"{label}: unchanged")
-                continue
-
-            changed += 1
-            self.stdout.write(
-                f"{label}: drop {len(dropped)} -> keep {len(kept)}"
-            )
-            if dropped:
-                self.stdout.write(f"    dropped: {', '.join(dropped)}")
-            if kept:
-                self.stdout.write(f"    kept:    {', '.join(kept)}")
-
-            if apply_changes:
+        for start in range(0, len(targets), BATCH):
+            for model, pk, label in targets[start:start + BATCH]:
                 with transaction.atomic():
-                    row.content = after
-                    row.save(update_fields=["content", "updated_at"])
+                    row = (
+                        model.objects.select_for_update()
+                        .select_related("template")
+                        .get(pk=pk)
+                    )
+                    if row.template_id is None:
+                        self.stdout.write(f"{label}: SKIP (no template)")
+                        continue
+                    defaults = (row.template.schema or {}).get("defaults") or {}
+                    before = row.content or {}
+                    if AUTHORED_KEY in before:
+                        continue  # already migrated
+                    inferred = infer_authored(before, defaults)
+                    after = prune_to_authored({**before, AUTHORED_KEY: inferred})
+
+                    dropped = sum(
+                        len(v) for k, v in before.items()
+                        if not k.startswith("_") and isinstance(v, dict)
+                    ) - len(inferred)
+                    self.stdout.write(
+                        f"{label}: drop {dropped} -> authored {len(inferred)}"
+                    )
+                    if inferred:
+                        self.stdout.write(f"    authored: {', '.join(inferred)}")
+                        exceptions.append((label, inferred))
+
+                    if after != before:
+                        changed += 1
+                        if apply_changes:
+                            row.content = after
+                            row.save(update_fields=["content", "updated_at"])
+
+                    if apply_changes and model is Tenant:
+                        for cv in ContentVersion.objects.select_for_update().filter(
+                            tenant_id=pk
+                        ):
+                            snap = cv.snapshot or {}
+                            if AUTHORED_KEY in snap:
+                                continue
+                            cv.snapshot = prune_to_authored({
+                                **snap,
+                                AUTHORED_KEY: infer_authored(snap, defaults),
+                            })
+                            cv.save(update_fields=["snapshot"])
 
         mode = "APPLIED" if apply_changes else "DRY RUN (use --apply to write)"
-        self.stdout.write(
-            f"\n{mode}: {changed} row(s) would change, "
-            f"{total_dropped} field(s) dropped, {total_kept} override(s) kept."
-        )
+        self.stdout.write(f"\n{mode}: {changed} row(s) would change.")
+        if exceptions:
+            self.stdout.write(
+                "\nEXCEPTION REPORT — these were inferred as client-authored. "
+                "A value that matched a HISTORICAL template default is "
+                "indistinguishable from a real edit here and will keep masking "
+                "new HTML. Review before applying:"
+            )
+            for label, ids in exceptions:
+                self.stdout.write(f"  {label}: {', '.join(ids)}")
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [ ] **Step 4: Run it and watch it pass, then commit**
 
 ```bash
-.venv-3.12/bin/python manage.py test core.tests.test_content_reconcile -v 2
-```
-
-Expected: 9 tests, OK.
-
-- [ ] **Step 5: Run the whole suite one more time**
-
-```bash
-.venv-3.12/bin/python manage.py test 2>&1 | tail -20
-```
-
-Expected: only the 5 pre-existing staticfiles errors.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add core/management/commands/reconcile_content.py core/tests/test_content_reconcile.py
-git commit -m "feat(content): add reconcile_content management command with dry run"
+.venv-3.12/bin/python manage.py test core.tests.test_content_authorship -v 2
+git add core/management/commands/reconcile_content.py core/tests/test_content_authorship.py
+git commit -m "feat(content): reconcile_content bootstraps authorship with an exception report"
 ```
 
 ---
 
-## Phase 3: Staging rehearsal, then production
+## Expected test fallout
 
-`deploy/STAGING.md` is the authority here. Two rules from it that constrain this phase:
+From the v2 review, verified against the code. Anything **not** on this list is a regression.
 
-- **Never restore a production dump into staging.** It carries real client content and real user rows onto a URL with no access control beyond login.
-- Staging tracks `main` with autoDeploy **on**; production tracks `main` with autoDeploy **off**. So a merge to `main` reaches staging automatically and production only when someone triggers it.
+| Test | Expectation |
+|---|---|
+| `core/tests/test_account_services.py:41` `test_creates_tenant_account_without_request` | **Will fail.** Asserts `tenant.content == schema["defaults"]`. Change to `{}`. This is the intended behaviour change |
+| `test_template_service.py::FieldLossGuardTests::test_published_field_loss_allowed_with_flag_preserves_content` | **Must keep passing.** `hero.sub` differs from its default, so it is inferred authored and preserved. A failure is a regression |
+| `test_tenant_template_swap.py::TenantTemplateSwapTests::test_swap_does_not_wipe_tenant_content` | **Must keep passing.** Exercises `assign_template`, not the HTML save path |
+| `test_template_service.py::TemplateVersionServiceTests::test_save_appends_contiguous_numbers` | **Must keep passing.** No versions exist before the first call, so v1 is cut, then v2 |
+| 4 template-render tests | Pre-existing `Missing staticfiles manifest entry for 'css/dashboard.css'`. Not caused by this work |
 
-- [ ] **Step 1: Point staging at the branch**
+Baseline before starting: 67 passed, 4 errored across the seven relevant modules.
 
-In Dokploy, project `cms-dashboard`, environment `staging` (`MzPbhgIhn6vzLJWBH5Clq`), change the branch on the `sites-staging` compose service to this work's branch and redeploy. Set it back to `main` when the rehearsal is done. This avoids merging to `main` before the code has run anywhere.
+## Rollout
 
-- [ ] **Step 2: Seed and exercise the UI paths**
+Two releases, per the v2 review. Never restore a production dump into staging (`deploy/STAGING.md:84`). Staging tracks `main` with autoDeploy on; production tracks `main` with autoDeploy off.
 
-```bash
-python manage.py seed_demo_data     # staging only; ALLOW_DEMO_SEED=1 is set there
-```
+### Phase A: Release 1
 
-Then at `https://staging.sites.katek.app/` walk the exact incident:
+- [ ] Point staging at this branch in Dokploy (`cms-dashboard` / `staging` / `MzPbhgIhn6vzLJWBH5Clq`), redeploy, `seed_demo_data`.
+- [ ] Walk the incident on staging: paste HTML that drops fields, confirm the 409 page still shows **your** HTML, confirm with "save anyway", confirm the new HTML is live. Re-save unchanged and expect "No HTML changes — metadata saved." with no new version. Rename with unchanged HTML and confirm the rename persists.
+- [ ] Set staging back to `main`. Merge. Confirm staging is healthy.
+- [ ] Take a fresh production backup. Record its id.
+- [ ] Trigger the production deploy. `curl -i https://sites.katek.app/healthz` expects 200.
+- [ ] Re-annotate and re-push `hodges-advisory.html` to `denny`. This is the incident's acceptance test.
 
-1. Open a seeded site's home template at `/dashboard/templates/<pk>/`.
-2. Paste HTML that drops fields. Expect a 409 conflict page that **still shows the HTML you pasted**.
-3. Tick "save anyway" and submit. Expect the new HTML to be saved.
-4. Reload the public render and confirm the new copy is visible, not the old.
-5. Save the template again with no changes. Expect "No HTML changes" and no new version row.
-6. Submit with the HTML field emptied via devtools. Expect a 400 and no version row.
+### Phase B: Release 2
 
-- [ ] **Step 3: Dry-run the reconciliation on staging, then apply**
-
-```bash
-python manage.py reconcile_content              # review the report
-python manage.py reconcile_content --apply
-```
-
-Then re-check a seeded client edit is still present and an unedited field now follows the template.
-
-- [ ] **Step 4: Dry-run against production before deploying to it**
-
-This is the step that validates the migration against real data without copying it anywhere. It only reads.
-
-```bash
-python manage.py reconcile_content              # production terminal, NO --apply
-```
-
-Read the report. Expect `site:denny` to show a large `drop` count and few or no `kept` entries, because that site's content is entirely seeded defaults. Any site showing a surprising number of kept overrides deserves a look before proceeding.
-
-- [ ] **Step 5: Merge, deploy production, apply**
-
-1. Confirm the Phase 0 backup exists and note its id.
-2. Merge the branch to `main`. Staging redeploys automatically; confirm it is healthy.
-3. Set staging's branch back to `main`.
-4. Trigger the production deploy in Dokploy.
-5. `curl -i https://sites.katek.app/healthz` expects 200.
-6. Run `python manage.py reconcile_content --apply` in the production terminal.
-7. Spot-check two sites' public renders against what they showed before.
-
-- [ ] **Step 6: Verify the original incident is closed**
-
-Re-annotate `hodges-advisory.html` and push it to `denny`. The client editor should come back with sections, and the public page should show the annotated content rather than reverting to the pre-incident copy.
-
----
+- [ ] Merge and deploy Release 2 code. Nothing migrates yet; new writes start carrying `_authored`.
+- [ ] Run `python manage.py reconcile_content` on production. **No `--apply`.** Read the exception report in full.
+- [ ] For every site in the exception report, decide whether those ids are real client edits. This is the step the tooling cannot do.
+- [ ] Announce a short write freeze (clients out of the editor, MCP writes paused).
+- [ ] Take a **fresh** backup immediately before applying. The Phase A backup is not sufficient.
+- [ ] `python manage.py reconcile_content --apply`.
+- [ ] Re-run the dry run; expect `0 row(s) would change`.
+- [ ] Spot-check two sites' public renders and one version restore.
+- [ ] Reopen writes.
 
 ## Out of scope, deliberately
 
-- **Changing `editor.js` to send patches instead of the full blob.** Task 6 prunes server-side, which makes the wire format an optimisation rather than a correctness requirement. Worth doing later; not needed for this fix.
-- **Per-field provenance** (a marker recording who authored each value). More exact than equality-based inference, but it needs new state and its own migration. Equality cannot prove authorship, which is why Task 8's dry run exists: a human reads the report before anything is written.
-- **Type-change compatibility.** If a surviving field id changes `data-type` between template versions, an old value is reinterpreted under the new type. Worth a warning in a later pass.
-
-## Self-review notes
-
-- Every codex review point is covered: point 1 by Task 1, point 2 by Task 2, point 3 by Task 3, points 4 and 6 by Tasks 4 and 6, point 5 by Task 5, point 7 by Task 7, plus the version-allocation race in Task 3 and the annotator sync in Task 2 Step 5.
-- The one thing Task 8 cannot prove is authorship. A value equal to the old default is assumed to be seeded rather than typed. A client who deliberately typed a string identical to the template default loses that override and falls back to the same visible text, so the render is unchanged either way.
+- **Changing `editor.js` to send patches.** Task 6 derives authorship server-side from the full blob, so the wire format is an optimisation.
+- **Repairing sites already masked by a historical default change.** Detectable only by a human reading the exception report. `TemplateVersion.schema` history could narrow the candidates; that is a follow-up.
+- **Type-change compatibility.** A surviving field id whose `data-type` changes between versions reinterprets an old value under the new type.
