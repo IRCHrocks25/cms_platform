@@ -276,12 +276,20 @@ def template_detail(request, pk):
             "yes",
         )
         try:
-            template_svc.save_template_version(
-                template,
-                html_source,
-                user=request.user,
-                allow_field_loss=allow_field_loss,
-            )
+            # One transaction so a single operator submit cannot half-commit:
+            # the HTML/version write and the metadata write land together or
+            # not at all. save_template_version no longer persists metadata,
+            # because it returns early on an unchanged HTML save.
+            with transaction.atomic():
+                result = template_svc.save_template_version(
+                    template,
+                    html_source,
+                    user=request.user,
+                    allow_field_loss=allow_field_loss,
+                )
+                template.save(
+                    update_fields=["name", "description", "editing_mode", "updated_at"]
+                )
         except template_svc.FieldLossError as exc:
             messages.error(request, str(exc))
             tenants_using = list(
@@ -307,7 +315,10 @@ def template_detail(request, pk):
                 },
                 status=409,
             )
-        messages.success(request, "Template updated.")
+        if result.unchanged:
+            messages.info(request, "No HTML changes — metadata saved.")
+        else:
+            messages.success(request, "Template updated.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
     tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
@@ -1934,13 +1945,20 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         template = Template.objects.get(pk=template_id)
         # Annotation usually adds fields; allow loss so a partial model
         # rewrite cannot leave the row stuck mid-import.
-        template_svc.save_template_version(
+        result = template_svc.save_template_version(
             template,
             annotated_html,
             user=None,
             allow_field_loss=True,
             label="AI annotation",
         )
+        if result.unchanged:
+            # No version to cut, but the promotion below still has to run: an
+            # already-annotated template can be sitting at editing_mode=raw.
+            logger.info(
+                "Sibling annotation returned unchanged HTML for template=%s",
+                template_id,
+            )
         if template.has_editable_schema:
             template.editing_mode = Template.EDITING_EDITABLE
             template.save(update_fields=["editing_mode", "updated_at"])
@@ -2090,7 +2108,7 @@ def page_edit_html(request, pk, page_pk):
                 "1", "true", "on", "yes",
             )
             try:
-                template_svc.save_template_version(
+                result = template_svc.save_template_version(
                     page.template,
                     new_html,
                     user=request.user,
@@ -2113,7 +2131,10 @@ def page_edit_html(request, pk, page_pk):
                     },
                     status=409,
                 )
-            messages.success(request, f"HTML updated for “{page.title}”.")
+            if result.unchanged:
+                messages.info(request, f"No HTML changes for “{page.title}”.")
+            else:
+                messages.success(request, f"HTML updated for “{page.title}”.")
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,

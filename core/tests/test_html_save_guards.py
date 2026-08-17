@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 from core.models import Template, Tenant
 from core.parser import build_schema
 from core.renderer import merge_with_defaults
+from core.services import templates as template_svc
 
 OLD = (
     '<html><body>'
@@ -107,3 +108,92 @@ class FieldLossKeepsCandidateTest(TestCase):
         self.tpl.refresh_from_db()
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(self.tpl.html_source, NEW_DROPS_FIELDS)
+
+
+class NoOpVersionTest(TestCase):
+    """A byte-identical save must not manufacture a version row."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("ops3", password="pw", is_staff=True)
+        self.tpl = Template.objects.create(name="T", html_source=OLD)
+
+    def test_first_save_creates_v1_even_though_bytes_match(self):
+        self.tpl.versions.all().delete()
+        result = template_svc.save_template_version(
+            self.tpl, OLD, user=self.user, label="Initial",
+        )
+        self.assertFalse(result.unchanged)
+        self.assertEqual(self.tpl.versions.count(), 1)
+
+    def test_identical_resave_creates_no_version(self):
+        template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        before = self.tpl.versions.count()
+        result = template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        self.assertTrue(result.unchanged)
+        self.assertEqual(self.tpl.versions.count(), before)
+
+    def test_version_is_cut_when_latest_does_not_archive_current_bytes(self):
+        # A direct Template.save() can move html_source without a version.
+        template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        self.tpl.html_source = NEW_SAME_FIELDS
+        self.tpl.save()
+        before = self.tpl.versions.count()
+        result = template_svc.save_template_version(
+            self.tpl, NEW_SAME_FIELDS, user=self.user,
+        )
+        self.assertFalse(result.unchanged)
+        self.assertEqual(self.tpl.versions.count(), before + 1)
+
+    def test_changed_html_still_creates_a_version(self):
+        template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        before = self.tpl.versions.count()
+        result = template_svc.save_template_version(
+            self.tpl, NEW_SAME_FIELDS, user=self.user,
+        )
+        self.assertFalse(result.unchanged)
+        self.assertEqual(self.tpl.versions.count(), before + 1)
+
+    def test_stale_if_match_is_refused_under_the_lock(self):
+        template_svc.save_template_version(self.tpl, OLD, user=self.user)
+        with self.assertRaises(template_svc.ConcurrentWriteError):
+            template_svc.save_template_version(
+                self.tpl, NEW_SAME_FIELDS, user=self.user,
+                expect_html_etag="deadbeef",
+            )
+        self.tpl.refresh_from_db()
+        self.assertEqual(self.tpl.html_source, OLD)
+
+
+@override_settings(STORAGES=PLAIN_STATIC)
+class NoOpKeepsMetadataTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("ops4", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+        self.tpl = Template.objects.create(name="Before", description="", html_source=OLD)
+        # A template with no versions must still cut v1, so archive the current
+        # bytes first; only then is a re-post of the same HTML a true no-op.
+        template_svc.save_template_version(self.tpl, OLD, user=self.staff, label="Initial")
+
+    def test_unchanged_html_still_saves_a_rename(self):
+        resp = self.client.post(
+            f"/dashboard/templates/{self.tpl.pk}/",
+            {"name": "After", "description": "now described",
+             "editing_mode": "editable", "html_source": OLD},
+        )
+        self.tpl.refresh_from_db()
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.tpl.name, "After")
+        self.assertEqual(self.tpl.description, "now described")
+        msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+        self.assertIn("No HTML changes — metadata saved.", msgs)
+
+
+class AdminCannotBypassTheServiceTest(TestCase):
+    def test_structural_fields_are_readonly_in_admin(self):
+        from django.contrib import admin as dj_admin
+
+        from core.models import Page as PageModel
+
+        self.assertIn("html_source", dj_admin.site._registry[Template].readonly_fields)
+        self.assertIn("content", dj_admin.site._registry[Tenant].readonly_fields)
+        self.assertIn("content", dj_admin.site._registry[PageModel].readonly_fields)

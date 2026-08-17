@@ -10,7 +10,10 @@ from .models import (
 class TemplateAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "updated_at")
     search_fields = ("name", "slug")
-    readonly_fields = ("schema", "created_at", "updated_at")
+    # html_source is read-only here on purpose: a direct admin save bypasses
+    # versioning, the field-loss guard, the MCP if_match check and the no-op
+    # detection. core/services/templates.py is the only supported write path.
+    readonly_fields = ("html_source", "schema", "created_at", "updated_at")
 
 
 class TenantMembershipInline(admin.TabularInline):
@@ -24,6 +27,9 @@ class TenantAdmin(admin.ModelAdmin):
     list_display = ("name", "subdomain", "template", "owner", "is_published", "updated_at")
     list_filter = ("is_published", "template")
     search_fields = ("name", "subdomain")
+    # content is read-only here: writes must go through the content services so
+    # the stored shape stays canonical.
+    readonly_fields = ("content",)
     inlines = [TenantMembershipInline]
 
 
@@ -40,7 +46,8 @@ class PageAdmin(admin.ModelAdmin):
     list_display = ("title", "tenant", "slug", "template", "is_published", "nav_order", "updated_at")
     list_filter = ("is_published", "tenant")
     search_fields = ("title", "slug", "tenant__name", "tenant__subdomain")
-    readonly_fields = ("created_at", "updated_at")
+    # See TenantAdmin: content writes go through the content services.
+    readonly_fields = ("content", "created_at", "updated_at")
 
 
 admin.site.register(MediaAsset)
