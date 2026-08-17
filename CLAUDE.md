@@ -412,12 +412,37 @@ pyenv install -s 3.12 && pyenv exec python -m venv .venv && source .venv/bin/act
 
 # then, either way
 pip install -r requirements.txt
+python manage.py collectstatic --noinput   # see "Running the tests" below
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
 
 On Windows the activate path is `.venv\Scripts\activate` instead.
+
+### Running the tests
+
+**Run `collectstatic` first, once.** Settings use a hashed-manifest staticfiles
+storage, and a checkout with no built manifest fails every test that renders a
+dashboard template with `ValueError: Missing staticfiles manifest entry for
+'css/dashboard.css'`. That is 48 errors out of 821 — enough to look like a
+broken branch, and it has now cost two separate debugging sessions.
+
+```bash
+python manage.py collectstatic --noinput
+python manage.py test          # expect 821 tests, OK
+```
+
+There is no legitimate failing baseline. If anything fails after collectstatic,
+it is a real regression, not environment noise. Tests that must render without
+a manifest can override it instead:
+
+```python
+@override_settings(STORAGES={
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+})
+```
 
 ### Why the interpreter is pinned
 
