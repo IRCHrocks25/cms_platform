@@ -192,7 +192,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST},
+                {"form_data": request.POST, "html_value": html_source},
             )
 
         if len(name) > 120:
@@ -200,7 +200,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST},
+                {"form_data": request.POST, "html_value": html_source},
                 status=400,
             )
 
@@ -231,6 +231,7 @@ def template_create(request):
                 "html_source": STARTER_TEMPLATE_HTML,
                 "editing_mode": Template.EDITING_EDITABLE,
             },
+            "html_value": STARTER_TEMPLATE_HTML,
         },
     )
 
@@ -240,12 +241,34 @@ def template_detail(request, pk):
     template = get_object_or_404(Template, pk=pk)
 
     if request.method == "POST":
+        # Validate BEFORE mutating the instance, so a rejected submit cannot
+        # half-apply metadata. A blank field is never "keep the current HTML":
+        # that fallback is what turned failed uploads into no-ops that reported
+        # success (incident 2026-08-17).
+        html_source = request.POST.get("html_source") or ""
+        if not html_source.strip():
+            messages.error(request, "HTML source cannot be empty.")
+            return render(
+                request,
+                "dashboard/template_form.html",
+                {
+                    "template": template,
+                    "tenants_using": list(
+                        template.tenants.only("id", "name", "subdomain").order_by("name")
+                    ),
+                    # Bound data, so the operator keeps what they typed.
+                    "form_data": request.POST,
+                    # ...except the HTML, which is what they failed to supply.
+                    "html_value": template.html_source,
+                },
+                status=400,
+            )
+
         template.name = (request.POST.get("name") or template.name).strip()
         template.description = (request.POST.get("description") or "").strip()
         mode = (request.POST.get("editing_mode") or "").strip()
         if mode in {Template.EDITING_RAW, Template.EDITING_EDITABLE}:
             template.editing_mode = mode
-        html_source = request.POST.get("html_source") or template.html_source
         allow_field_loss = request.POST.get("allow_field_loss") in (
             "1",
             "true",
@@ -253,12 +276,20 @@ def template_detail(request, pk):
             "yes",
         )
         try:
-            template_svc.save_template_version(
-                template,
-                html_source,
-                user=request.user,
-                allow_field_loss=allow_field_loss,
-            )
+            # One transaction so a single operator submit cannot half-commit:
+            # the HTML/version write and the metadata write land together or
+            # not at all. save_template_version no longer persists metadata,
+            # because it returns early on an unchanged HTML save.
+            with transaction.atomic():
+                result = template_svc.save_template_version(
+                    template,
+                    html_source,
+                    user=request.user,
+                    allow_field_loss=allow_field_loss,
+                )
+                template.save(
+                    update_fields=["name", "description", "editing_mode", "updated_at"]
+                )
         except template_svc.FieldLossError as exc:
             messages.error(request, str(exc))
             tenants_using = list(
@@ -277,10 +308,17 @@ def template_detail(request, pk):
                         "html_source": html_source,
                         "editing_mode": template.editing_mode,
                     },
+                    # The operator's candidate, NOT the stored HTML. Handing
+                    # back the old value here is what made "save anyway"
+                    # re-save the bytes they were replacing.
+                    "html_value": html_source,
                 },
                 status=409,
             )
-        messages.success(request, "Template updated.")
+        if result.unchanged:
+            messages.info(request, "No HTML changes — metadata saved.")
+        else:
+            messages.success(request, "Template updated.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
     tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
@@ -290,12 +328,17 @@ def template_detail(request, pk):
         {
             "template": template,
             "tenants_using": tenants_using,
+            # form_data is now the single bound source for every field, so the
+            # GET seed carries the stored values rather than relying on the
+            # template falling back to `template.x` (which silently beat the
+            # operator's own input on every error re-render).
             "form_data": {
-                "name": "",
-                "description": "",
-                "html_source": "",
+                "name": template.name,
+                "description": template.description,
+                "html_source": template.html_source,
                 "editing_mode": template.editing_mode,
             },
+            "html_value": template.html_source,
         },
     )
 
@@ -1914,13 +1957,20 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         template = Template.objects.get(pk=template_id)
         # Annotation usually adds fields; allow loss so a partial model
         # rewrite cannot leave the row stuck mid-import.
-        template_svc.save_template_version(
+        result = template_svc.save_template_version(
             template,
             annotated_html,
             user=None,
             allow_field_loss=True,
             label="AI annotation",
         )
+        if result.unchanged:
+            # No version to cut, but the promotion below still has to run: an
+            # already-annotated template can be sitting at editing_mode=raw.
+            logger.info(
+                "Sibling annotation returned unchanged HTML for template=%s",
+                template_id,
+            )
         if template.has_editable_schema:
             template.editing_mode = Template.EDITING_EDITABLE
             template.save(update_fields=["editing_mode", "updated_at"])
@@ -2070,7 +2120,7 @@ def page_edit_html(request, pk, page_pk):
                 "1", "true", "on", "yes",
             )
             try:
-                template_svc.save_template_version(
+                result = template_svc.save_template_version(
                     page.template,
                     new_html,
                     user=request.user,
@@ -2093,7 +2143,10 @@ def page_edit_html(request, pk, page_pk):
                     },
                     status=409,
                 )
-            messages.success(request, f"HTML updated for “{page.title}”.")
+            if result.unchanged:
+                messages.info(request, f"No HTML changes for “{page.title}”.")
+            else:
+                messages.success(request, f"HTML updated for “{page.title}”.")
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,

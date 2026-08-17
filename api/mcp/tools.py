@@ -18,7 +18,11 @@ from core.services.accounts import (
     CustomDomainError,
     create_tenant_account,
 )
-from core.services.templates import FieldLossError, save_template_version
+from core.services.templates import (
+    ConcurrentWriteError,
+    FieldLossError,
+    save_template_version,
+)
 from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
@@ -715,16 +719,13 @@ def _push_html_onto_template(
     if_match: Optional[str],
     label: str,
 ) -> tuple[Optional[dict], Optional[Any]]:
-    """Apply if_match + save_template_version. Returns (error_result, SaveTemplateResult)."""
-    current_etag = content_mod.html_etag(template.html_source)
-    if if_match is not None and if_match != current_etag:
-        return (
-            tool_conflict(
-                "Conflict (409): template has changed since if_match. "
-                "Re-read and retry with the current etag."
-            ),
-            None,
-        )
+    """Apply if_match + save_template_version. Returns (error_result, SaveTemplateResult).
+
+    ``if_match`` is compared inside the service's write transaction, while the
+    template row is locked. Comparing it here first left a time-of-check /
+    time-of-use gap in which another writer could commit between the check and
+    the write.
+    """
     try:
         result = save_template_version(
             template,
@@ -732,7 +733,10 @@ def _push_html_onto_template(
             user=user,
             allow_field_loss=bool(allow_field_loss),
             label=label,
+            expect_html_etag=if_match,
         )
+    except ConcurrentWriteError as exc:
+        return tool_conflict(str(exc)), None
     except FieldLossError as exc:
         return tool_error(str(exc)), None
     except ValueError as exc:
@@ -817,6 +821,7 @@ def push_page(
                 "template_id": result.template.pk,
                 "version": result.version.number,
                 "editing_mode": result.template.editing_mode,
+                "unchanged": result.unchanged,
             }
         )
 
@@ -880,6 +885,7 @@ def push_page(
                 "template_id": result.template.pk,
                 "version": result.version.number,
                 "editing_mode": result.template.editing_mode,
+                "unchanged": result.unchanged,
             }
         )
 
@@ -921,6 +927,7 @@ def push_page(
             "template_id": result.template.pk,
             "version": result.version.number,
             "editing_mode": result.template.editing_mode,
+            "unchanged": result.unchanged,
         }
     )
 

@@ -6,6 +6,7 @@ schema unconditionally; these guards protect product surfaces, not the DB.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
@@ -79,6 +80,14 @@ class CrossTenantTemplateError(Exception):
     """Raised when assigning a template owned by a different tenant."""
 
 
+class ConcurrentWriteError(Exception):
+    """The template changed since the caller's expected etag.
+
+    Raised from inside the write transaction, while the template row is locked,
+    so the check cannot be overtaken between comparison and write.
+    """
+
+
 class FieldLossError(Exception):
     """Published site(s) would lose fields; caller must confirm."""
 
@@ -102,6 +111,9 @@ class SaveTemplateResult:
     version: TemplateVersion
     lost_fields: set[str] = field(default_factory=set)
     affected: list[dict[str, Any]] = field(default_factory=list)
+    #: True when the submitted HTML already matched what is stored AND archived,
+    #: so no TemplateVersion was appended. Callers must not report an update.
+    unchanged: bool = False
 
 
 def _dotted_field_ids(schema: Optional[dict]) -> set[str]:
@@ -172,6 +184,21 @@ def _affected_published(template: Template, lost: set[str]) -> list[dict[str, An
     return affected
 
 
+def _html_etag(html: str) -> str:
+    return hashlib.sha256((html or "").encode("utf-8")).hexdigest()
+
+
+def _sync(caller: Template, locked: Template) -> None:
+    """Copy committed state back onto the caller's instance.
+
+    Callers keep using the object they passed in (and the dashboard renders
+    from it), so it must not keep showing pre-write values.
+    """
+    caller.html_source = locked.html_source
+    caller.schema = locked.schema
+    caller.updated_at = locked.updated_at
+
+
 def save_template_version(
     template: Template,
     html_source: str,
@@ -179,36 +206,64 @@ def save_template_version(
     user,
     allow_field_loss: bool = False,
     label: str = "",
+    expect_html_etag: Optional[str] = None,
 ) -> SaveTemplateResult:
-    """Write HTML, append a TemplateVersion, optionally refuse field loss."""
-    old_fields = _dotted_field_ids(template.schema)
-    new_schema = build_schema(html_source)
-    new_fields = _dotted_field_ids(new_schema)
-    lost = old_fields - new_fields
+    """Write HTML, append a TemplateVersion, optionally refuse field loss.
 
-    affected: list[dict[str, Any]] = []
-    if lost:
-        affected = _affected_published(template, lost)
-        if affected and not allow_field_loss:
-            raise FieldLossError(lost, affected)
-
+    Every read the write decision depends on comes from the row locked inside
+    this transaction. Deriving them from the caller's instance let a writer
+    that fetched A, waited while another writer committed B, then validate
+    A -> candidate while actually overwriting B.
+    """
     with transaction.atomic():
-        template.html_source = html_source
-        template.save()  # re-derives schema
-        next_number = (
-            template.versions.order_by("-number")
-            .values_list("number", flat=True)
-            .first()
-            or 0
-        ) + 1
+        locked = Template.objects.select_for_update().get(pk=template.pk)
+
+        if expect_html_etag is not None and _html_etag(locked.html_source) != expect_html_etag:
+            raise ConcurrentWriteError(
+                "Conflict (409): template has changed since if_match. "
+                "Re-read and retry with the current etag."
+            )
+
+        old_fields = _dotted_field_ids(locked.schema)
+        new_schema = build_schema(html_source)
+        lost = old_fields - _dotted_field_ids(new_schema)
+
+        affected: list[dict[str, Any]] = []
+        if lost:
+            affected = _affected_published(locked, lost)
+            if affected and not allow_field_loss:
+                # Raised inside atomic(): propagation rolls the block back, and
+                # nothing has been written at this point either way.
+                raise FieldLossError(lost, affected)
+
+        latest = locked.versions.order_by("-number").first()
+        # Only a no-op when the latest version genuinely archives the bytes that
+        # are live. A direct Template.save() can move html_source without
+        # cutting a version, and that drift deserves a repair version.
+        if (
+            latest is not None
+            and latest.html_source == locked.html_source == html_source
+        ):
+            _sync(template, locked)
+            return SaveTemplateResult(
+                template=template,
+                version=latest,
+                lost_fields=set(),
+                affected=[],
+                unchanged=True,
+            )
+
+        locked.html_source = html_source
+        locked.save()  # re-derives schema
         version = TemplateVersion.objects.create(
-            template=template,
-            number=next_number,
-            html_source=template.html_source,
-            schema=template.schema or {},
+            template=locked,
+            number=(latest.number if latest is not None else 0) + 1,
+            html_source=locked.html_source,
+            schema=locked.schema or {},
             label=label or "",
             saved_by=user if getattr(user, "pk", None) else None,
         )
+        _sync(template, locked)
 
     return SaveTemplateResult(
         template=template,
