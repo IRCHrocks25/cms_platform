@@ -42,20 +42,20 @@
         <div class="field">
           <label class="field-label" for="id_name">Name</label>
           <input class="input" type="text" name="name" id="id_name" maxlength="120" required
-                 value="{{ template.name|default:form_data.name|default_if_none:'' }}">
+                 value="{{ form_data.name|default_if_none:'' }}">
         </div>
 
         <div class="field">
           <label class="field-label" for="id_description">Description</label>
           <input class="input" type="text" name="description" id="id_description"
                  placeholder="Restaurant template, salon template, etc."
-                 value="{{ template.description|default:form_data.description|default_if_none:'' }}">
+                 value="{{ form_data.description|default_if_none:'' }}">
         </div>
 
         <div class="field">
           <label class="field-label" for="id_editing_mode">Client editing</label>
           <select class="input" name="editing_mode" id="id_editing_mode">
-            {% with mode=template.editing_mode|default:form_data.editing_mode|default_if_none:'raw' %}
+            {% with mode=form_data.editing_mode|default_if_none:'raw' %}
               <option value="raw" {% if mode == "raw" %}selected{% endif %}>Raw — not client-editable</option>
               <option value="editable" {% if mode == "editable" %}selected{% endif %}>Editable — released to the client</option>
             {% endwith %}
@@ -98,7 +98,12 @@
           </div>
         </details>
 
-        {% include "dashboard/_html_source_editor.html" with html_value=template.html_source|default:form_data.html_source|default_if_none:'' %}
+        {# html_value is supplied explicitly by every view that renders this
+           template. It must NOT fall back to template.html_source: that value
+           is truthy on a field-loss conflict re-render and would hand the
+           operator back the OLD html, so confirming re-saved the bytes they
+           were replacing (incident 2026-08-17). #}
+        {% include "dashboard/_html_source_editor.html" with html_value=html_value|default_if_none:'' %}
 
         {% if template %}
           {% with section_count=template.schema.sections|length %}

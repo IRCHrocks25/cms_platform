@@ -192,7 +192,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST},
+                {"form_data": request.POST, "html_value": html_source},
             )
 
         if len(name) > 120:
@@ -200,7 +200,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST},
+                {"form_data": request.POST, "html_value": html_source},
                 status=400,
             )
 
@@ -231,6 +231,7 @@ def template_create(request):
                 "html_source": STARTER_TEMPLATE_HTML,
                 "editing_mode": Template.EDITING_EDITABLE,
             },
+            "html_value": STARTER_TEMPLATE_HTML,
         },
     )
 
@@ -240,12 +241,34 @@ def template_detail(request, pk):
     template = get_object_or_404(Template, pk=pk)
 
     if request.method == "POST":
+        # Validate BEFORE mutating the instance, so a rejected submit cannot
+        # half-apply metadata. A blank field is never "keep the current HTML":
+        # that fallback is what turned failed uploads into no-ops that reported
+        # success (incident 2026-08-17).
+        html_source = request.POST.get("html_source") or ""
+        if not html_source.strip():
+            messages.error(request, "HTML source cannot be empty.")
+            return render(
+                request,
+                "dashboard/template_form.html",
+                {
+                    "template": template,
+                    "tenants_using": list(
+                        template.tenants.only("id", "name", "subdomain").order_by("name")
+                    ),
+                    # Bound data, so the operator keeps what they typed.
+                    "form_data": request.POST,
+                    # ...except the HTML, which is what they failed to supply.
+                    "html_value": template.html_source,
+                },
+                status=400,
+            )
+
         template.name = (request.POST.get("name") or template.name).strip()
         template.description = (request.POST.get("description") or "").strip()
         mode = (request.POST.get("editing_mode") or "").strip()
         if mode in {Template.EDITING_RAW, Template.EDITING_EDITABLE}:
             template.editing_mode = mode
-        html_source = request.POST.get("html_source") or template.html_source
         allow_field_loss = request.POST.get("allow_field_loss") in (
             "1",
             "true",
@@ -277,6 +300,10 @@ def template_detail(request, pk):
                         "html_source": html_source,
                         "editing_mode": template.editing_mode,
                     },
+                    # The operator's candidate, NOT the stored HTML. Handing
+                    # back the old value here is what made "save anyway"
+                    # re-save the bytes they were replacing.
+                    "html_value": html_source,
                 },
                 status=409,
             )
@@ -290,12 +317,17 @@ def template_detail(request, pk):
         {
             "template": template,
             "tenants_using": tenants_using,
+            # form_data is now the single bound source for every field, so the
+            # GET seed carries the stored values rather than relying on the
+            # template falling back to `template.x` (which silently beat the
+            # operator's own input on every error re-render).
             "form_data": {
-                "name": "",
-                "description": "",
-                "html_source": "",
+                "name": template.name,
+                "description": template.description,
+                "html_source": template.html_source,
                 "editing_mode": template.editing_mode,
             },
+            "html_value": template.html_source,
         },
     )
 
