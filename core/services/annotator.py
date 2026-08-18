@@ -188,6 +188,15 @@ _BACKFILL_SKIP_ANCESTORS = {
     "nav", "a", "button", "form", "select", "label",
     "script", "style", "noscript",
 }
+_IMAGE_CHROME_TAGS = {"nav", "footer"}
+_IMAGE_CHROME_TOKENS = {
+    "nav", "navigation", "footer", "logo", "icon", "social",
+    "payment", "badge", "spacer", "tracking", "pixel",
+}
+_CSS_PIXEL_DIMENSION_RE = re.compile(
+    r"(?:^|;)\s*(width|height)\s*:\s*(\d+(?:\.\d+)?)px\b",
+    re.IGNORECASE,
+)
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
 
@@ -357,6 +366,16 @@ def _reconcile_annotated_fields(soup) -> tuple[int, int]:
     return reconciled, dropped
 
 
+def _has_backfill_skip_ancestor(element, section) -> bool:
+    """Return whether an element is nested in chrome before its owner section."""
+    ancestor = element.parent
+    while ancestor is not None and ancestor is not section:
+        if getattr(ancestor, "name", None) in _BACKFILL_SKIP_ANCESTORS:
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def _backfill_missed_text_fields(soup) -> int:
     """Walk each data-section and promote text-bearing tags the model
     skipped (the model is conservative on real pages; this is the safety
@@ -389,15 +408,7 @@ def _backfill_missed_text_fields(soup) -> int:
             if el.get("data-edit"):
                 continue
 
-            # Skip if any ancestor between us and the section is "chrome".
-            skip = False
-            ancestor = el.parent
-            while ancestor is not None and ancestor is not sec:
-                if getattr(ancestor, "name", None) in _BACKFILL_SKIP_ANCESTORS:
-                    skip = True
-                    break
-                ancestor = ancestor.parent
-            if skip:
+            if _has_backfill_skip_ancestor(el, sec):
                 continue
 
             text = el.get_text(strip=True)
@@ -428,6 +439,125 @@ def _backfill_missed_text_fields(soup) -> int:
             if len(text) > 40:
                 label += "…"
             el["data-label"] = label
+            added += 1
+    return added
+
+
+def _markup_tokens(element) -> set[str]:
+    """Return exact lowercase tokens from an element's id/class/section hints."""
+    values = [element.get("id", ""), element.get("data-section", "")]
+    classes = element.get("class", [])
+    if isinstance(classes, str):
+        values.append(classes)
+    else:
+        values.extend(classes)
+    return {
+        token
+        for value in values
+        for token in re.split(r"[^a-z0-9]+", str(value).lower())
+        if token
+    }
+
+
+def _image_dimensions(image) -> tuple[float | None, float | None]:
+    """Read explicit HTML or inline-CSS pixel dimensions when available."""
+    dimensions: dict[str, float | None] = {"width": None, "height": None}
+    for name in dimensions:
+        raw = str(image.get(name, "")).strip().lower()
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)(?:px)?", raw)
+        if match:
+            dimensions[name] = float(match.group(1))
+    for match in _CSS_PIXEL_DIMENSION_RE.finditer(str(image.get("style", ""))):
+        dimensions[match.group(1).lower()] = float(match.group(2))
+    return dimensions["width"], dimensions["height"]
+
+
+def _image_is_obvious_chrome(image, section) -> bool:
+    """Conservatively identify images that must not become client fields."""
+    if not str(image.get("src", "")).strip():
+        return True
+    if str(image.get("role", "")).strip().lower() == "presentation":
+        return True
+    if str(image.get("aria-hidden", "")).strip().lower() == "true":
+        return True
+    if _has_backfill_skip_ancestor(image, section):
+        return True
+
+    current = image
+    while current is not None:
+        if getattr(current, "name", None) in _IMAGE_CHROME_TAGS:
+            return True
+        if _markup_tokens(current) & _IMAGE_CHROME_TOKENS:
+            return True
+        if current is section:
+            break
+        current = current.parent
+
+    width, height = _image_dimensions(image)
+    if (width is not None and width <= 1) or (height is not None and height <= 1):
+        return True
+    if (
+        width is not None
+        and height is not None
+        and width <= 32
+        and height <= 32
+    ):
+        return True
+    return False
+
+
+def _backfill_missed_image_fields(soup) -> int:
+    """Promote unmarked content images inside model-created sections.
+
+    Empty alt text alone is not treated as proof that an imported image is
+    decorative: real page builders frequently leave hero/content alt values
+    blank. Explicit presentation markup, chrome ancestry, and tiny dimensions
+    remain deterministic exclusions.
+    """
+    added = 0
+    for sec in soup.find_all(attrs={"data-section": True}):
+        sec_id = (sec.get("data-section") or "").strip()
+        if not sec_id or sec_id == "brand":
+            continue
+
+        existing_field_ids: set[str] = set()
+        for element in sec.find_all(attrs={"data-edit": True}):
+            if element.find_parent(attrs={"data-section": True}) is not sec:
+                continue
+            edit = element.get("data-edit", "")
+            if "." in edit:
+                existing_field_ids.add(edit.split(".", 1)[1])
+
+        image_number = 1
+        for image in sec.find_all("img"):
+            if image.find_parent(attrs={"data-section": True}) is not sec:
+                continue
+            if image.get("data-edit") or _image_is_obvious_chrome(image, sec):
+                continue
+
+            field_id = f"image_{image_number}"
+            while field_id in existing_field_ids:
+                image_number += 1
+                field_id = f"image_{image_number}"
+            existing_field_ids.add(field_id)
+
+            alt = " ".join(str(image.get("alt", "")).split())
+            if alt:
+                label = alt[:120]
+            else:
+                section_label = (
+                    str(sec.get("data-label") or sec_id)
+                    .replace("_", " ")
+                    .strip()
+                )
+                label = f"{section_label[:110]} image"
+                if image_number > 1:
+                    label += f" {image_number}"
+
+            image["data-edit"] = f"{sec_id}.{field_id}"
+            image["data-type"] = "image"
+            image["data-label"] = label
+            image_number += 1
             added += 1
     return added
 
@@ -574,7 +704,7 @@ def _completion_request_options(model: str) -> dict:
         "response_format": {"type": "json_object"},
     }
     if model == _LUNA_MODEL:
-        options["reasoning_effort"] = "low"
+        options["reasoning_effort"] = settings.OPENAI_ANNOTATE_REASONING_EFFORT
     return options
 
 
@@ -822,7 +952,9 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     # the model skipped. The prompt alone is not enough — the LLM is
     # conservative on real pages, especially for short paragraphs, the 2nd
     # item in a repeating card group, or text nested deep in wrappers.
-    backfilled = _backfill_missed_text_fields(soup)
+    text_backfilled = _backfill_missed_text_fields(soup)
+    image_backfilled = _backfill_missed_image_fields(soup)
+    backfilled = text_backfilled + image_backfilled
 
     # Restore data URIs first, then style/script blocks. Order matters: if a
     # restored <style> block happened to contain a marker substring it'd be

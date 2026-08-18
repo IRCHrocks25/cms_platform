@@ -134,12 +134,17 @@ output gets truncated. The pipeline solves that with strip-and-restore:
    default temperature. Luna uses low reasoning effort so structured extraction
    keeps enough reasoning quality without consuming an excessive share of the
    completion budget.
-3. **Restore** the original blocks by replacing placeholders. If a
+3. **Apply and backfill** model annotations by ref. A deterministic safety net
+   adds missed text and content-image fields inside each owned section. Image
+   backfill ignores `alt=""` by itself (imports misuse it) but excludes explicit
+   presentation/hidden images, chrome ancestry, nav/footer images, missing
+   sources, and tiny/icon-like markup.
+4. **Restore** the original blocks by replacing placeholders. If a
    `<style>` block contains `:root { --var: ... }`, the post-processor
    automatically adds the `data-tokens` attribute so brand colors are
    exposed as Brand-section fields by the parser. The model does NOT
    need to add `data-tokens` itself.
-4. **Validate** by running the restored HTML through `build_schema()`.
+5. **Validate** by running the restored HTML through `build_schema()`.
    If no editable sections come back, the error response includes the
    model name, `finish_reason`, output length, and the first ~500 chars
    of the response — both in logs and in the UI error message — so you
@@ -151,8 +156,11 @@ Model selection: `settings.OPENAI_ANNOTATE_MODEL` (default `gpt-5.6-luna`,
 override in `.env`). Luna uses a 65,536-token completion budget. Live-verified
 fallback caps are 32,768 for GPT-4.1 models and 16,384 for GPT-4o and
 GPT-4o-mini; set `OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS` when selecting a model
-with a different cap. Prompt, completion, reasoning, and total token usage are
-summed across chunks and stored with the annotation job for diagnostics.
+with a different cap. `OPENAI_ANNOTATE_REASONING_EFFORT` selects Luna's effort
+(`none`, `low`, `medium`, `high`, `xhigh`, or `max`; default `low`) and is never
+sent to GPT-4o models, which reject it. Prompt, completion, reasoning, and total
+token usage are summed across chunks and stored with the annotation job for
+diagnostics.
 
 The 500,000-character input ceiling and 40,000-character chunk target remain
 intentional. A request sees one chunk rather than the whole page, and these

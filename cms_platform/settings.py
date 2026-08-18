@@ -349,6 +349,9 @@ TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-5.6-luna")
+OPENAI_ANNOTATE_REASONING_EFFORT = os.environ.get(
+    "OPENAI_ANNOTATE_REASONING_EFFORT", "low"
+)
 # Optional explicit output budget for a newly configured model. When unset,
 # the annotator uses live-verified caps for Luna and documented legacy models.
 _openai_annotate_budget = os.environ.get("OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS")

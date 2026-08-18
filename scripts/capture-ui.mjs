@@ -315,7 +315,11 @@ try {
         returnByValue: true,
       });
       annotationResult.jobId = transport.result.value.jobId;
-      annotationResult.response = transport.result.value.final;
+      const { html: responseHtml = "", ...responseMetadata } = transport.result.value.final;
+      annotationResult.response = {
+        ...responseMetadata,
+        htmlBytes: responseHtml.length,
+      };
     }
     annotationResult.elapsedMs = Date.now() - startedAt;
 
@@ -363,10 +367,12 @@ try {
           const markerIds = Array.from(parsed.querySelectorAll('[data-edit]')).map((element) => element.getAttribute('data-edit'));
           const badges = Array.from(document.querySelectorAll('.detected-sections .badge')).map((badge) => badge.textContent.trim());
           const nonBrandBadges = badges.filter((badge) => !/^Brand\\s*[·.]/i.test(badge));
-          const detectedFieldCount = nonBrandBadges.reduce(function (total, badge) {
+          const badgeFieldCount = function (badge) {
             const count = Number((badge.match(/(\\d+)\\s*$/) || [])[1] || 0);
-            return total + count;
-          }, 0);
+            return count;
+          };
+          const detectedFieldCount = badges.reduce((total, badge) => total + badgeFieldCount(badge), 0);
+          const detectedNonBrandFieldCount = nonBrandBadges.reduce((total, badge) => total + badgeFieldCount(badge), 0);
           const templateId = (location.pathname.match(/\/dashboard\/templates\/(\\d+)\//) || [])[1] || '';
           return {
             url: location.href,
@@ -375,8 +381,10 @@ try {
             markerCount: markerIds.length,
             uniqueMarkerCount: new Set(markerIds).size,
             sectionCount: parsed.querySelectorAll('[data-section]').length,
+            detectedSectionCount: badges.length,
+            detectedFieldCount: detectedFieldCount,
             detectedNonBrandSectionCount: nonBrandBadges.length,
-            detectedNonBrandFieldCount: detectedFieldCount,
+            detectedNonBrandFieldCount: detectedNonBrandFieldCount,
             detectedText: document.querySelector('.detected-sections-copy')?.textContent?.trim() || '',
             detectedBadges: badges,
           };
@@ -384,12 +392,19 @@ try {
         returnByValue: true,
       });
       annotationResult.saved = saved.result.value;
+      const responseSections = annotationResult.response.sections || [];
+      const responseFieldCount = responseSections.reduce(
+        (total, section) => total + Number(section.field_count || 0),
+        0,
+      );
       if (
         annotationResult.saved.markerCount !== annotationResult.saved.uniqueMarkerCount ||
         annotationResult.saved.markerCount !== annotationResult.saved.detectedNonBrandFieldCount ||
         annotationResult.saved.markerCount !== annotationResult.outputMarkers ||
         annotationResult.saved.sectionCount !== annotationResult.saved.detectedNonBrandSectionCount ||
-        annotationResult.saved.sectionCount !== annotationResult.outputSections
+        annotationResult.saved.sectionCount !== annotationResult.outputSections ||
+        responseSections.length !== annotationResult.saved.detectedSectionCount ||
+        responseFieldCount !== annotationResult.saved.detectedFieldCount
       ) {
         throw new Error(`Saved annotation parity failed: ${JSON.stringify(annotationResult.saved)}`);
       }
@@ -619,5 +634,10 @@ try {
     chromium.kill("SIGTERM");
     await exited;
   }
-  await rm(profile, { recursive: true, force: true });
+  await rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
 }
