@@ -19,6 +19,20 @@ def _soup(html: str) -> BeautifulSoup:
 
 
 class BackfillCatchesUnmarkedBodyTextTests(TestCase):
+    def test_nested_section_owns_its_own_backfilled_fields(self):
+        s = _soup(
+            "<section data-section='outer'>"
+            "<h1>Outer title</h1>"
+            "<section data-section='inner'><h2>Inner title</h2></section>"
+            "</section>"
+        )
+
+        added = _backfill_missed_text_fields(s)
+
+        self.assertEqual(added, 2)
+        self.assertEqual(s.find("h1")["data-edit"], "outer.h1_1")
+        self.assertEqual(s.find("h2")["data-edit"], "inner.h2_1")
+
     def test_unmarked_h2_and_p_inside_section_get_data_edit(self):
         s = _soup(
             "<section data-section='hero' data-label='Hero'>"

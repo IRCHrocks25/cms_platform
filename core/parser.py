@@ -179,6 +179,11 @@ def build_schema(html: str) -> dict[str, Any]:
         section_defaults: dict[str, str] = {}
 
         for field_el in sec.find_all(attrs={"data-edit": True}):
+            # A nested data-section is an ownership boundary. Only the nearest
+            # section may claim a field, so outer recursive scans cannot count
+            # or relabel fields that belong to an inner block.
+            if field_el.find_parent(attrs={"data-section": True}) is not sec:
+                continue
             full_id = field_el["data-edit"].strip()
             if "." not in full_id:
                 continue

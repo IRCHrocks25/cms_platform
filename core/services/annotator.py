@@ -293,6 +293,38 @@ def _apply_annotations(ref_map: dict, data: dict) -> int:
     return applied
 
 
+def _reconcile_annotated_fields(soup) -> tuple[int, int]:
+    """Make every field marker honest about its owning section.
+
+    The nearest ancestor section owns a field. This is also the parser's rule,
+    so nested sections never leak fields into an outer section. A field with no
+    valid owning section is stripped instead of being left for the parser to
+    ignore or assigned by a layout-changing guess.
+    """
+    reconciled = 0
+    dropped = 0
+    for field_el in soup.find_all(attrs={"data-edit": True}):
+        section = field_el.find_parent(attrs={"data-section": True})
+        section_id = (section.get("data-section") or "").strip() if section else ""
+        full_id = (field_el.get("data-edit") or "").strip()
+        if not section_id or "." not in full_id:
+            for attr in ("data-edit", "data-type", "data-label"):
+                field_el.attrs.pop(attr, None)
+            dropped += 1
+            continue
+
+        section_part, field_part = full_id.split(".", 1)
+        if not field_part.strip():
+            for attr in ("data-edit", "data-type", "data-label"):
+                field_el.attrs.pop(attr, None)
+            dropped += 1
+            continue
+        if section_part != section_id:
+            field_el["data-edit"] = f"{section_id}.{field_part}"
+            reconciled += 1
+    return reconciled, dropped
+
+
 def _backfill_missed_text_fields(soup) -> int:
     """Walk each data-section and promote text-bearing tags the model
     skipped (the model is conservative on real pages; this is the safety
@@ -309,6 +341,10 @@ def _backfill_missed_text_fields(soup) -> int:
         # must skip to "p_2" rather than overwrite).
         existing_field_ids: set[str] = set()
         for el in sec.find_all(attrs={"data-edit": True}):
+            # Nearest-section ownership keeps nested blocks independent. The
+            # outer scan must not reserve IDs from or annotate an inner block.
+            if el.find_parent(attrs={"data-section": True}) is not sec:
+                continue
             edit = el.get("data-edit", "")
             if "." in edit:
                 existing_field_ids.add(edit.split(".", 1)[1])
@@ -316,6 +352,8 @@ def _backfill_missed_text_fields(soup) -> int:
         tag_counters: dict[str, int] = {}
 
         for el in sec.find_all(_BACKFILL_ALL_TAGS):
+            if el.find_parent(attrs={"data-section": True}) is not sec:
+                continue
             if el.get("data-edit"):
                 continue
 
@@ -658,6 +696,12 @@ def annotate_html(raw_html: str) -> str:
     data = _merge_chunk_results(chunk_results)
 
     applied = _apply_annotations(ref_map, data)
+    reconciled, dropped = _reconcile_annotated_fields(soup)
+    logger.info(
+        "Annotator: reconciled %d field prefix(es); dropped %d orphan field(s).",
+        reconciled,
+        dropped,
+    )
 
     # Remove the helper refs before producing final HTML.
     for tag in soup.find_all(attrs={"data-cms-ref": True}):
@@ -677,6 +721,21 @@ def annotate_html(raw_html: str) -> str:
 
     schema = build_schema(annotated)
     sections = [s for s in schema.get("sections", []) if s.get("id") != "brand"]
+    annotated_soup = BeautifulSoup(annotated, "lxml")
+    marker_count = len(annotated_soup.find_all(attrs={"data-edit": True}))
+    schema_field_count = sum(len(section.get("fields", [])) for section in sections)
+    if marker_count != schema_field_count:
+        logger.error(
+            "Annotator: field parity failed after restore: %d data-edit marker(s), "
+            "%d non-brand schema field(s).",
+            marker_count,
+            schema_field_count,
+        )
+        raise AnnotatorError(
+            "AI annotation could not preserve every editable field "
+            f"(HTML markers={marker_count}, schema fields={schema_field_count}). "
+            "No changes were applied. Please try again or annotate the HTML manually."
+        )
     if not sections:
         logger.warning(
             "Annotator: no sections detected. Model JSON had %d sections / %d fields, "
@@ -692,8 +751,9 @@ def annotate_html(raw_html: str) -> str:
         )
 
     logger.info(
-        "Annotator: produced %d section(s) from %d model field(s) + %d backfilled.",
-        len(sections), applied, backfilled,
+        "Annotator: produced %d section(s) from %d model field(s) + %d backfilled; "
+        "%d reconciled, %d dropped.",
+        len(sections), applied, backfilled, reconciled, dropped,
     )
     return annotated
 
