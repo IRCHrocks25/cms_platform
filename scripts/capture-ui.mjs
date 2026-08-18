@@ -358,7 +358,10 @@ try {
       });
       if (!applied.result.value) throw new Error("Completed annotation could not be applied and saved");
       await waitForExpression(
-        "location.pathname !== '/dashboard/templates/new/' && Boolean(document.querySelector('#id_html_source'))",
+        "document.readyState === 'complete' && " +
+          "location.pathname !== '/dashboard/templates/new/' && " +
+          "Boolean(document.querySelector('#id_html_source')) && " +
+          "Boolean(document.querySelector('.detected-sections'))",
         pageWait,
         "Saved template",
       );
@@ -375,7 +378,9 @@ try {
           };
           const detectedFieldCount = badges.reduce((total, badge) => total + badgeFieldCount(badge), 0);
           const detectedNonBrandFieldCount = nonBrandBadges.reduce((total, badge) => total + badgeFieldCount(badge), 0);
-          const templateId = (location.pathname.match(/\/dashboard\/templates\/(\\d+)\//) || [])[1] || '';
+          const pathParts = location.pathname.split('/').filter(Boolean);
+          const templatesIndex = pathParts.indexOf('templates');
+          const templateId = templatesIndex >= 0 ? pathParts[templatesIndex + 1] || '' : '';
           return {
             url: location.href,
             templateId: templateId,
@@ -394,6 +399,13 @@ try {
         })()`,
         returnByValue: true,
       });
+      if (saved.exceptionDetails || !Object.hasOwn(saved.result || {}, "value")) {
+        const detail =
+          saved.exceptionDetails?.exception?.description ||
+          saved.exceptionDetails?.text ||
+          "unknown evaluation failure";
+        throw new Error(`Saved annotation inspection failed: ${detail}`);
+      }
       annotationResult.saved = saved.result.value;
       const responseSections = annotationResult.response.sections || [];
       const responseFieldCount = responseSections.reduce(
