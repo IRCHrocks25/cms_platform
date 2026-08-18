@@ -10,16 +10,23 @@
       <span>{% if template %}{{ template.name }}{% else %}New template{% endif %}</span>
     </nav>
 
-    <div class="page-head">
-      <div>
+    <div class="page-head source-page-head">
+      <div class="source-page-head-main">
         <h1 class="page-title">
           {% if template %}{{ template.name }}{% else %}New template{% endif %}
         </h1>
-        <p class="page-subtitle">
-          Paste annotated HTML. Use <code>data-section</code> on wrappers and
-          <code>data-edit="section.field"</code> on editable elements.
-        </p>
+        <div class="source-page-actions">
+          <span class="source-unsaved-indicator" data-source-unsaved-indicator role="status" aria-live="polite" hidden>Unsaved changes</span>
+          <a href="{% url 'dashboard:template_list' %}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" form="template-source-form" class="btn btn-primary">
+            {% if template %}Save changes{% else %}Create template{% endif %}
+          </button>
+        </div>
       </div>
+      <p class="page-subtitle source-page-subtitle">
+        Paste annotated HTML. Use <code>data-section</code> on wrappers and
+        <code>data-edit="section.field"</code> on editable elements.
+      </p>
     </div>
 
     {% if template and tenants_using|length > 1 %}
@@ -36,7 +43,7 @@
     {% endif %}
 
     <div class="card page-section">
-      <form method="post" class="stack-5">
+      <form id="template-source-form" data-source-edit-form method="post" class="stack-5">
         {% csrf_token %}
 
         <div class="field">
@@ -128,11 +135,6 @@
           {% endwith %}
         {% endif %}
 
-        <div class="row-end source-form-actions">
-          <button type="submit" class="btn btn-primary">
-            {% if template %}Save changes{% else %}Create template{% endif %}
-          </button>
-        </div>
       </form>
     </div>
 

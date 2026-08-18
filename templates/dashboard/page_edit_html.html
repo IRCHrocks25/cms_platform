@@ -12,26 +12,27 @@
       <span>Edit HTML</span>
     </nav>
 
-    <div class="page-head">
-      <div>
+    <div class="page-head source-page-head">
+      <div class="source-page-head-main">
         <h1 class="page-title">Edit HTML — {{ page.title }}</h1>
-        <p class="page-subtitle">
-          This page lives at <code>/{{ page.slug }}/</code> on
-          <strong>{{ tenant.name }}</strong>. Paste or edit the HTML, annotate
-          with AI, then save. This page has its own template, so changes here
-          don't affect any other page.
-        </p>
+        <div class="source-page-actions">
+          <span class="source-unsaved-indicator" data-source-unsaved-indicator role="status" aria-live="polite" hidden>Unsaved changes</span>
+          <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" form="page-html-source-form" class="btn btn-primary">Save HTML</button>
+        </div>
       </div>
+      <p class="page-subtitle source-page-subtitle">
+        This page lives at <code>/{{ page.slug }}/</code> on
+        <strong>{{ tenant.name }}</strong>. Paste or edit the HTML, annotate
+        with AI, then save. This page has its own template, so changes here
+        don't affect any other page.
+      </p>
     </div>
 
     <div class="card page-section">
-      <form method="post" action="{{ save_url }}" class="stack-5">
+      <form id="page-html-source-form" data-source-edit-form method="post" action="{{ save_url }}" class="stack-5">
         {% csrf_token %}
         {% include "dashboard/_html_source_editor.html" with html_value=html_source %}
-        <div class="row-end source-form-actions">
-          <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>
-          <button type="submit" class="btn btn-primary">Save HTML</button>
-        </div>
       </form>
     </div>
   </div>

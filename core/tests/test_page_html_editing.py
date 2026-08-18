@@ -97,10 +97,32 @@ class PageEditHtmlTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "data-section")
 
-    def test_get_marks_save_row_as_sticky(self):
+    def test_get_renders_save_action_in_header_for_source_form(self):
         response = self.client.get(self.url)
+        body = response.content.decode()
 
-        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+        self.assertContains(
+            response,
+            'class="page-head source-page-head"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'id="page-html-source-form" data-source-edit-form',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'type="submit" form="page-html-source-form"',
+            html=False,
+        )
+        self.assertContains(response, "data-source-unsaved-indicator", html=False)
+        self.assertContains(response, 'class="btn btn-secondary">Cancel</a>', html=False)
+        self.assertNotContains(response, "source-form-actions", html=False)
+        self.assertLess(
+            body.index('class="source-page-actions"'),
+            body.index('id="page-html-source-form"'),
+        )
 
     def test_get_uses_shared_annotation_error_controls(self):
         r = self.client.get(self.url)
