@@ -23,6 +23,7 @@ from core.services.annotator import (
     _merge_chunk_usage,
     _reconcile_annotated_fields,
     annotate_html,
+    annotate_html_result,
 )
 from core.parser import build_schema
 
@@ -335,6 +336,55 @@ class AnnotateOneChunkRetryTests(TestCase):
 
 
 class AnnotateHtmlParallelIntegrationTests(TestCase):
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        ANNOTATE_CHUNK_TARGET_CHARS=1000,
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_model_skipped_content_image_is_backfilled_into_final_schema(self):
+        html = (
+            "<body><section><h1>Hero title</h1>"
+            "<img src='hero.jpg' alt=''></section>"
+            "<footer><small>Copyright</small></footer></body>"
+        )
+
+        def create(**kwargs):
+            user = kwargs["messages"][1]["content"]
+            chunk = user.split("=== HTML TO ANNOTATE (marked) ===", 1)[1]
+            section_ref = chunk.split('data-cms-ref="')[1].split('"')[0]
+            field_ref = chunk.split("Hero title")[0].rsplit(
+                'data-cms-ref="', 1
+            )[1].split('"')[0]
+            return _fake_completion(
+                '{"sections":[{"ref":%s,"id":"hero","label":"Hero"}],'
+                '"fields":[{"ref":%s,"edit":"hero.title",'
+                '"type":"text","label":"Title"}]}'
+                % (section_ref, field_ref)
+            )
+
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ):
+            result = annotate_html_result(html)
+
+        soup = BeautifulSoup(result.html, "lxml")
+        image = soup.find("img")
+        schema = build_schema(result.html)
+        non_brand_fields = [
+            field
+            for section in schema.get("sections", [])
+            if section.get("id") != "brand"
+            for field in section.get("fields", [])
+        ]
+        self.assertEqual(result.backfilled_fields, 1)
+        self.assertEqual(image.get("data-edit"), "hero.image_1")
+        self.assertEqual(image.get("data-type"), "image")
+        self.assertEqual(len(non_brand_fields), 2)
+
     @override_settings(
         OPENAI_API_KEY="sk-test",
         ANNOTATE_CHUNK_TARGET_CHARS=60,  # tiny -> forces a split

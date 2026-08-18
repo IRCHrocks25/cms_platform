@@ -134,12 +134,17 @@ output gets truncated. The pipeline solves that with strip-and-restore:
    default temperature. Luna uses low reasoning effort so structured extraction
    keeps enough reasoning quality without consuming an excessive share of the
    completion budget.
-3. **Restore** the original blocks by replacing placeholders. If a
+3. **Apply and backfill** model annotations by ref. A deterministic safety net
+   adds missed text and content-image fields inside each owned section. Image
+   backfill ignores `alt=""` by itself (imports misuse it) but excludes explicit
+   presentation/hidden images, chrome ancestry, nav/footer images, missing
+   sources, and tiny/icon-like markup.
+4. **Restore** the original blocks by replacing placeholders. If a
    `<style>` block contains `:root { --var: ... }`, the post-processor
    automatically adds the `data-tokens` attribute so brand colors are
    exposed as Brand-section fields by the parser. The model does NOT
    need to add `data-tokens` itself.
-4. **Validate** by running the restored HTML through `build_schema()`.
+5. **Validate** by running the restored HTML through `build_schema()`.
    If no editable sections come back, the error response includes the
    model name, `finish_reason`, output length, and the first ~500 chars
    of the response — both in logs and in the UI error message — so you

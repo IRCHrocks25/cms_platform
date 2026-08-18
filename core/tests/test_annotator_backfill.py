@@ -1,17 +1,21 @@
-"""Tests for the deterministic backfill that catches text-bearing elements
-the LLM missed during annotation.
+"""Tests for deterministic text and content-image annotation backfill.
 
 The annotator's first pass is whatever the model returns. That's good enough
 most of the time, but body text reliably leaks through — short paragraphs,
 the second card description in a repeated group, an h3 inside a deep wrapper.
 _backfill_missed_text_fields runs after _apply_annotations and promotes any
 unmarked text-bearing tag inside a data-section to an editable field so the
-result is robust regardless of how thorough the model was.
+result is robust regardless of how thorough the model was. Image backfill does
+the same for content photos while excluding deterministic chrome and tracking
+signals.
 """
 from bs4 import BeautifulSoup
 from django.test import TestCase
 
-from core.services.annotator import _backfill_missed_text_fields
+from core.services.annotator import (
+    _backfill_missed_image_fields,
+    _backfill_missed_text_fields,
+)
 
 
 def _soup(html: str) -> BeautifulSoup:
@@ -201,3 +205,118 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         lis = s.find_all("li")
         self.assertEqual(lis[0].get("data-type"), "richtext")
         self.assertEqual(lis[1].get("data-type"), "text")
+
+
+class BackfillCatchesUnmarkedContentImagesTests(TestCase):
+    def test_empty_alt_content_image_is_promoted(self):
+        s = _soup(
+            "<section data-section='hero' data-label='Hero'>"
+            "<div class='hero-image'><img src='hero.jpg' alt=''></div>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        image = s.find("img")
+        self.assertEqual(added, 1)
+        self.assertEqual(image.get("data-edit"), "hero.image_1")
+        self.assertEqual(image.get("data-type"), "image")
+        self.assertEqual(image.get("data-label"), "Hero image")
+
+    def test_alt_text_supplies_label_and_picture_image_is_promoted(self):
+        s = _soup(
+            "<section data-section='about'>"
+            "<picture><source srcset='chef.webp'>"
+            "<img src='chef.jpg' alt='Chef Maria plating dinner'></picture>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        image = s.find("img")
+        self.assertEqual(added, 1)
+        self.assertEqual(image.get("data-edit"), "about.image_1")
+        self.assertEqual(image.get("data-label"), "Chef Maria plating dinner")
+        self.assertIsNone(s.find("source").get("data-edit"))
+
+    def test_existing_annotation_and_nested_section_ownership_are_preserved(self):
+        s = _soup(
+            "<section data-section='outer'>"
+            "<img src='existing.jpg' data-edit='outer.image_1' data-type='image'>"
+            "<img src='outer.jpg'>"
+            "<section data-section='inner'><img src='inner.jpg'></section>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        images = s.find_all("img")
+        self.assertEqual(added, 2)
+        self.assertEqual(images[0].get("data-edit"), "outer.image_1")
+        self.assertEqual(images[1].get("data-edit"), "outer.image_2")
+        self.assertEqual(images[2].get("data-edit"), "inner.image_1")
+
+    def test_nav_footer_and_shared_chrome_ancestors_are_skipped(self):
+        s = _soup(
+            "<section data-section='nav'><img src='brand.jpg'></section>"
+            "<footer data-section='footer'><img src='payment.jpg'></footer>"
+            "<section data-section='gallery'>"
+            "<a href='/full'><img src='linked.jpg'></a>"
+            "<button><img src='button.jpg'></button>"
+            "<img src='content.jpg'>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        self.assertEqual(added, 1)
+        self.assertIsNone(s.find("img", src="brand.jpg").get("data-edit"))
+        self.assertIsNone(s.find("img", src="payment.jpg").get("data-edit"))
+        self.assertIsNone(s.find("img", src="linked.jpg").get("data-edit"))
+        self.assertIsNone(s.find("img", src="button.jpg").get("data-edit"))
+        self.assertEqual(
+            s.find("img", src="content.jpg").get("data-edit"),
+            "gallery.image_1",
+        )
+
+    def test_explicit_presentation_hidden_and_missing_source_are_skipped(self):
+        s = _soup(
+            "<section data-section='hero'>"
+            "<img src='presentation.jpg' role='presentation'>"
+            "<img src='hidden.jpg' aria-hidden='true'>"
+            "<img alt='No source'>"
+            "<img src='content.jpg'>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        self.assertEqual(added, 1)
+        self.assertEqual(
+            s.find("img", src="content.jpg").get("data-edit"),
+            "hero.image_1",
+        )
+        self.assertIsNone(s.find("img", src="presentation.jpg").get("data-edit"))
+        self.assertIsNone(s.find("img", src="hidden.jpg").get("data-edit"))
+        self.assertIsNone(s.find("img", alt="No source").get("data-edit"))
+
+    def test_tiny_dimensions_and_exact_icon_tokens_are_skipped(self):
+        s = _soup(
+            "<section data-section='features'>"
+            "<img src='pixel.gif' width='1' height='1'>"
+            "<img src='small.png' style='width: 24px; height: 24px'>"
+            "<img src='logo.png' class='company-logo'>"
+            "<img src='icon.png' id='feature_icon'>"
+            "<img src='large.jpg' width='900' height='600'>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        self.assertEqual(added, 1)
+        self.assertEqual(
+            s.find("img", src="large.jpg").get("data-edit"),
+            "features.image_1",
+        )
+        for src in ("pixel.gif", "small.png", "logo.png", "icon.png"):
+            self.assertIsNone(s.find("img", src=src).get("data-edit"))
