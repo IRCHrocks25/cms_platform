@@ -101,6 +101,11 @@ class AnnotationJobSummaryTests(TestCase):
             reconciled_fields=2,
             dropped_fields=1,
             backfilled_fields=3,
+            model="gpt-5.6-luna",
+            prompt_tokens=101,
+            completion_tokens=52,
+            reasoning_tokens=17,
+            total_tokens=153,
         )
         from dashboard.views import _run_annotation_job
 
@@ -118,6 +123,11 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "model": "gpt-5.6-luna",
+                "prompt_tokens": 101,
+                "completion_tokens": 52,
+                "reasoning_tokens": 17,
+                "total_tokens": 153,
             },
         )
 
@@ -131,6 +141,11 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "model": "gpt-5.6-luna",
+                "prompt_tokens": 101,
+                "completion_tokens": 52,
+                "reasoning_tokens": 17,
+                "total_tokens": 153,
             },
         )
 
@@ -151,6 +166,11 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "model": "gpt-5.6-luna",
+                "prompt_tokens": 101,
+                "completion_tokens": 52,
+                "reasoning_tokens": 17,
+                "total_tokens": 153,
             },
         )
 

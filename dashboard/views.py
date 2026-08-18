@@ -580,6 +580,11 @@ def _run_annotation_job(job_id, raw_html):
             "reconciled_fields": annotation.reconciled_fields,
             "dropped_fields": annotation.dropped_fields,
             "backfilled_fields": annotation.backfilled_fields,
+            "model": annotation.model,
+            "prompt_tokens": annotation.prompt_tokens,
+            "completion_tokens": annotation.completion_tokens,
+            "reasoning_tokens": annotation.reasoning_tokens,
+            "total_tokens": annotation.total_tokens,
         }
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_DONE,
@@ -757,6 +762,11 @@ def template_annotate_status(request, job_id):
                 "reconciled_fields",
                 "dropped_fields",
                 "backfilled_fields",
+                "model",
+                "prompt_tokens",
+                "completion_tokens",
+                "reasoning_tokens",
+                "total_tokens",
             ):
                 body[key] = job.sections.get(key, 0)
         else:
