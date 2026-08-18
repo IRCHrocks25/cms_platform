@@ -348,15 +348,21 @@ CUSTOM_DOMAIN_TARGET_IP = os.environ.get("CUSTOM_DOMAIN_TARGET_IP", "5.78.149.23
 TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-4o-mini")
+OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-5.6-luna")
+# Optional explicit output budget for a newly configured model. When unset,
+# the annotator uses live-verified caps for Luna and documented legacy models.
+_openai_annotate_budget = os.environ.get("OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS")
+OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS = (
+    int(_openai_annotate_budget) if _openai_annotate_budget else None
+)
 # Per-request timeout (seconds) for the OpenAI annotation call. Keep this BELOW
 # the Gunicorn worker --timeout (180s) so a slow/hung API surfaces as a clean
 # AnnotatorError (JSON 502) instead of a killed worker (HTML 502 from the proxy).
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120"))
 # Max characters of HTML sent to the annotator model (measured after styles,
-# scripts and base64 data-URIs are stripped). Bigger pages can't fit gpt-4o-mini's
-# context, so they're rejected up front with an actionable error rather than
-# running for minutes and timing out. Raise it if you switch to a larger model.
+# scripts and base64 data-URIs are stripped). This is an operational ceiling on
+# call count, cost, and the annotation-job lifecycle; each model request sees
+# only one chunk, not this full allowance.
 ANNOTATE_MAX_INPUT_CHARS = int(os.environ.get("ANNOTATE_MAX_INPUT_CHARS", "500000"))
 # Parallel chunked annotation: split the page into chunks of whole top-level
 # subtrees ~this many chars each, annotate them concurrently (max workers), and

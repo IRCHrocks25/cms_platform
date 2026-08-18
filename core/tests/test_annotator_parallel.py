@@ -20,6 +20,7 @@ from core.services.annotator import (
     _chunk_nodes,
     _find_split_root,
     _merge_chunk_results,
+    _merge_chunk_usage,
     _reconcile_annotated_fields,
     annotate_html,
 )
@@ -30,13 +31,16 @@ def _soup(html):
     return BeautifulSoup(html, "html.parser")
 
 
-def _fake_completion(content, finish_reason="stop"):
-    return SimpleNamespace(
+def _fake_completion(content, finish_reason="stop", usage=None):
+    completion = SimpleNamespace(
         choices=[SimpleNamespace(
             finish_reason=finish_reason,
             message=SimpleNamespace(content=content),
         )]
     )
+    if usage is not None:
+        completion.usage = usage
+    return completion
 
 
 class FindSplitRootTests(TestCase):
@@ -110,6 +114,39 @@ class MergeChunkResultsTests(TestCase):
         self.assertEqual(ids, ["features", "features_2"])
         edits = sorted(f["edit"] for f in merged["fields"])
         self.assertEqual(edits, ["features.title", "features_2.title"])
+
+    def test_sums_available_usage_across_chunks(self):
+        usage = _merge_chunk_usage(
+            [
+                {
+                    "_usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "reasoning_tokens": 10,
+                        "total_tokens": 150,
+                    }
+                },
+                {
+                    "_usage": {
+                        "prompt_tokens": 80,
+                        "completion_tokens": 40,
+                        "reasoning_tokens": 5,
+                        "total_tokens": 120,
+                    }
+                },
+                {"sections": [], "fields": []},
+            ]
+        )
+
+        self.assertEqual(
+            usage,
+            {
+                "prompt_tokens": 180,
+                "completion_tokens": 90,
+                "reasoning_tokens": 15,
+                "total_tokens": 270,
+            },
+        )
 
 
 class ReconcileAnnotatedFieldsTests(TestCase):
@@ -205,6 +242,79 @@ class AnnotateOneChunkRetryTests(TestCase):
         with self.assertRaises(AnnotatorError):
             _annotate_one_chunk(client, "x", model="m", retries=2)
         self.assertEqual(calls["n"], 1)  # a truncated chunk won't fix itself on retry
+
+    def test_luna_request_uses_supported_kwargs_and_large_reasoning_budget(self):
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _fake_completion('{"sections":[],"fields":[]}')
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+
+        _annotate_one_chunk(client, "x", model="gpt-5.6-luna", retries=0)
+
+        self.assertEqual(captured["max_completion_tokens"], 65_536)
+        self.assertEqual(captured["reasoning_effort"], "low")
+        self.assertEqual(captured["response_format"], {"type": "json_object"})
+        self.assertNotIn("max_tokens", captured)
+        self.assertNotIn("temperature", captured)
+
+    def test_non_reasoning_model_overrides_keep_live_verified_output_caps(self):
+        expected_caps = {
+            "gpt-4o-mini": 16_384,
+            "gpt-4o": 16_384,
+            "gpt-4.1-mini": 32_768,
+        }
+
+        for model, expected_cap in expected_caps.items():
+            with self.subTest(model=model):
+                captured = {}
+
+                def create(**kwargs):
+                    captured.update(kwargs)
+                    return _fake_completion('{"sections":[],"fields":[]}')
+
+                client = SimpleNamespace(
+                    chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+                )
+                _annotate_one_chunk(client, "x", model=model, retries=0)
+
+                self.assertEqual(captured["max_completion_tokens"], expected_cap)
+                self.assertNotIn("reasoning_effort", captured)
+                self.assertNotIn("max_tokens", captured)
+                self.assertNotIn("temperature", captured)
+
+    def test_chunk_captures_sdk_token_usage_including_reasoning(self):
+        usage = SimpleNamespace(
+            prompt_tokens=101,
+            completion_tokens=52,
+            total_tokens=153,
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=17),
+        )
+        client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(
+                        '{"sections":[],"fields":[]}', usage=usage
+                    )
+                )
+            )
+        )
+
+        data = _annotate_one_chunk(client, "x", model="gpt-5.6-luna", retries=0)
+
+        self.assertEqual(
+            data["_usage"],
+            {
+                "prompt_tokens": 101,
+                "completion_tokens": 52,
+                "reasoning_tokens": 17,
+                "total_tokens": 153,
+            },
+        )
 
 
 class AnnotateHtmlParallelIntegrationTests(TestCase):

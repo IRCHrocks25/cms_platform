@@ -129,8 +129,11 @@ output gets truncated. The pipeline solves that with strip-and-restore:
    replaced with a `<!--__BLOCK_n__-->` placeholder comment. Real-world
    inputs shrink ~70%.
 2. **Send** the slimmed HTML + a slimmed few-shot example (the
-   `restaurant.html` sample is stripped the same way for parity). The
-   system prompt warns the model to leave placeholder comments alone.
+   `restaurant.html` sample is stripped the same way for parity). Requests use
+   `max_completion_tokens`, JSON-object response format, and the model's
+   default temperature. Luna uses low reasoning effort so structured extraction
+   keeps enough reasoning quality without consuming an excessive share of the
+   completion budget.
 3. **Restore** the original blocks by replacing placeholders. If a
    `<style>` block contains `:root { --var: ... }`, the post-processor
    automatically adds the `data-tokens` attribute so brand colors are
@@ -144,8 +147,17 @@ output gets truncated. The pipeline solves that with strip-and-restore:
    annotation. Don't strip these diagnostics; they're the only way to
    debug a black-box LLM failure.
 
-Model selection: `settings.OPENAI_ANNOTATE_MODEL` (default `gpt-4o-mini`,
-override in `.env`). Bump to `gpt-4o` for large/complex pages.
+Model selection: `settings.OPENAI_ANNOTATE_MODEL` (default `gpt-5.6-luna`,
+override in `.env`). Luna uses a 65,536-token completion budget. Live-verified
+fallback caps are 32,768 for GPT-4.1 models and 16,384 for GPT-4o and
+GPT-4o-mini; set `OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS` when selecting a model
+with a different cap. Prompt, completion, reasoning, and total token usage are
+summed across chunks and stored with the annotation job for diagnostics.
+
+The 500,000-character input ceiling and 40,000-character chunk target remain
+intentional. A request sees one chunk rather than the whole page, and these
+limits constrain API cost, parallel work, output density, and the annotation
+job's five-minute stale guard.
 
 UI: `template_form.html` opens a full-screen **side-by-side compare
 overlay** when the AI returns — left column is the original input, right

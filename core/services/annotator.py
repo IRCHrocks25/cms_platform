@@ -51,6 +51,11 @@ class AnnotationResult:
     reconciled_fields: int
     dropped_fields: int
     backfilled_fields: int
+    model: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    total_tokens: int = 0
 
 
 _SYSTEM_PROMPT = """You annotate raw HTML so a locked-structure CMS can build a client editing UI from it.
@@ -427,19 +432,28 @@ def _backfill_missed_text_fields(soup) -> int:
     return added
 
 
-# Hard ceiling on the HTML actually sent to the model (after <style>/<script>
-# and data-URI stripping). Past this, gpt-4o-mini can't fit the page in context
-# and the request is doomed — rejecting up front turns a multi-minute timeout
-# into an instant, actionable error. Override via settings for larger models.
+# Hard ceiling on the full stripped HTML before it is divided into model-bound
+# chunks. This limits total call count, cost, and wall-clock time. Each request
+# sees only one chunk, so a larger model context does not justify raising it.
 _DEFAULT_MAX_INPUT_CHARS = 500_000
 
 # Parallel-chunking defaults (override via settings). The page is split into
 # chunks of whole top-level subtrees ~this many chars each, annotated
 # concurrently, and merged. Smaller chunks = more parallelism + less truncation
 # risk, at the cost of more API calls (each repeats the system prompt + example).
+# Luna's larger context does not change the output-density and parallelism
+# tradeoff, so the existing 40,000-character target remains deliberate.
 _DEFAULT_CHUNK_TARGET_CHARS = 40_000
 _DEFAULT_MAX_WORKERS = 5
 _DEFAULT_CHUNK_RETRIES = 2
+
+# Live-verified Chat Completions output caps. The optional settings override is
+# for models added later; these defaults keep the documented model overrides
+# working when an operator changes only OPENAI_ANNOTATE_MODEL.
+_DEFAULT_MAX_COMPLETION_TOKENS = 16_384
+_GPT_4_1_MAX_COMPLETION_TOKENS = 32_768
+_LUNA_MAX_COMPLETION_TOKENS = 65_536
+_LUNA_MODEL = "gpt-5.6-luna"
 
 
 def _make_openai_client(api_key: str):
@@ -536,6 +550,59 @@ def _chunk_marked_html(nodes) -> str:
     return _INTER_TAG_WS_RE.sub("><", html)
 
 
+def _completion_request_options(model: str) -> dict:
+    """Return only kwargs supported by the configured annotation model.
+
+    The caps and Luna reasoning option were verified against the live API on
+    2026-08-18. All supported paths use max_completion_tokens and the default
+    temperature, which is accepted by both reasoning and non-reasoning models.
+    """
+    configured_budget = getattr(
+        settings, "OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS", None
+    )
+    if configured_budget is not None:
+        budget = int(configured_budget)
+    elif model == _LUNA_MODEL:
+        budget = _LUNA_MAX_COMPLETION_TOKENS
+    elif model.startswith("gpt-4.1"):
+        budget = _GPT_4_1_MAX_COMPLETION_TOKENS
+    else:
+        budget = _DEFAULT_MAX_COMPLETION_TOKENS
+
+    options = {
+        "max_completion_tokens": budget,
+        "response_format": {"type": "json_object"},
+    }
+    if model == _LUNA_MODEL:
+        options["reasoning_effort"] = "low"
+    return options
+
+
+def _usage_value(value, name: str, default=0):
+    """Read an SDK usage field from either an object or mapping."""
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _completion_usage(completion) -> dict | None:
+    """Normalize optional SDK usage metadata without coupling to SDK classes."""
+    usage = getattr(completion, "usage", None)
+    if usage is None:
+        return None
+    details = _usage_value(usage, "completion_tokens_details", None)
+    return {
+        "prompt_tokens": int(_usage_value(usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": int(
+            _usage_value(usage, "completion_tokens", 0) or 0
+        ),
+        "reasoning_tokens": int(
+            _usage_value(details, "reasoning_tokens", 0) or 0
+        ),
+        "total_tokens": int(_usage_value(usage, "total_tokens", 0) or 0),
+    }
+
+
 def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) -> dict:
     """Annotate one chunk, retrying transient failures.
 
@@ -560,9 +627,7 @@ def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) ->
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
                 ],
-                temperature=0.1,
-                max_tokens=16384,
-                response_format={"type": "json_object"},
+                **_completion_request_options(model),
             )
             choice = completion.choices[0]
             finish_reason = getattr(choice, "finish_reason", "unknown")
@@ -575,7 +640,11 @@ def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) ->
                 )
             if not content:
                 raise ValueError("empty response")
-            return json.loads(content)
+            data = json.loads(content)
+            usage = _completion_usage(completion)
+            if usage is not None:
+                data["_usage"] = usage
+            return data
         except AnnotatorError:
             raise  # non-retryable (truncation)
         except Exception as exc:  # noqa: BLE001 — retry any transient failure
@@ -649,6 +718,20 @@ def _merge_chunk_results(results) -> dict:
     return {"sections": merged_sections, "fields": merged_fields}
 
 
+def _merge_chunk_usage(results) -> dict:
+    """Sum optional token usage returned by every completed chunk."""
+    keys = (
+        "prompt_tokens",
+        "completion_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+    )
+    return {
+        key: sum(int((result.get("_usage") or {}).get(key, 0) or 0) for result in results)
+        for key in keys
+    }
+
+
 def annotate_html_result(raw_html: str) -> AnnotationResult:
     """Send raw HTML through OpenAI and return annotated HTML.
 
@@ -720,6 +803,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
         max_workers=getattr(settings, "ANNOTATE_MAX_WORKERS", _DEFAULT_MAX_WORKERS),
         retries=getattr(settings, "ANNOTATE_CHUNK_RETRIES", _DEFAULT_CHUNK_RETRIES),
     )
+    token_usage = _merge_chunk_usage(chunk_results)
     data = _merge_chunk_results(chunk_results)
 
     applied = _apply_annotations(ref_map, data)
@@ -779,14 +863,22 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
 
     logger.info(
         "Annotator: produced %d section(s) from %d model field(s) + %d backfilled; "
-        "%d reconciled, %d dropped.",
+        "%d reconciled, %d dropped; model=%s, tokens=%d total (%d prompt, "
+        "%d completion, %d reasoning).",
         len(sections), applied, backfilled, reconciled, dropped,
+        settings.OPENAI_ANNOTATE_MODEL,
+        token_usage["total_tokens"],
+        token_usage["prompt_tokens"],
+        token_usage["completion_tokens"],
+        token_usage["reasoning_tokens"],
     )
     return AnnotationResult(
         html=annotated,
         reconciled_fields=reconciled,
         dropped_fields=dropped,
         backfilled_fields=backfilled,
+        model=settings.OPENAI_ANNOTATE_MODEL,
+        **token_usage,
     )
 
 
