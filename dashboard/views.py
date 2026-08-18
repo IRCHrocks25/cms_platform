@@ -94,6 +94,19 @@ STARTER_TEMPLATE_HTML = """\
 """
 
 
+def _warn_ignored_submitted_field_markers(request, html_source, schema):
+    ignored = template_svc.ignored_submitted_field_markers(html_source, schema)
+    if not ignored:
+        return
+    marker_names = list(dict.fromkeys(ignored))
+    messages.warning(
+        request,
+        "Saved, but these submitted editable markers were not added to the "
+        f"schema: {', '.join(marker_names)}. Check each marker's nearest "
+        "data-section and dotted prefix.",
+    )
+
+
 GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 SESSION_CREDS_KEY = "agency_one_time_creds"
@@ -218,6 +231,9 @@ def template_create(request):
             user=request.user,
             label="Initial",
         )
+        _warn_ignored_submitted_field_markers(
+            request, template.html_source, template.schema
+        )
         messages.success(request, f"Template “{template.name}” created.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
@@ -319,6 +335,9 @@ def template_detail(request, pk):
             messages.info(request, "No HTML changes — metadata saved.")
         else:
             messages.success(request, "Template updated.")
+        _warn_ignored_submitted_field_markers(
+            request, html_source, template.schema
+        )
         return redirect("dashboard:template_detail", pk=template.pk)
 
     tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
@@ -1918,6 +1937,9 @@ def _page_create(request, tenant, scope):
             template, template.html_source, user=request.user, label="Initial"
         )
         page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
+    _warn_ignored_submitted_field_markers(
+        request, html_source, template.schema
+    )
     messages.success(request, f"Page “{page.title}” created — start editing.")
     if scope == "tenant":
         return redirect("dashboard:page_editor_self", page_pk=page.pk)
@@ -2167,6 +2189,9 @@ def page_edit_html(request, pk, page_pk):
                 messages.info(request, f"No HTML changes for “{page.title}”.")
             else:
                 messages.success(request, f"HTML updated for “{page.title}”.")
+            _warn_ignored_submitted_field_markers(
+                request, new_html, page.template.schema
+            )
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,

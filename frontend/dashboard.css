@@ -645,7 +645,15 @@ body.compare-open { overflow: hidden; }
 .flash + .flash { margin-top: 8px; }
 .flash-success { border-color: #a6f4c5; background: var(--color-success-soft); color: #05603a; }
 .flash-error, .flash-danger { border-color: #f7c8c4; background: var(--color-danger-soft); color: #8f1b12; }
+.flash-warning { border-color: #f5cf75; background: var(--color-warn-soft); color: #713b12; }
 .flash-info { border-color: #b7ccff; background: var(--color-blue-soft); color: #153783; }
+.editor-flash-stack {
+  position: fixed;
+  z-index: 60;
+  top: 76px;
+  right: 20px;
+  width: min(420px, calc(100vw - 40px));
+}
 
 .breadcrumb, .breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: var(--space-4); color: var(--color-text-muted); font-size: 12px; }
 .breadcrumb-sep { color: #aab2c0; }
