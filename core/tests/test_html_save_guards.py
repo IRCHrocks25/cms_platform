@@ -52,10 +52,32 @@ class BlankHtmlRejectedTest(TestCase):
         data.update(extra)
         return self.client.post(f"/dashboard/templates/{self.tpl.pk}/", data)
 
-    def test_template_form_marks_save_row_as_sticky(self):
+    def test_template_form_renders_save_action_in_header_for_source_form(self):
         response = self.client.get(f"/dashboard/templates/{self.tpl.pk}/")
+        body = response.content.decode()
 
-        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+        self.assertContains(
+            response,
+            'class="page-head source-page-head"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'id="template-source-form" data-source-edit-form',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'type="submit" form="template-source-form"',
+            html=False,
+        )
+        self.assertContains(response, "data-source-unsaved-indicator", html=False)
+        self.assertContains(response, 'class="btn btn-secondary">Cancel</a>', html=False)
+        self.assertNotContains(response, "source-form-actions", html=False)
+        self.assertLess(
+            body.index('class="source-page-actions"'),
+            body.index('id="template-source-form"'),
+        )
 
     def test_missing_html_source_is_rejected(self):
         before = self.tpl.versions.count()

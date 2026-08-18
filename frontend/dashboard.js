@@ -28,6 +28,41 @@ document.addEventListener("submit", (event) => {
   if (label) label.textContent = form.dataset.submitLabel || "Working…";
 });
 
+document.querySelectorAll("[data-source-edit-form]").forEach((form) => {
+  const textarea = form.querySelector("textarea[data-code-editor]");
+  const indicator = document.querySelector("[data-source-unsaved-indicator]");
+  if (!textarea || !indicator) return;
+
+  const loadedSource = textarea.value;
+  const syncUnsavedState = () => {
+    indicator.hidden = textarea.value === loadedSource;
+  };
+
+  textarea.addEventListener("input", syncUnsavedState);
+  form.addEventListener("submit", () => {
+    indicator.hidden = true;
+  });
+});
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    const isSaveShortcut =
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === "s";
+    if (!isSaveShortcut) return;
+
+    const form = document.querySelector("[data-source-edit-form]");
+    if (!form) return;
+
+    event.preventDefault();
+    form.requestSubmit();
+  },
+  true,
+);
+
 function syncSelectedOptionTitle(select) {
   const option = select.selectedOptions[0];
   select.title = option?.textContent?.trim() || "";

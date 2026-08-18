@@ -18,6 +18,7 @@ const clickSelector = argument("click");
 const scrollSelector = argument("scroll-to");
 const menuAuditLabel = argument("menu-audit");
 const editorAudit = process.argv.includes("--editor-audit");
+const sourceActionAudit = process.argv.includes("--source-action-audit");
 const annotateAudit = argument("annotate-audit");
 const tenantSanity = process.argv.includes("--tenant-sanity");
 const tabAuditCount = Number(argument("tab-audit", "0"));
@@ -41,7 +42,7 @@ if (
   (annotateAudit && !annotateAuditModes.has(annotateAudit))
 ) {
   console.error(
-    "Usage: CMS_CAPTURE_PASSWORD=… node scripts/capture-ui.mjs --out FILE --path /dashboard/ --width 1280 [--height 900] [--login-wait 900] [--page-wait 1100] [--annotate-audit missing-job|zero-sections|real|real-save] [--tenant-sanity]",
+    "Usage: CMS_CAPTURE_PASSWORD=… node scripts/capture-ui.mjs --out FILE --path /dashboard/ --width 1280 [--height 900] [--login-wait 900] [--page-wait 1100] [--source-action-audit] [--annotate-audit missing-job|zero-sections|real|real-save] [--tenant-sanity]",
   );
   process.exit(2);
 }
@@ -495,7 +496,7 @@ try {
     if (!clickResult.result.value) throw new Error(`Click target was not found: ${clickSelector}`);
     await pause(300);
   }
-  if (editorAudit) {
+  if (editorAudit || sourceActionAudit) {
     const seeded = await command("Runtime.evaluate", {
       expression: `(() => {
         const textarea = document.querySelector('textarea[data-code-editor]');
@@ -515,7 +516,10 @@ try {
         expression: `(() => {
           const editor = document.querySelector('.cms-code-editor .cm-editor');
           const scroller = document.querySelector('.cms-code-editor .cm-scroller');
-          const saveRow = document.querySelector('.source-form-actions');
+          const actionHeader = document.querySelector('.source-page-head-main');
+          const form = document.querySelector('[data-source-edit-form]');
+          const saveButton = form ? document.querySelector('button[type="submit"][form="' + form.id + '"]') : null;
+          const unsaved = document.querySelector('[data-source-unsaved-indicator]');
           const rect = (element) => element ? {
             top: Math.round(element.getBoundingClientRect().top),
             bottom: Math.round(element.getBoundingClientRect().bottom),
@@ -531,7 +535,9 @@ try {
               scrollHeight: scroller?.scrollHeight,
               overflowY: scroller ? getComputedStyle(scroller).overflowY : null,
             },
-            saveRow: rect(saveRow),
+            actionHeader: rect(actionHeader),
+            saveButton: rect(saveButton),
+            unsavedVisible: Boolean(unsaved && !unsaved.hidden),
           };
         })()`,
         returnByValue: true,
@@ -545,6 +551,134 @@ try {
     await pause(300);
     const midpoint = await measure();
     console.log(JSON.stringify({ editorAudit: { seeded: seeded.result.value, initial, midpoint } }, null, 2));
+
+    if (sourceActionAudit) {
+      const setup = await command("Runtime.evaluate", {
+        expression: `(() => {
+          const form = document.querySelector('[data-source-edit-form]');
+          const textarea = form?.querySelector('textarea[data-code-editor]');
+          const view = textarea && window.CMSCodeEditor?.instances.get(textarea);
+          const button = form && document.querySelector('button[type="submit"][form="' + form.id + '"]');
+          if (!form || !textarea || !view || !button) return false;
+          window.__cmsSourceActionAudit = { current: '', submits: [], edit: 0 };
+          form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const indicator = document.querySelector('[data-source-unsaved-indicator]');
+            window.__cmsSourceActionAudit.submits.push({
+              path: window.__cmsSourceActionAudit.current,
+              indicatorCleared: Boolean(indicator?.hidden),
+            });
+          });
+          window.__cmsSourceActionAudit.redirty = function () {
+            window.__cmsSourceActionAudit.edit += 1;
+            view.dispatch({
+              changes: {
+                from: view.state.doc.length,
+                insert: '\\n<!-- source-action-audit-' + window.__cmsSourceActionAudit.edit + ' -->',
+              },
+            });
+          };
+          window.__cmsSourceActionAudit.current = 'shortcut';
+          view.focus();
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      if (!setup.result.value) throw new Error("Source action audit controls were not found");
+
+      await command("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key: "s",
+        code: "KeyS",
+        modifiers: 2,
+        windowsVirtualKeyCode: 83,
+      });
+      await command("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key: "s",
+        code: "KeyS",
+        modifiers: 2,
+        windowsVirtualKeyCode: 83,
+      });
+
+      const buttonPath = await command("Runtime.evaluate", {
+        expression: `(() => {
+          const audit = window.__cmsSourceActionAudit;
+          const form = document.querySelector('[data-source-edit-form]');
+          const button = form && document.querySelector('button[type="submit"][form="' + form.id + '"]');
+          audit.redirty();
+          audit.current = 'button';
+          button.click();
+          audit.redirty();
+          const name = document.querySelector('#id_name');
+          if (name) {
+            audit.current = 'enter';
+            name.focus();
+          }
+          return { hasImplicitEnterTarget: Boolean(name) };
+        })()`,
+        returnByValue: true,
+      });
+
+      if (buttonPath.result.value?.hasImplicitEnterTarget) {
+        await command("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: "Enter",
+          code: "Enter",
+          windowsVirtualKeyCode: 13,
+        });
+        await command("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: "Enter",
+          code: "Enter",
+          windowsVirtualKeyCode: 13,
+        });
+      }
+
+      await command("Runtime.evaluate", {
+        expression: `(() => {
+          window.__cmsSourceActionAudit.redirty();
+          const scroller = document.querySelector('.cms-code-editor .cm-scroller');
+          if (scroller) scroller.scrollTop = scroller.scrollHeight * 0.75;
+          window.scrollTo(0, Math.max(0, document.documentElement.scrollHeight / 2));
+        })()`,
+      });
+      await pause(300);
+
+      const finalMeasure = await measure();
+      const result = await command("Runtime.evaluate", {
+        expression: `(() => {
+          const audit = window.__cmsSourceActionAudit;
+          const form = document.querySelector('[data-source-edit-form]');
+          const button = form && document.querySelector('button[type="submit"][form="' + form.id + '"]');
+          const header = document.querySelector('.source-page-head-main');
+          const indicator = document.querySelector('[data-source-unsaved-indicator]');
+          const headerRect = header?.getBoundingClientRect();
+          const buttonRect = button?.getBoundingClientRect();
+          const stickyTop = innerWidth <= 820 ? 60 : 0;
+          return {
+            submits: audit.submits,
+            expectedSubmitCount: document.querySelector('#id_name') ? 3 : 2,
+            indicatorVisibleAfterEdit: Boolean(indicator && !indicator.hidden),
+            headerVisible: Boolean(headerRect && headerRect.top >= stickyTop - 2 && headerRect.bottom <= innerHeight),
+            buttonVisible: Boolean(buttonRect && buttonRect.top >= stickyTop && buttonRect.bottom <= innerHeight),
+            formId: form?.id || '',
+          };
+        })()`,
+        returnByValue: true,
+      });
+      const audit = result.result.value;
+      console.log(JSON.stringify({ sourceActionAudit: { ...audit, finalMeasure } }, null, 2));
+      if (
+        audit.submits.length !== audit.expectedSubmitCount ||
+        audit.submits.some((submission) => !submission.indicatorCleared) ||
+        !audit.indicatorVisibleAfterEdit ||
+        !audit.headerVisible ||
+        !audit.buttonVisible
+      ) {
+        throw new Error(`Source action audit failed: ${JSON.stringify(audit)}`);
+      }
+    }
   }
   if (menuAuditLabel) {
     async function press(key, code, windowsVirtualKeyCode) {
