@@ -90,6 +90,11 @@ class PageEditHtmlTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "data-section")
 
+    def test_get_marks_save_row_as_sticky(self):
+        response = self.client.get(self.url)
+
+        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+
     def test_get_uses_shared_annotation_error_controls(self):
         r = self.client.get(self.url)
 

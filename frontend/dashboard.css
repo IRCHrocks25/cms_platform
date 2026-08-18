@@ -111,7 +111,8 @@
   white-space: nowrap !important;
   border: 0 !important;
 }
-.cms-code-editor .cm-editor { color: var(--color-text); background: var(--color-white); }
+.cms-code-editor .cm-editor { height: clamp(26rem, 62vh, 46rem); color: var(--color-text); background: var(--color-white); }
+.cms-code-editor .cm-scroller { overflow: auto; }
 .cms-code-editor .cm-activeLine { background: color-mix(in srgb, var(--color-blue) 5%, transparent); }
 .cms-code-editor .cm-selectionBackground { background: color-mix(in srgb, var(--color-blue) 22%, transparent) !important; }
 
@@ -137,7 +138,7 @@
 .site-page-empty { display: grid; gap: 4px; padding: 18px 14px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 13px; }
 .site-page-empty strong { color: var(--color-text); }
 @media (max-width: 680px) {
-  .cms-code-editor .cm-editor { min-height: 20rem !important; }
+  .cms-code-editor .cm-editor { height: clamp(20rem, 55vh, 32rem) !important; }
   .page-section-heading { align-items: stretch; }
   .page-section-heading .btn { width: 100%; }
   .site-page-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
@@ -300,6 +301,18 @@ code, pre, .code { font-family: var(--font-mono); font-variant-ligatures: none; 
 .row, .row-between, .row-end { display: flex; align-items: center; gap: var(--space-3); }
 .row-between { justify-content: space-between; }
 .row-end { justify-content: flex-end; }
+.source-form-actions {
+  position: sticky;
+  z-index: 20;
+  bottom: 12px;
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-white) 94%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
+}
 .row-wrap { flex-wrap: wrap; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .page-narrow { max-width: 720px; }
@@ -645,7 +658,7 @@ body.compare-open { overflow: hidden; }
 .flash + .flash { margin-top: 8px; }
 .flash-success { border-color: #a6f4c5; background: var(--color-success-soft); color: #05603a; }
 .flash-error, .flash-danger { border-color: #f7c8c4; background: var(--color-danger-soft); color: #8f1b12; }
-.flash-warning { border-color: #f5cf75; background: var(--color-warn-soft); color: #713b12; }
+.flash-warning { border-color: #fedf89; background: var(--color-warn-soft); color: var(--color-warn-strong); }
 .flash-info { border-color: #b7ccff; background: var(--color-blue-soft); color: #153783; }
 .editor-flash-stack {
   position: fixed;

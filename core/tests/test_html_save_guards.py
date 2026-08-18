@@ -52,6 +52,11 @@ class BlankHtmlRejectedTest(TestCase):
         data.update(extra)
         return self.client.post(f"/dashboard/templates/{self.tpl.pk}/", data)
 
+    def test_template_form_marks_save_row_as_sticky(self):
+        response = self.client.get(f"/dashboard/templates/{self.tpl.pk}/")
+
+        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+
     def test_missing_html_source_is_rejected(self):
         before = self.tpl.versions.count()
         resp = self._post()
