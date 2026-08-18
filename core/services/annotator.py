@@ -58,6 +58,9 @@ class AnnotationResult:
     total_tokens: int = 0
 
 
+# The prompt's contextual image rules and deterministic image backfill are two
+# halves of one policy: prefer useful model labels, then guarantee coverage with
+# the same conservative chrome exclusions when inference misses a content image.
 _SYSTEM_PROMPT = """You annotate raw HTML so a locked-structure CMS can build a client editing UI from it.
 
 Every element in the HTML has a unique `data-cms-ref="N"` attribute. You do NOT
@@ -99,14 +102,17 @@ Rules:
      - blog post feature image, "about us" photo
    When an <img> sits inside a <picture>, annotate the inner <img> (not the
    <source>) — the renderer keeps responsive candidates aligned to the new src.
+   Judge each image by its role and surrounding content. alt="" is not by itself
+   proof that an image is decorative: a content photograph inside a content
+   section is editable regardless of alt text.
    SKIP these (do NOT annotate):
-     - brand logo in the nav bar or footer (chrome, set once, not per-client)
-     - inline SVG icons, social-media icons, payment-method icons, app-store
-       badges (decorative chrome)
+     - any image inside nav or footer chrome, including brand logos
+     - images with role="presentation" or aria-hidden="true"
+     - inline SVG icons, social-media icons, payment-method icons, logos,
+       app-store badges, spacers, and tracking pixels (decorative chrome)
      - bullet / checkmark / arrow icons inside lists or buttons
-     - any <img> with alt="" or role="presentation" (declared decorative)
-     - very small icons under ~32px implied by surrounding markup (e.g. inside
-       a button next to a label) — these are UI affordances, not content
+     - images with explicitly tiny dimensions (about 32px or less in both
+       dimensions), including small icons inside a button next to a label
    When choosing the label, prefer a human-recognizable description derived
    from the alt text or the nearest heading ("Chef portrait", "Restaurant
    exterior", "Founder headshot") — avoid generic "Image 1", "Photo".

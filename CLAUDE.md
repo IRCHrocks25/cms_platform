@@ -131,9 +131,9 @@ output gets truncated. The pipeline solves that with strip-and-restore:
 2. **Send** the slimmed HTML + a slimmed few-shot example (the
    `restaurant.html` sample is stripped the same way for parity). Requests use
    `max_completion_tokens`, JSON-object response format, and the model's
-   default temperature. Luna uses low reasoning effort so structured extraction
-   keeps enough reasoning quality without consuming an excessive share of the
-   completion budget.
+   default temperature. Luna uses medium reasoning effort as the balanced
+   extraction default; benchmark model quality, latency, and cost on this
+   workload before changing it.
 3. **Apply and backfill** model annotations by ref. A deterministic safety net
    adds missed text and content-image fields inside each owned section. Image
    backfill ignores `alt=""` by itself (imports misuse it) but excludes explicit
@@ -157,7 +157,7 @@ override in `.env`). Luna uses a 65,536-token completion budget. Live-verified
 fallback caps are 32,768 for GPT-4.1 models and 16,384 for GPT-4o and
 GPT-4o-mini; set `OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS` when selecting a model
 with a different cap. `OPENAI_ANNOTATE_REASONING_EFFORT` selects Luna's effort
-(`none`, `low`, `medium`, `high`, `xhigh`, or `max`; default `low`) and is never
+(`none`, `low`, `medium`, `high`, `xhigh`, or `max`; default `medium`) and is never
 sent to GPT-4o models, which reject it. Prompt, completion, reasoning, and total
 token usage are summed across chunks and stored with the annotation job for
 diagnostics.

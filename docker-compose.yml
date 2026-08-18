@@ -39,7 +39,7 @@ services:
       # Dokploy holds and annotate_html() raises "OPENAI_API_KEY is not set".
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_ANNOTATE_MODEL: ${OPENAI_ANNOTATE_MODEL:-gpt-5.6-luna}
-      OPENAI_ANNOTATE_REASONING_EFFORT: ${OPENAI_ANNOTATE_REASONING_EFFORT:-low}
+      OPENAI_ANNOTATE_REASONING_EFFORT: ${OPENAI_ANNOTATE_REASONING_EFFORT:-medium}
       OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS: ${OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS:-}
       OPENAI_TIMEOUT: ${OPENAI_TIMEOUT:-120}
       # Annotation size/parallelism knobs. Defaults are safe; forwarding lets
