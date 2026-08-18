@@ -24,6 +24,7 @@ const tabAuditCount = Number(argument("tab-audit", "0"));
 const width = Number(argument("width", "1280"));
 const height = Number(argument("height", "900"));
 const loginWait = Number(argument("login-wait", "900"));
+const pageWait = Number(argument("page-wait", "1100"));
 const auditTimeout = Number(argument("audit-timeout", "45")) * 1000;
 const username = process.env.CMS_CAPTURE_USERNAME || "admin";
 const password = process.env.CMS_CAPTURE_PASSWORD;
@@ -35,13 +36,29 @@ if (
   !Number.isFinite(width) ||
   !Number.isFinite(height) ||
   !Number.isFinite(loginWait) ||
+  !Number.isFinite(pageWait) ||
   !Number.isFinite(auditTimeout) ||
   (annotateAudit && !annotateAuditModes.has(annotateAudit))
 ) {
   console.error(
-    "Usage: CMS_CAPTURE_PASSWORD=… node scripts/capture-ui.mjs --out FILE --path /dashboard/ --width 1280 [--height 900] [--login-wait 900] [--annotate-audit missing-job|zero-sections|real|real-save] [--tenant-sanity]",
+    "Usage: CMS_CAPTURE_PASSWORD=… node scripts/capture-ui.mjs --out FILE --path /dashboard/ --width 1280 [--height 900] [--login-wait 900] [--page-wait 1100] [--annotate-audit missing-job|zero-sections|real|real-save] [--tenant-sanity]",
   );
   process.exit(2);
+}
+
+let annotationAuditSource = "";
+let annotationBaseline = null;
+if (annotateAudit) {
+  const annotatedSample = await readFile(new URL("../samples/restaurant.html", import.meta.url), "utf8");
+  annotationBaseline = {
+    bytes: annotatedSample.length,
+    sectionMarkers: (annotatedSample.match(/\sdata-section=/g) || []).length,
+    fieldMarkers: (annotatedSample.match(/\sdata-edit=/g) || []).length,
+  };
+  annotationAuditSource = annotatedSample.replace(
+    /\sdata-(?:section|edit|type|label|icon|group|tokens)=(?:"[^"]*"|'[^']*')/g,
+    "",
+  );
 }
 
 const profile = await mkdtemp(join(tmpdir(), "cms-ui-capture-"));
@@ -103,6 +120,27 @@ try {
     return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
   }
 
+  async function waitForExpression(expression, timeout, label) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      try {
+        const result = await command("Runtime.evaluate", { expression, returnByValue: true });
+        if (result.result.value) return;
+      } catch {
+        // Navigation replaces the JavaScript execution context briefly.
+      }
+      await pause(250);
+    }
+    let url = "unknown";
+    try {
+      const result = await command("Runtime.evaluate", { expression: "location.href", returnByValue: true });
+      url = result.result.value;
+    } catch {
+      // Preserve the timeout as the useful error when the page is still moving.
+    }
+    throw new Error(`${label} timed out after ${timeout / 1000}s at ${url}`);
+  }
+
   await Promise.all([
     command("Page.enable"),
     command("Runtime.enable"),
@@ -118,7 +156,11 @@ try {
   ]);
 
   await command("Page.navigate", { url: `${base}/login/` });
-  await pause(700);
+  await waitForExpression(
+    "Boolean(document.querySelector('[name=username]'))",
+    pageWait,
+    "Login page",
+  );
   const loginResult = await command("Runtime.evaluate", {
     expression: `(() => {
       const username = document.querySelector('[name="username"]');
@@ -133,10 +175,19 @@ try {
     returnByValue: true,
   });
   if (loginResult.result.value !== "submitted") throw new Error("Login form was not found");
-  await pause(loginWait);
+  await waitForExpression(
+    "location.pathname !== '/login/' && !document.querySelector('[name=username]')",
+    loginWait,
+    "Login",
+  );
 
-  await command("Page.navigate", { url: `${base}${path}` });
-  await pause(1100);
+  const targetUrl = `${base}${path}`;
+  await command("Page.navigate", { url: targetUrl });
+  await waitForExpression(
+    `document.readyState !== 'loading' && location.pathname === ${JSON.stringify(new URL(targetUrl).pathname)}`,
+    pageWait,
+    "Target page",
+  );
   if (annotateAudit) {
     const fakeJobId = "00000000-0000-0000-0000-000000000001";
     const setup = await command("Runtime.evaluate", {
@@ -144,7 +195,7 @@ try {
         const textarea = document.querySelector('#id_html_source');
         const annotateButton = document.querySelector('#annotate-btn');
         if (!textarea || !annotateButton) return { ready: false };
-        const source = '<!doctype html><html><body><main><section><h1>Staging annotation audit</h1><p>This paragraph must remain editable.</p></section></main></body></html>';
+        const source = ${JSON.stringify(annotationAuditSource)};
         const view = window.CMSCodeEditor?.instances.get(textarea);
         if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } });
         else {
@@ -154,36 +205,52 @@ try {
 
         const mode = ${JSON.stringify(annotateAudit)};
         const fakeJobId = ${JSON.stringify(fakeJobId)};
-        if (mode === 'missing-job' || mode === 'zero-sections') {
-          const nativeFetch = window.fetch.bind(window);
-          window.fetch = function (input, init) {
-            const url = typeof input === 'string' ? input : input.url;
-            const method = String(init?.method || input?.method || 'GET').toUpperCase();
-            if (method === 'POST' && url.includes('/dashboard/templates/annotate/')) {
-              return Promise.resolve(new Response(JSON.stringify({ job_id: fakeJobId, status: 'pending' }), {
-                status: 202,
-                headers: { 'Content-Type': 'application/json' },
-              }));
+        window.__cmsAnnotationAudit = { jobId: '', final: null };
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = function (input, init) {
+          const url = typeof input === 'string' ? input : input.url;
+          const method = String(init?.method || input?.method || 'GET').toUpperCase();
+          let request;
+          if ((mode === 'missing-job' || mode === 'zero-sections') &&
+              method === 'POST' && url.includes('/dashboard/templates/annotate/')) {
+            request = Promise.resolve(new Response(JSON.stringify({ job_id: fakeJobId, status: 'pending' }), {
+              status: 202,
+              headers: { 'Content-Type': 'application/json' },
+            }));
+          } else if (mode === 'zero-sections' && method === 'GET' && url.includes(fakeJobId)) {
+            request = Promise.resolve(new Response(JSON.stringify({
+              job_id: fakeJobId,
+              status: 'done',
+              html: '<!doctype html><html><body><p>No editable fields</p></body></html>',
+              sections: [],
+              reconciled_fields: 0,
+              dropped_fields: 0,
+              backfilled_fields: 0,
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }));
+          } else {
+            request = nativeFetch(input, init);
+          }
+          return request.then(function (response) {
+            if (url.includes('/dashboard/templates/annotate/')) {
+              response.clone().json().then(function (body) {
+                if (body.job_id) window.__cmsAnnotationAudit.jobId = body.job_id;
+                if (body.status === 'done' || body.status === 'error' || body.error) {
+                  window.__cmsAnnotationAudit.final = body;
+                }
+              }).catch(function () {});
             }
-            if (mode === 'zero-sections' && method === 'GET' && url.includes(fakeJobId)) {
-              return Promise.resolve(new Response(JSON.stringify({
-                job_id: fakeJobId,
-                status: 'done',
-                html: '<!doctype html><html><body><p>No editable fields</p></body></html>',
-                sections: [],
-                reconciled_fields: 0,
-                dropped_fields: 0,
-                backfilled_fields: 0,
-              }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-              }));
-            }
-            return nativeFetch(input, init);
-          };
-        }
+            return response;
+          });
+        };
         annotateButton.click();
-        return { ready: true, sourceBytes: source.length };
+        return {
+          ready: true,
+          sourceBytes: source.length,
+          baseline: ${JSON.stringify(annotationBaseline)},
+        };
       })()`,
       returnByValue: true,
     });
@@ -219,6 +286,8 @@ try {
             applyText: apply?.textContent?.trim() || '',
             outputMarkers: outputDocument.querySelectorAll('[data-edit]').length,
             outputSections: outputDocument.querySelectorAll('[data-section]').length,
+            jobId: window.__cmsAnnotationAudit?.jobId || '',
+            response: window.__cmsAnnotationAudit?.final || null,
           };
           result.terminal = result.statusState === 'error' ||
             ((result.summaryState === 'success' || result.summaryState === 'warning') && !loading?.classList.contains('is-visible'));
@@ -230,7 +299,24 @@ try {
       if (annotationResult?.terminal) break;
       await pause(250);
     }
-    if (!annotationResult?.terminal) throw new Error(`Annotation audit timed out after ${auditTimeout / 1000}s`);
+    if (!annotationResult?.terminal) {
+      throw new Error(
+        `Annotation audit timed out after ${auditTimeout / 1000}s: ${JSON.stringify(annotationResult)}`,
+      );
+    }
+    if (annotateAudit === "real" || annotateAudit === "real-save") {
+      await waitForExpression(
+        "Boolean(window.__cmsAnnotationAudit?.jobId) && Boolean(window.__cmsAnnotationAudit?.final)",
+        3000,
+        "Annotation audit metadata",
+      );
+      const transport = await command("Runtime.evaluate", {
+        expression: "window.__cmsAnnotationAudit",
+        returnByValue: true,
+      });
+      annotationResult.jobId = transport.result.value.jobId;
+      annotationResult.response = transport.result.value.final;
+    }
     annotationResult.elapsedMs = Date.now() - startedAt;
 
     if (annotateAudit === "missing-job") {
@@ -265,22 +351,51 @@ try {
         returnByValue: true,
       });
       if (!applied.result.value) throw new Error("Completed annotation could not be applied and saved");
-      await pause(loginWait);
+      await waitForExpression(
+        "location.pathname !== '/dashboard/templates/new/' && Boolean(document.querySelector('#id_html_source'))",
+        pageWait,
+        "Saved template",
+      );
       const saved = await command("Runtime.evaluate", {
         expression: `(() => {
           const source = document.querySelector('#id_html_source')?.value || '';
           const parsed = new DOMParser().parseFromString(source, 'text/html');
+          const markerIds = Array.from(parsed.querySelectorAll('[data-edit]')).map((element) => element.getAttribute('data-edit'));
+          const badges = Array.from(document.querySelectorAll('.detected-sections .badge')).map((badge) => badge.textContent.trim());
+          const nonBrandBadges = badges.filter((badge) => !/^Brand\\s*[·.]/i.test(badge));
+          const detectedFieldCount = nonBrandBadges.reduce(function (total, badge) {
+            const count = Number((badge.match(/(\\d+)\\s*$/) || [])[1] || 0);
+            return total + count;
+          }, 0);
+          const templateId = (location.pathname.match(/\/dashboard\/templates\/(\\d+)\//) || [])[1] || '';
           return {
             url: location.href,
-            markerCount: parsed.querySelectorAll('[data-edit]').length,
+            templateId: templateId,
+            deleteUrl: document.querySelector('form[action$="/delete/"]')?.action || '',
+            markerCount: markerIds.length,
+            uniqueMarkerCount: new Set(markerIds).size,
             sectionCount: parsed.querySelectorAll('[data-section]').length,
+            detectedNonBrandSectionCount: nonBrandBadges.length,
+            detectedNonBrandFieldCount: detectedFieldCount,
             detectedText: document.querySelector('.detected-sections-copy')?.textContent?.trim() || '',
-            detectedBadges: Array.from(document.querySelectorAll('.detected-sections .badge')).map((badge) => badge.textContent.trim()),
+            detectedBadges: badges,
           };
         })()`,
         returnByValue: true,
       });
       annotationResult.saved = saved.result.value;
+      if (
+        annotationResult.saved.markerCount !== annotationResult.saved.uniqueMarkerCount ||
+        annotationResult.saved.markerCount !== annotationResult.saved.detectedNonBrandFieldCount ||
+        annotationResult.saved.markerCount !== annotationResult.outputMarkers ||
+        annotationResult.saved.sectionCount !== annotationResult.saved.detectedNonBrandSectionCount ||
+        annotationResult.saved.sectionCount !== annotationResult.outputSections
+      ) {
+        throw new Error(`Saved annotation parity failed: ${JSON.stringify(annotationResult.saved)}`);
+      }
+    }
+    if (annotateAudit === "real-save" && annotationResult.summaryState !== "success") {
+      throw new Error(`Real annotation did not succeed: ${annotationResult.statusText}`);
     }
     console.log(JSON.stringify({ annotateAudit: { mode: annotateAudit, setup: setup.result.value, result: annotationResult } }, null, 2));
   }
@@ -294,7 +409,16 @@ try {
     });
     if (!editorUrl.result.value) throw new Error("No seeded tenant editor link was found");
     await command("Page.navigate", { url: editorUrl.result.value });
-    await pause(loginWait);
+    await waitForExpression(
+      `document.readyState !== 'loading' && location.pathname === ${JSON.stringify(new URL(editorUrl.result.value).pathname)}`,
+      pageWait,
+      "Tenant editor",
+    );
+    await waitForExpression(
+      "Boolean(document.querySelector('#preview-frame')) && Boolean(document.querySelector('#preview-loading')?.hidden)",
+      pageWait,
+      "Tenant preview",
+    );
     const sanity = await command("Runtime.evaluate", {
       expression: `(() => {
         const preview = document.querySelector('#preview-frame');
