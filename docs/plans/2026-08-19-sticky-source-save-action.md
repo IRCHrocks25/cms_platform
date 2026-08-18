@@ -32,7 +32,8 @@
 2. Render title, subtitle, dirty status, Cancel, and the associated submit in a scoped source page header; remove both bottom action rows.
 3. Initialize the CodeMirror-backed textarea baseline, update the dirty status on `input`, and clear it on form submit.
 4. Capture unmodified Cmd/Ctrl+S and call `requestSubmit()` only when a marked source form exists.
-5. Run the focused render tests; expect green.
+5. Normalize unmodified Enter from text-like form inputs to `requestSubmit()` because the associated submit control sits outside the form; preserve controls that already prevent Enter and leave CodeMirror untouched.
+6. Run the focused render tests; expect green.
 
 ### Task 3: Apply the responsive sticky layout
 
