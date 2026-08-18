@@ -28,7 +28,7 @@
       <form method="post" action="{{ save_url }}" class="stack-5">
         {% csrf_token %}
         {% include "dashboard/_html_source_editor.html" with html_value=html_source %}
-        <div class="row-end">
+        <div class="row-end source-form-actions">
           <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>
           <button type="submit" class="btn btn-primary">Save HTML</button>
         </div>

@@ -155,7 +155,7 @@
                 <div id="compare-title" class="compare-title">Compare AI annotation</div>
                 <div id="compare-summary" class="compare-summary"></div>
               </div>
-              <button type="button" id="compare-close" class="btn btn-ghost btn-sm">✕ Close</button>
+              <button type="button" id="compare-close" class="btn btn-ghost btn-sm" aria-label="Close comparison">Close</button>
             </div>
             <div class="compare-grid">
               <div class="compare-side">
@@ -189,9 +189,12 @@
                         <span class="compare-loading-dot"></span>
                         <span class="compare-loading-dot"></span>
                       </div>
-                      <div class="compare-loading-title">AI is annotating your HTML</div>
+                      <div class="compare-loading-title" id="compare-loading-title">AI is annotating your HTML</div>
                       <div class="compare-loading-sub" id="compare-loading-sub">Reading your HTML…</div>
-                      <button type="button" id="compare-loading-retry" class="btn btn-secondary btn-sm compare-loading-retry" hidden>Try again</button>
+                      <div class="row compare-loading-actions">
+                        <button type="button" id="compare-loading-retry" class="btn btn-primary btn-sm compare-loading-retry" hidden>Try again</button>
+                        <button type="button" id="compare-loading-close" class="btn btn-secondary btn-sm" hidden>Close</button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -500,8 +503,10 @@
       var savedInputForRetry = "";
 
       var compareLoading = document.getElementById("compare-loading");
+      var loadingTitle = document.getElementById("compare-loading-title");
       var loadingSub = document.getElementById("compare-loading-sub");
       var loadingRetry = document.getElementById("compare-loading-retry");
+      var loadingClose = document.getElementById("compare-loading-close");
       var elapsedTimer = null, loadStart = 0;
 
       function stopProgress() {
@@ -511,8 +516,19 @@
       function startProgress() {
         stopProgress();
         loadStart = Date.now();
+        if (compareLoading) compareLoading.classList.remove("is-error");
+        if (loadingTitle) loadingTitle.textContent = "AI is annotating your HTML";
         if (loadingSub) loadingSub.textContent = "Reading your HTML…";
         if (loadingRetry) loadingRetry.hidden = true;
+        if (loadingClose) loadingClose.hidden = true;
+        if (overlaySummary) {
+          overlaySummary.dataset.state = "info";
+          overlaySummary.textContent = "Annotating your HTML…";
+        }
+        if (compareApply) {
+          compareApply.disabled = true;
+          compareApply.textContent = "Apply annotation";
+        }
         elapsedTimer = setInterval(function () {
           var s = Math.round((Date.now() - loadStart) / 1000);
           if (loadingSub) loadingSub.textContent = "Working for " + s + "s · large pages can take 1–2 min";
@@ -531,23 +547,51 @@
         if (compareApply) compareApply.disabled = true;
         startProgress();
       }
-      function fillCompareResult(annotatedHtml, sections) {
+      function integritySummary(body) {
+        var details = [];
+        if (body.reconciled_fields) {
+          details.push(body.reconciled_fields + " prefix" + (body.reconciled_fields === 1 ? "" : "es") + " corrected");
+        }
+        if (body.dropped_fields) {
+          details.push(body.dropped_fields + " orphan field" + (body.dropped_fields === 1 ? "" : "s") + " removed");
+        }
+        if (body.backfilled_fields) {
+          details.push(body.backfilled_fields + " missed text field" + (body.backfilled_fields === 1 ? "" : "s") + " added");
+        }
+        return details.length ? " Integrity checks: " + details.join(", ") + "." : "";
+      }
+      function fillCompareResult(annotatedHtml, sections, body) {
         stopProgress();
         rightCode.value = annotatedHtml;
         setView("left", "code");
         setView("right", "code");
-        var summary = sections.length
+        var hasSections = sections.length > 0;
+        var summary = hasSections
           ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
             ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
-          : "AI returned HTML but no editable sections were detected — review the output carefully.";
-        overlaySummary.textContent = summary;
-        if (compareApply) compareApply.disabled = false;
+          : "Applying this result will produce a template with no editable fields.";
+        overlaySummary.textContent = summary + integritySummary(body);
+        overlaySummary.dataset.state = hasSections ? "success" : "warning";
+        if (compareApply) {
+          compareApply.disabled = false;
+          compareApply.textContent = hasSections
+            ? "Apply annotation"
+            : "Apply without editable fields";
+        }
         setTimeout(function () { if (compareLoading) compareLoading.classList.remove("is-visible"); }, 250);
       }
       function showLoadingError(msg) {
         stopProgress();
+        if (compareLoading) compareLoading.classList.add("is-error");
+        if (loadingTitle) loadingTitle.textContent = "Annotation failed";
         if (loadingSub) loadingSub.textContent = msg || "Annotation failed.";
         if (loadingRetry) loadingRetry.hidden = false;
+        if (loadingClose) loadingClose.hidden = false;
+        if (overlaySummary) {
+          overlaySummary.dataset.state = "error";
+          overlaySummary.textContent = msg || "Annotation failed.";
+        }
+        if (compareApply) compareApply.disabled = true;
       }
 
       function setView(side, view) {
@@ -579,7 +623,11 @@
       function openCompare(originalHtml, annotatedHtml, sections) {
         if (!compareReady) {
           textarea.value = annotatedHtml;
-          setStatus("ok", "Annotation applied (compare overlay unavailable).");
+          if (sections.length) {
+            setStatus("ok", "Annotation applied (compare overlay unavailable).");
+          } else {
+            setStatus("warning", "Annotation applied with no editable fields (compare overlay unavailable).");
+          }
           if (!panel.hasAttribute("hidden")) render();
           return;
         }
@@ -590,7 +638,7 @@
         var summary = sections.length
           ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
             ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
-          : "AI returned HTML but no editable sections were detected — review the output carefully.";
+          : "Applying this result will produce a template with no editable fields.";
         overlaySummary.textContent = summary;
         overlay.removeAttribute("hidden");
         document.body.classList.add("compare-open");
@@ -600,6 +648,7 @@
         if (!compareReady) return;
         stopProgress();
         if (compareLoading) compareLoading.classList.remove("is-visible");
+        if (compareLoading) compareLoading.classList.remove("is-error");
         overlay.setAttribute("hidden", "");
         document.body.classList.remove("compare-open");
       }
@@ -661,10 +710,20 @@
           resetButton();
         }
         function succeed(body) {
-          setStatus("info", "AI annotation is ready. Compare both versions, then apply or cancel.");
-          if (compareReady) fillCompareResult(body.html, body.sections || []);
+          var sections = body.sections || [];
+          if (sections.length) {
+            setStatus("info", "AI annotation is ready. Compare both versions, then apply or cancel.");
+          } else {
+            setStatus("warning", "Applying this result will produce a template with no editable fields.");
+          }
+          if (compareReady) fillCompareResult(body.html, sections, body);
           else openCompare(sourceHtml, body.html, body.sections || []);
           resetButton();
+        }
+
+        function responseMessage(r, fallback) {
+          if (r.body && r.body.error) return r.body.error;
+          return fallback + " (HTTP " + r.status + ").";
         }
 
         var statusUrlTemplate = annotateBtn.dataset.statusUrl || "";
@@ -678,15 +737,22 @@
           fetch(url, { headers: { "Accept": "application/json" } })
             .then(readJsonSafe)
             .then(function (r) {
+              if (!r.ok) return fail(responseMessage(r, "Could not check annotation status"));
               if (!r.body) {
-                if (Date.now() - pollStart > POLL_MAX_MS) {
-                  return fail("The server stopped responding while annotating. Please try again.");
-                }
-                return setTimeout(function () { poll(jobId); }, POLL_INTERVAL_MS);
+                return fail("The server returned an invalid annotation response (HTTP " + r.status + "). Please sign in again, then retry.");
               }
-              if (r.body.status === "done") return succeed(r.body);
+              if (r.body.error && !r.body.status) return fail(r.body.error);
+              if (r.body.status === "done") {
+                if (typeof r.body.html !== "string") {
+                  return fail(r.body.error || "The completed annotation did not include HTML. Please retry.");
+                }
+                return succeed(r.body);
+              }
               if (r.body.status === "error") {
                 return fail((r.body && r.body.error) || "Annotation failed.");
+              }
+              if (r.body.status !== "pending" && r.body.status !== "running") {
+                return fail(r.body.error || "The server returned an unknown annotation status. Please retry.");
               }
               if (Date.now() - pollStart > POLL_MAX_MS) {
                 return fail("Annotation is taking too long. Try a smaller page, then retry.");
@@ -741,6 +807,7 @@
       }
       if (compareRetry) compareRetry.addEventListener("click", retryAnnotate);
       if (loadingRetry) loadingRetry.addEventListener("click", retryAnnotate);
+      if (loadingClose) loadingClose.addEventListener("click", closeCompare);
     })();
   </script>
 {% endblock %}

@@ -23,6 +23,13 @@ OLD = (
 )
 NEW_SAME_FIELDS = OLD.replace("Old headline", "New headline")
 NEW_DROPS_FIELDS = '<html><body><h1>Unannotated rewrite</h1></body></html>'
+NEW_WITH_IGNORED_MARKERS = (
+    '<section data-section="hero">'
+    '<h1 data-edit="hero.title">Kept</h1>'
+    '<p data-edit="wrong.subtitle">Wrong prefix</p>'
+    '</section>'
+    '<p data-edit="orphan.copy">No section</p>'
+)
 
 # The repo ships a hashed-manifest staticfiles storage; a bare checkout has no
 # built manifest, so any test that renders a dashboard template needs this.
@@ -44,6 +51,11 @@ class BlankHtmlRejectedTest(TestCase):
                 "editing_mode": "editable"}
         data.update(extra)
         return self.client.post(f"/dashboard/templates/{self.tpl.pk}/", data)
+
+    def test_template_form_marks_save_row_as_sticky(self):
+        response = self.client.get(f"/dashboard/templates/{self.tpl.pk}/")
+
+        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
 
     def test_missing_html_source_is_rejected(self):
         before = self.tpl.versions.count()
@@ -73,6 +85,73 @@ class BlankHtmlRejectedTest(TestCase):
         self.assertIn("Renamed", body)
         self.assertIn("new desc", body)
         self.assertIn("Old headline", body)
+
+
+@override_settings(STORAGES=PLAIN_STATIC)
+class IgnoredSubmittedMarkerWarningTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("ops-markers", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_occurrence_count_finds_duplicate_marker_outside_its_section(self):
+        html = (
+            '<section data-section="hero">'
+            '<h1 data-edit="hero.title">Kept</h1>'
+            '</section>'
+            '<p data-edit="hero.title">Ignored duplicate</p>'
+        )
+
+        ignored = template_svc.ignored_submitted_field_markers(html)
+
+        self.assertEqual(ignored, ["hero.title"])
+
+    def test_occurrence_count_finds_duplicate_marker_inside_one_section(self):
+        html = (
+            '<section data-section="hero">'
+            '<h1 data-edit="hero.title">Kept</h1>'
+            '<p data-edit="hero.title">Ignored duplicate</p>'
+            '</section>'
+        )
+
+        ignored = template_svc.ignored_submitted_field_markers(html)
+
+        self.assertEqual(ignored, ["hero.title"])
+
+    def test_template_create_warns_after_redirect_with_marker_names(self):
+        response = self.client.post(
+            "/dashboard/templates/new/",
+            {
+                "name": "Ignored markers",
+                "description": "",
+                "editing_mode": "editable",
+                "html_source": NEW_WITH_IGNORED_MARKERS,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "submitted editable markers were not added")
+        self.assertContains(response, "wrong.subtitle")
+        self.assertContains(response, "orphan.copy")
+
+    def test_template_update_warns_after_redirect_with_marker_names(self):
+        template = Template.objects.create(name="Existing", html_source=OLD)
+
+        response = self.client.post(
+            f"/dashboard/templates/{template.pk}/",
+            {
+                "name": template.name,
+                "description": "",
+                "editing_mode": "editable",
+                "html_source": NEW_WITH_IGNORED_MARKERS,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "submitted editable markers were not added")
+        self.assertContains(response, "wrong.subtitle")
+        self.assertContains(response, "orphan.copy")
 
 
 @override_settings(STORAGES=PLAIN_STATIC)

@@ -64,6 +64,17 @@
     </div>
   </div>
 
+  {% if messages %}
+    <div class="editor-flash-stack" aria-live="polite">
+      {% for message in messages %}
+        <div class="flash flash-{{ message.tags|default:'info' }}"
+             {% if message.tags == "error" %}role="alert"{% else %}role="status"{% endif %}>
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {% if scope == "tenant" and not client_editable %}
     <div class="editor-readonly-notice" role="status">
       <strong>Editing isn’t available yet</strong>

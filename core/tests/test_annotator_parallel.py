@@ -15,12 +15,15 @@ from django.test import TestCase, override_settings
 
 from core.services.annotator import (
     AnnotatorError,
+    _apply_annotations,
     _annotate_one_chunk,
     _chunk_nodes,
     _find_split_root,
     _merge_chunk_results,
+    _reconcile_annotated_fields,
     annotate_html,
 )
+from core.parser import build_schema
 
 
 def _soup(html):
@@ -109,6 +112,64 @@ class MergeChunkResultsTests(TestCase):
         self.assertEqual(edits, ["features.title", "features_2.title"])
 
 
+class ReconcileAnnotatedFieldsTests(TestCase):
+    def test_rewrites_mismatched_prefix_to_nearest_section(self):
+        soup = _soup("<section><h1>Title</h1></section>")
+        section = soup.find("section")
+        heading = soup.find("h1")
+        applied = _apply_annotations(
+            {"0": section, "1": heading},
+            {
+                "sections": [{"ref": "0", "id": "hero"}],
+                "fields": [
+                    {
+                        "ref": "1",
+                        "edit": "wrong.title",
+                        "type": "text",
+                        "label": "Title",
+                    }
+                ],
+            },
+        )
+
+        reconciled, dropped = _reconcile_annotated_fields(soup)
+
+        self.assertEqual(applied, 1)
+        self.assertEqual((reconciled, dropped), (1, 0))
+        self.assertEqual(heading["data-edit"], "hero.title")
+
+    def test_strips_orphan_field_attributes_instead_of_guessing(self):
+        soup = _soup(
+            "<section data-section='hero'><h1>Title</h1></section>"
+            "<p data-edit='hero.orphan' data-type='text' "
+            "data-label='Orphan'>Outside</p>"
+        )
+        orphan = soup.find("p")
+
+        reconciled, dropped = _reconcile_annotated_fields(soup)
+
+        self.assertEqual((reconciled, dropped), (0, 1))
+        self.assertNotIn("data-edit", orphan.attrs)
+        self.assertNotIn("data-type", orphan.attrs)
+        self.assertNotIn("data-label", orphan.attrs)
+
+    def test_uniquifies_duplicate_field_ids_within_the_owning_section(self):
+        soup = _soup(
+            "<section data-section='hero'>"
+            "<h1 data-edit='hero.title'>First</h1>"
+            "<p data-edit='hero.title'>Second</p>"
+            "</section>"
+        )
+
+        reconciled, dropped = _reconcile_annotated_fields(soup)
+
+        self.assertEqual((reconciled, dropped), (1, 0))
+        self.assertEqual(
+            [element["data-edit"] for element in soup.find_all(attrs={"data-edit": True})],
+            ["hero.title", "hero.title_2"],
+        )
+
+
 class AnnotateOneChunkRetryTests(TestCase):
     def _client_raising_then_ok(self, fail_times, ok_content):
         calls = {"n": 0}
@@ -192,3 +253,46 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         self.assertIn('data-edit="hero.title"', out)
         self.assertIn('data-edit="features.title"', out)
         self.assertNotIn("data-cms-ref", out)  # helper refs stripped
+
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        ANNOTATE_CHUNK_TARGET_CHARS=1000,
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_output_data_edit_count_matches_non_brand_schema_fields(self):
+        html = (
+            "<body><section><h1>Hero title</h1></section>"
+            "<footer><small>Copyright</small></footer></body>"
+        )
+
+        def create(**kwargs):
+            user = kwargs["messages"][1]["content"]
+            chunk = user.split("=== HTML TO ANNOTATE (marked) ===", 1)[1]
+            section_ref = chunk.split('data-cms-ref="')[1].split('"')[0]
+            field_ref = chunk.split("Hero title")[0].rsplit(
+                'data-cms-ref="', 1
+            )[1].split('"')[0]
+            return _fake_completion(
+                '{"sections":[{"ref":%s,"id":"hero","label":"Hero"}],'
+                '"fields":[{"ref":%s,"edit":"wrong.title",'
+                '"type":"text","label":"Title"}]}'
+                % (section_ref, field_ref)
+            )
+
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ):
+            out = annotate_html(html)
+
+        soup = BeautifulSoup(out, "lxml")
+        field_count = sum(
+            len(section.get("fields", []))
+            for section in build_schema(out).get("sections", [])
+            if section.get("id") != "brand"
+        )
+        self.assertEqual(len(soup.find_all(attrs={"data-edit": True})), field_count)
+        self.assertEqual(soup.find("h1")["data-edit"], "hero.title")

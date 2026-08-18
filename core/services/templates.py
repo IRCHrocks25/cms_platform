@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
 
+from bs4 import BeautifulSoup
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -124,6 +126,36 @@ def _dotted_field_ids(schema: Optional[dict]) -> set[str]:
             if fid:
                 ids.add(fid)
     return ids
+
+
+def ignored_submitted_field_markers(
+    html_source: str,
+    schema: Optional[dict] = None,
+) -> list[str]:
+    """Return submitted marker occurrences absent from the derived schema.
+
+    Occurrence counts matter. A set comparison would miss the case where one
+    valid marker and one ignored orphan share the same dotted identifier.
+    """
+    soup = BeautifulSoup(html_source or "", "lxml")
+    submitted = [
+        (element.get("data-edit") or "").strip() or "(empty data-edit)"
+        for element in soup.find_all(attrs={"data-edit": True})
+    ]
+    derived = Counter()
+    for section in (schema or build_schema(html_source)).get("sections") or []:
+        for field_entry in section.get("fields") or []:
+            field_id = (field_entry.get("id") or "").strip()
+            if field_id:
+                derived[field_id] += 1
+
+    ignored: list[str] = []
+    for marker in submitted:
+        if derived[marker] > 0:
+            derived[marker] -= 1
+        else:
+            ignored.append(marker)
+    return ignored
 
 
 def _content_value(content: dict, dotted: str) -> Any:

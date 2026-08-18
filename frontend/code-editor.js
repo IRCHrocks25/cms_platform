@@ -56,8 +56,8 @@ function mount(textarea) {
           syncing = false;
         }),
         EditorView.theme({
-          "&": { minHeight: "26rem", fontSize: "13px" },
-          ".cm-scroller": { fontFamily: "var(--font-mono, ui-monospace, monospace)", lineHeight: "1.55" },
+          "&": { height: "clamp(26rem, 62vh, 46rem)", fontSize: "13px" },
+          ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono, ui-monospace, monospace)", lineHeight: "1.55" },
           ".cm-content": { padding: "12px 0" },
           ".cm-gutters": { backgroundColor: "var(--color-surface-2, #f8fafc)", borderRight: "1px solid var(--color-border, #e5e7eb)" },
           "&.cm-focused": { outline: "3px solid color-mix(in srgb, var(--color-blue, #2563eb) 18%, transparent)" },

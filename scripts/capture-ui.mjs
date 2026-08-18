@@ -17,6 +17,7 @@ const inspectSelector = argument("inspect");
 const clickSelector = argument("click");
 const scrollSelector = argument("scroll-to");
 const menuAuditLabel = argument("menu-audit");
+const editorAudit = process.argv.includes("--editor-audit");
 const tabAuditCount = Number(argument("tab-audit", "0"));
 const width = Number(argument("width", "1280"));
 const height = Number(argument("height", "900"));
@@ -139,6 +140,57 @@ try {
     });
     if (!clickResult.result.value) throw new Error(`Click target was not found: ${clickSelector}`);
     await pause(300);
+  }
+  if (editorAudit) {
+    const seeded = await command("Runtime.evaluate", {
+      expression: `(() => {
+        const textarea = document.querySelector('textarea[data-code-editor]');
+        const view = textarea && window.CMSCodeEditor?.instances.get(textarea);
+        if (!textarea || !view) return false;
+        const section = '<section data-section="feature"><h2 data-edit="feature.title">A realistic heading for editor height measurement</h2><p data-edit="feature.copy">Representative body copy for a large imported page.</p></section>\\n';
+        const source = '<!doctype html>\\n<html><body>\\n' + section.repeat(6000) + '</body></html>';
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } });
+        return { bytes: source.length, lines: 6003 };
+      })()`,
+      returnByValue: true,
+    });
+    if (!seeded.result.value) throw new Error("CodeMirror editor was not found");
+    await pause(1000);
+    const measure = async () => {
+      const result = await command("Runtime.evaluate", {
+        expression: `(() => {
+          const editor = document.querySelector('.cms-code-editor .cm-editor');
+          const scroller = document.querySelector('.cms-code-editor .cm-scroller');
+          const saveRow = document.querySelector('.source-form-actions');
+          const rect = (element) => element ? {
+            top: Math.round(element.getBoundingClientRect().top),
+            bottom: Math.round(element.getBoundingClientRect().bottom),
+            height: Math.round(element.getBoundingClientRect().height),
+          } : null;
+          return {
+            viewport: { width: innerWidth, height: innerHeight },
+            document: { scrollHeight: document.documentElement.scrollHeight, scrollY: Math.round(scrollY) },
+            editor: rect(editor),
+            scroller: {
+              ...rect(scroller),
+              clientHeight: scroller?.clientHeight,
+              scrollHeight: scroller?.scrollHeight,
+              overflowY: scroller ? getComputedStyle(scroller).overflowY : null,
+            },
+            saveRow: rect(saveRow),
+          };
+        })()`,
+        returnByValue: true,
+      });
+      return result.result.value;
+    };
+    const initial = await measure();
+    await command("Runtime.evaluate", {
+      expression: "window.scrollTo(0, Math.max(0, document.documentElement.scrollHeight / 2))",
+    });
+    await pause(300);
+    const midpoint = await measure();
+    console.log(JSON.stringify({ editorAudit: { seeded: seeded.result.value, initial, midpoint } }, null, 2));
   }
   if (menuAuditLabel) {
     async function press(key, code, windowsVirtualKeyCode) {

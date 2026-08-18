@@ -163,10 +163,12 @@ def build_schema(html: str) -> dict[str, Any]:
         sections.append(brand)
         defaults["brand"] = {f["id"].split(".")[-1]: f["default"] for f in brand["fields"]}
 
+    seen_section_ids = {"brand"} if brand else set()
     for sec in soup.find_all(attrs={"data-section": True}):
         sec_id = sec["data-section"].strip()
-        if not sec_id:
+        if not sec_id or sec_id in seen_section_ids:
             continue
+        seen_section_ids.add(sec_id)
 
         section_entry = {
             "id": sec_id,
@@ -177,15 +179,22 @@ def build_schema(html: str) -> dict[str, Any]:
         }
 
         section_defaults: dict[str, str] = {}
+        seen_field_ids: set[str] = set()
 
         for field_el in sec.find_all(attrs={"data-edit": True}):
+            # A nested data-section is an ownership boundary. Only the nearest
+            # section may claim a field, so outer recursive scans cannot count
+            # or relabel fields that belong to an inner block.
+            if field_el.find_parent(attrs={"data-section": True}) is not sec:
+                continue
             full_id = field_el["data-edit"].strip()
             if "." not in full_id:
                 continue
 
             section_part, field_part = full_id.split(".", 1)
-            if section_part != sec_id:
+            if section_part != sec_id or full_id in seen_field_ids:
                 continue
+            seen_field_ids.add(full_id)
 
             ftype = field_el.get("data-type", "text").strip()
             if ftype not in VALID_FIELD_TYPES:

@@ -38,7 +38,7 @@ from core.services.accounts import (
     create_tenant_account,
     generate_password,
 )
-from core.services.annotator import annotate_html, AnnotatorError
+from core.services.annotator import annotate_html, annotate_html_result, AnnotatorError
 from core.services.sanitizer import sanitize_html
 from core.services import templates as template_svc
 from core import ghl_crypto
@@ -92,6 +92,19 @@ STARTER_TEMPLATE_HTML = """\
   }
 </style>
 """
+
+
+def _warn_ignored_submitted_field_markers(request, html_source, schema):
+    ignored = template_svc.ignored_submitted_field_markers(html_source, schema)
+    if not ignored:
+        return
+    marker_names = list(dict.fromkeys(ignored))
+    messages.warning(
+        request,
+        "Saved, but these submitted editable markers were not added to the "
+        f"schema: {', '.join(marker_names)}. Check each marker's nearest "
+        "data-section and dotted prefix.",
+    )
 
 
 GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
@@ -218,6 +231,9 @@ def template_create(request):
             user=request.user,
             label="Initial",
         )
+        _warn_ignored_submitted_field_markers(
+            request, template.html_source, template.schema
+        )
         messages.success(request, f"Template “{template.name}” created.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
@@ -319,6 +335,9 @@ def template_detail(request, pk):
             messages.info(request, "No HTML changes — metadata saved.")
         else:
             messages.success(request, "Template updated.")
+        _warn_ignored_submitted_field_markers(
+            request, html_source, template.schema
+        )
         return redirect("dashboard:template_detail", pk=template.pk)
 
     tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
@@ -546,12 +565,22 @@ def _run_annotation_job(job_id, raw_html):
 
     AnnotationJob.objects.filter(id=job_id).update(status=AnnotationJob.STATUS_RUNNING)
     try:
-        annotated = annotate_html(raw_html)
+        annotation = annotate_html_result(raw_html)
+        annotated = annotation.html
         schema = build_schema(annotated)
-        sections_summary = [
-            {"id": s["id"], "label": s["label"], "field_count": len(s.get("fields", []))}
-            for s in schema.get("sections", [])
-        ]
+        sections_summary = {
+            "items": [
+                {
+                    "id": s["id"],
+                    "label": s["label"],
+                    "field_count": len(s.get("fields", [])),
+                }
+                for s in schema.get("sections", [])
+            ],
+            "reconciled_fields": annotation.reconciled_fields,
+            "dropped_fields": annotation.dropped_fields,
+            "backfilled_fields": annotation.backfilled_fields,
+        }
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_DONE,
             result_html=annotated,
@@ -722,7 +751,17 @@ def template_annotate_status(request, job_id):
     body = {"job_id": str(job.id), "status": job.status}
     if job.status == AnnotationJob.STATUS_DONE:
         body["html"] = job.result_html
-        body["sections"] = job.sections
+        if isinstance(job.sections, dict):
+            body["sections"] = job.sections.get("items", [])
+            for key in (
+                "reconciled_fields",
+                "dropped_fields",
+                "backfilled_fields",
+            ):
+                body[key] = job.sections.get(key, 0)
+        else:
+            # Rows created before integrity counters used a plain section list.
+            body["sections"] = job.sections
     elif job.status == AnnotationJob.STATUS_ERROR:
         body["error"] = job.error or "Annotation failed."
     return JsonResponse(body)
@@ -942,6 +981,10 @@ def tenant_create(request):
             status=400,
         )
 
+    if inline_new_template:
+        _warn_ignored_submitted_field_markers(
+            request, new_template_html, tenant.template.schema
+        )
     token = _stash_credentials_in_session(request, user, password)
     return redirect(
         f"{reverse('dashboard:site_created', args=[tenant.pk])}?token={token}"
@@ -1898,6 +1941,9 @@ def _page_create(request, tenant, scope):
             template, template.html_source, user=request.user, label="Initial"
         )
         page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
+    _warn_ignored_submitted_field_markers(
+        request, html_source, template.schema
+    )
     messages.success(request, f"Page “{page.title}” created — start editing.")
     if scope == "tenant":
         return redirect("dashboard:page_editor_self", page_pk=page.pk)
@@ -1926,18 +1972,27 @@ def page_create(request, pk):
     return _page_create(request, get_object_or_404(Tenant, pk=pk), "agency")
 
 
-def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
+def _annotate_template_in_background(
+    template_id: int,
+    raw_html: str,
+    job_id: str | None = None,
+) -> None:
     """Run the AI annotator on `raw_html` and update Template `template_id` in
     place when it completes. Used by page_import_siblings to upgrade an
     imported sibling Page from "renders as static HTML" to "editable in CMS"
     asynchronously — the import response returns immediately, and the
     annotated HTML lands a minute or two later.
 
-    Errors are logged but otherwise swallowed: a Template that failed to
-    annotate stays usable as static HTML, which is good enough for legal
-    pages.
+    A persisted AnnotationJob makes completion or failure visible to the
+    importing operator. The raw Template remains usable if annotation fails.
     """
     from django.db import connection
+
+    def update_job(**values):
+        if job_id:
+            AnnotationJob.objects.filter(id=job_id).update(**values)
+
+    update_job(status=AnnotationJob.STATUS_RUNNING)
     try:
         # annotate_html returns the annotated HTML as a STRING.
         annotated_html = annotate_html(raw_html)
@@ -1945,11 +2000,16 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         logger.warning(
             "Sibling annotation failed for template=%s: %s", template_id, exc,
         )
+        update_job(status=AnnotationJob.STATUS_ERROR, error=str(exc))
         connection.close()
         return
     except Exception as exc:
         logger.exception(
             "Sibling annotation crashed for template=%s: %s", template_id, exc,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_ERROR,
+            error=f"Unexpected error during sibling annotation: {exc}",
         )
         connection.close()
         return
@@ -1978,6 +2038,31 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         logger.info(
             "Sibling annotation applied to template=%s (%d sections)",
             template_id, section_count,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_DONE,
+            result_html=annotated_html,
+            sections={
+                "items": [
+                    {
+                        "id": section["id"],
+                        "label": section["label"],
+                        "field_count": len(section.get("fields", [])),
+                    }
+                    for section in (template.schema or {}).get("sections", [])
+                ],
+                "reconciled_fields": 0,
+                "dropped_fields": 0,
+                "backfilled_fields": 0,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Could not save sibling annotation for template=%s", template_id,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_ERROR,
+            error=f"Could not save sibling annotation: {exc}",
         )
     finally:
         connection.close()
@@ -2081,9 +2166,10 @@ def page_import_siblings(request, pk):
                 tenant=tenant, template=template, title=title, slug=slug,
             )
 
+        annotation_job = AnnotationJob.objects.create(created_by=request.user)
         threading.Thread(
             target=_annotate_template_in_background,
-            args=(template.pk, sibling_html),
+            args=(template.pk, sibling_html, str(annotation_job.id)),
             name=f"annotate-sibling-{template.pk}",
             daemon=True,
         ).start()
@@ -2091,6 +2177,10 @@ def page_import_siblings(request, pk):
         created.append({
             "slug": slug, "title": title, "page_id": page.pk,
             "annotation_status": "pending",
+            "annotation_job_id": str(annotation_job.id),
+            "annotation_status_url": reverse(
+                "dashboard:template_annotate_status", args=[annotation_job.id]
+            ),
         })
 
     return JsonResponse({"created": created, "skipped": skipped})
@@ -2147,6 +2237,9 @@ def page_edit_html(request, pk, page_pk):
                 messages.info(request, f"No HTML changes for “{page.title}”.")
             else:
                 messages.success(request, f"HTML updated for “{page.title}”.")
+            _warn_ignored_submitted_field_markers(
+                request, new_html, page.template.schema
+            )
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,
