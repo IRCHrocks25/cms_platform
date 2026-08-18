@@ -51,6 +51,8 @@ class AnnotationResult:
     reconciled_fields: int
     dropped_fields: int
     backfilled_fields: int
+    promoted_sections: int = 0
+    salvaged_fields: int = 0
     model: str = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -204,6 +206,7 @@ _CSS_PIXEL_DIMENSION_RE = re.compile(
     re.IGNORECASE,
 )
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
+_SEMANTIC_SPLIT_BOUNDARIES = {"section", "article"}
 
 
 def _strip_blocks(html: str) -> tuple[str, list[str]]:
@@ -322,6 +325,121 @@ def _apply_annotations(ref_map: dict, data: dict) -> int:
             tag["data-label"] = str(field["label"])[:120]
         applied += 1
     return applied
+
+
+def _lowest_shared_non_document_ancestor(elements):
+    """Return the closest strict ancestor shared by every element.
+
+    The document root and its ``html`` / ``body`` containers are deliberately
+    excluded: promoting those would make unrelated page content look like one
+    honest CMS section. Starting from strict parents also prevents a field from
+    becoming its own section (the parser only discovers descendant fields).
+    """
+    if not elements:
+        return None
+
+    ancestor_chains = [list(element.parents) for element in elements]
+    shared_ids = {id(ancestor) for ancestor in ancestor_chains[0]}
+    for chain in ancestor_chains[1:]:
+        shared_ids.intersection_update(id(ancestor) for ancestor in chain)
+
+    for ancestor in ancestor_chains[0]:
+        name = getattr(ancestor, "name", None)
+        if id(ancestor) not in shared_ids:
+            continue
+        if name in (None, "[document]", "html", "body"):
+            continue
+        return ancestor
+    return None
+
+
+def _recover_grouped_orphan_fields(soup, data: dict) -> tuple[int, int]:
+    """Promote safe wrappers around model fields that lack an owning section.
+
+    Models occasionally declare a heading, image, or link as both a section and
+    a field. Sibling fields then share its edit prefix but have no ancestor
+    section, so strict reconciliation must remove them. Grouping those orphans
+    by their declared section and finding their lowest shared *strict* ancestor
+    reveals the real wrapper without changing layout. Groups that converge only
+    at the document, ``html``, or ``body`` remain untouched for reconciliation
+    to report as honest drops.
+    """
+    section_metadata: dict[str, dict] = {}
+    for section in data.get("sections", []) or []:
+        section_id = _slug(section.get("id"))
+        if section_id and section_id not in section_metadata:
+            section_metadata[section_id] = section
+
+    orphan_groups: dict[str, list] = {}
+    for field_el in soup.find_all(attrs={"data-edit": True}):
+        if field_el.find_parent(attrs={"data-section": True}) is not None:
+            continue
+        edit = _clean_edit(field_el.get("data-edit"))
+        if not edit:
+            continue
+        section_id = edit.split(".", 1)[0]
+        if section_id in section_metadata:
+            orphan_groups.setdefault(section_id, []).append(field_el)
+
+    candidates: dict[int, dict] = {}
+    for section_id, fields in orphan_groups.items():
+        wrapper = _lowest_shared_non_document_ancestor(fields)
+        while wrapper is not None and wrapper.has_attr("data-edit"):
+            wrapper = _lowest_shared_non_document_ancestor([wrapper])
+        if wrapper is None:
+            continue
+        entry = candidates.setdefault(
+            id(wrapper),
+            {"wrapper": wrapper, "section_ids": [], "fields": []},
+        )
+        entry["section_ids"].append(section_id)
+        for field_el in fields:
+            if all(field_el is not existing for existing in entry["fields"]):
+                entry["fields"].append(field_el)
+
+    recovered_field_ids = {
+        id(field_el)
+        for candidate in candidates.values()
+        for field_el in candidate["fields"]
+    }
+    used_section_ids = {
+        (tag.get("data-section") or "").strip()
+        for tag in soup.find_all(attrs={"data-section": True})
+        if id(tag) not in recovered_field_ids
+    }
+    used_section_ids.discard("")
+
+    promoted = 0
+    salvaged = 0
+    for candidate in candidates.values():
+        wrapper = candidate["wrapper"]
+        proposed_id = candidate["section_ids"][0]
+        section_id = proposed_id
+        suffix = 2
+        while section_id in used_section_ids:
+            section_id = f"{proposed_id}_{suffix}"
+            suffix += 1
+        used_section_ids.add(section_id)
+
+        metadata = section_metadata[proposed_id]
+        wrapper["data-section"] = section_id
+        if metadata.get("label"):
+            wrapper["data-label"] = str(metadata["label"])[:120]
+        if metadata.get("icon"):
+            wrapper["data-icon"] = _slug(metadata["icon"]) or "square"
+        if metadata.get("group"):
+            wrapper["data-group"] = str(metadata["group"])[:40]
+
+        for field_el in candidate["fields"]:
+            # A model-declared section marker on the field itself conflicts
+            # with descendant ownership. Preserve the field's own label.
+            for attr in ("data-section", "data-icon", "data-group"):
+                field_el.attrs.pop(attr, None)
+
+        promoted += 1
+        salvaged += len(candidate["fields"])
+
+    return promoted, salvaged
 
 
 def _reconcile_annotated_fields(soup) -> tuple[int, int]:
@@ -648,6 +766,8 @@ def _find_split_root(soup):
         if len(element_children) != 1:
             break
         only = element_children[0]
+        if only.name in _SEMANTIC_SPLIT_BOUNDARIES:
+            break
         grandkids = [g for g in only.children if getattr(g, "name", None)]
         if not grandkids:
             break
@@ -943,9 +1063,13 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     data = _merge_chunk_results(chunk_results)
 
     applied = _apply_annotations(ref_map, data)
+    promoted, salvaged = _recover_grouped_orphan_fields(soup, data)
     reconciled, dropped = _reconcile_annotated_fields(soup)
     logger.info(
-        "Annotator: reconciled %d field prefix(es); dropped %d orphan field(s).",
+        "Annotator: promoted %d section wrapper(s), salvaged %d orphan field(s); "
+        "reconciled %d field prefix(es); dropped %d orphan field(s).",
+        promoted,
+        salvaged,
         reconciled,
         dropped,
     )
@@ -1001,9 +1125,10 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
 
     logger.info(
         "Annotator: produced %d section(s) from %d model field(s) + %d backfilled; "
-        "%d reconciled, %d dropped; model=%s, tokens=%d total (%d prompt, "
-        "%d completion, %d reasoning).",
-        len(sections), applied, backfilled, reconciled, dropped,
+        "%d section(s) promoted, %d orphan field(s) salvaged, %d reconciled, "
+        "%d dropped; model=%s, tokens=%d total (%d prompt, %d completion, "
+        "%d reasoning).",
+        len(sections), applied, backfilled, promoted, salvaged, reconciled, dropped,
         settings.OPENAI_ANNOTATE_MODEL,
         token_usage["total_tokens"],
         token_usage["prompt_tokens"],
@@ -1015,6 +1140,8 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
         reconciled_fields=reconciled,
         dropped_fields=dropped,
         backfilled_fields=backfilled,
+        promoted_sections=promoted,
+        salvaged_fields=salvaged,
         model=settings.OPENAI_ANNOTATE_MODEL,
         **token_usage,
     )

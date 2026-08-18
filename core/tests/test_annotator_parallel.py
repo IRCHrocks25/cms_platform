@@ -71,6 +71,27 @@ class FindSplitRootTests(TestCase):
         block_names = [c.name for c in root.children if getattr(c, "name", None)]
         self.assertEqual(block_names, ["p"])
 
+    def test_keeps_single_semantic_section_as_a_model_visible_wrapper(self):
+        """A small page still needs its section wrapper in the model payload.
+
+        If the splitter descends into the section, its heading, paragraph, and
+        image become unrelated siblings. The model can then choose one sibling
+        as the section and leave every field without a valid owning ancestor.
+        """
+        s = _soup(
+            "<body><main><section class='consultation-intro'>"
+            "<h1>Thoughtful care for a healthier tomorrow</h1>"
+            "<p>Book a private consultation with our experienced clinical team.</p>"
+            "<img src='consultation-room.jpg' alt='A welcoming medical consultation room'>"
+            "</section></main></body>"
+        )
+
+        root = _find_split_root(s)
+        block_names = [c.name for c in root.children if getattr(c, "name", None)]
+
+        self.assertEqual(root.name, "main")
+        self.assertEqual(block_names, ["section"])
+
 
 class ChunkNodesTests(TestCase):
     def test_groups_whole_nodes_under_target(self):
@@ -359,6 +380,159 @@ class AnnotateOneChunkRetryTests(TestCase):
 
 
 class AnnotateHtmlParallelIntegrationTests(TestCase):
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        OPENAI_ANNOTATE_MODEL="gpt-5.6-luna",
+        OPENAI_ANNOTATE_REASONING_EFFORT="medium",
+        ANNOTATE_CHUNK_TARGET_CHARS=1000,
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_recovers_fields_when_model_section_is_their_sibling(self):
+        """Regression fixture from the failed production smoke annotation."""
+        html = (
+            "<!doctype html><html lang='en'><head>"
+            "<title>Production annotation smoke</title></head><body><main>"
+            "<section class='consultation-intro'>"
+            "<h1>Thoughtful care for a healthier tomorrow</h1>"
+            "<p>Book a private consultation with our experienced clinical team.</p>"
+            "<img src='https://example.com/consultation-room.jpg' "
+            "alt='A welcoming medical consultation room' width='900' height='600'>"
+            "</section></main></body></html>"
+        )
+        model_json = (
+            '{"sections":[{"ref":6,"id":"consultation","label":"Consultation"}],'
+            '"fields":['
+            '{"ref":6,"edit":"consultation.title","type":"text","label":"Title"},'
+            '{"ref":7,"edit":"consultation.body","type":"richtext","label":"Body"},'
+            '{"ref":8,"edit":"consultation.image","type":"image","label":"Room"}]}'
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(model_json)
+                )
+            )
+        )
+
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ):
+            result = annotate_html_result(html)
+
+        schema = build_schema(result.html)
+        sections = [s for s in schema["sections"] if s["id"] != "brand"]
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(len(sections[0]["fields"]), 3)
+        self.assertEqual(result.promoted_sections, 1)
+        self.assertEqual(result.salvaged_fields, 3)
+        self.assertEqual(result.dropped_fields, 0)
+        image = BeautifulSoup(result.html, "lxml").find("img")
+        self.assertEqual(image.get("data-type"), "image")
+
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        OPENAI_ANNOTATE_MODEL="gpt-5.6-luna",
+        OPENAI_ANNOTATE_REASONING_EFFORT="medium",
+        ANNOTATE_CHUNK_TARGET_CHARS=1000,
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_recovers_all_starter_fields_from_partially_misaligned_sections(self):
+        """Corpus regression: Luna kept only the nested paragraph field."""
+        html = (
+            "<section><h1>Welcome</h1><div><p>Tell visitors what you do.</p></div>"
+            "<img src='hero.jpg' alt=''><a href='#'>Learn more</a></section>"
+        )
+        model_json = (
+            '{"sections":['
+            '{"ref":1,"id":"hero","label":"Hero"},'
+            '{"ref":2,"id":"intro","label":"Introduction"},'
+            '{"ref":4,"id":"content_image","label":"Content Image"},'
+            '{"ref":5,"id":"cta","label":"Call to Action"}],'
+            '"fields":['
+            '{"ref":1,"edit":"hero.title","type":"text","label":"Title"},'
+            '{"ref":3,"edit":"intro.body","type":"richtext","label":"Body"},'
+            '{"ref":4,"edit":"content_image.image","type":"image","label":"Image"},'
+            '{"ref":5,"edit":"cta.label","type":"text","label":"CTA"}]}'
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(model_json)
+                )
+            )
+        )
+
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ):
+            result = annotate_html_result(html)
+
+        schema = build_schema(result.html)
+        fields = [
+            field
+            for section in schema["sections"]
+            if section["id"] != "brand"
+            for field in section["fields"]
+        ]
+        self.assertEqual(len(fields), 4)
+        self.assertEqual(sum(field["type"] == "image" for field in fields), 1)
+        self.assertEqual(result.promoted_sections, 1)
+        self.assertEqual(result.salvaged_fields, 3)
+        self.assertEqual(result.dropped_fields, 0)
+
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        OPENAI_ANNOTATE_MODEL="gpt-5.6-luna",
+        OPENAI_ANNOTATE_REASONING_EFFORT="medium",
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_truly_empty_model_result_remains_an_honest_error(self):
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(
+                        '{"sections":[],"fields":[]}'
+                    )
+                )
+            )
+        )
+
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ), self.assertRaisesRegex(AnnotatorError, "no editable sections"):
+            annotate_html_result("<main><h1>Nothing selected</h1></main>")
+
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        OPENAI_ANNOTATE_MODEL="gpt-5.6-luna",
+        OPENAI_ANNOTATE_REASONING_EFFORT="medium",
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_does_not_promote_document_root_for_unrelated_orphan_fields(self):
+        """Salvage must require a real shared wrapper below html/body."""
+        model_json = (
+            '{"sections":[{"ref":0,"id":"content","label":"Content"}],'
+            '"fields":['
+            '{"ref":0,"edit":"content.title","type":"text","label":"Title"},'
+            '{"ref":1,"edit":"content.body","type":"richtext","label":"Body"}]}'
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(model_json)
+                )
+            )
+        )
+
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ), self.assertRaisesRegex(AnnotatorError, "no editable sections"):
+            annotate_html_result("<h1>Unwrapped title</h1><p>Unwrapped body</p>")
+
     @override_settings(
         OPENAI_API_KEY="sk-test",
         ANNOTATE_CHUNK_TARGET_CHARS=1000,

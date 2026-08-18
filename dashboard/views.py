@@ -75,21 +75,34 @@ def _client_may_edit_content(request, editable) -> bool:
 
 
 STARTER_TEMPLATE_HTML = """\
-<section data-section="hero" data-label="Hero" data-group="Home">
-  <h1 data-edit="hero.title" data-type="text" data-label="Headline">Welcome</h1>
-  <div data-edit="hero.body" data-type="richtext" data-label="Body">
-    <p>Tell visitors what you do.</p>
-  </div>
-  <img data-edit="hero.image" data-type="image" data-label="Photo"
-       src="https://placehold.co/800x400" alt="">
-  <a data-edit="hero.cta" data-type="link" data-label="Button" href="#">Learn more</a>
-</section>
+<main class="starter-page">
+  <section class="starter-hero" data-section="hero" data-label="Welcome" data-group="Home">
+    <p class="starter-kicker" data-edit="hero.kicker" data-type="text" data-label="Kicker">A clear place to begin</p>
+    <h1 class="starter-title" data-edit="hero.title" data-type="text" data-label="Headline">Welcome to your new site</h1>
+    <p class="starter-intro" data-edit="hero.intro" data-type="richtext" data-label="Introduction">Tell visitors what you offer and why it matters.</p>
+    <img class="starter-image" data-edit="hero.image" data-type="image" data-label="Feature photo"
+         src="https://placehold.co/960x540" alt="A bright and welcoming workspace">
+    <a class="starter-cta" data-edit="hero.cta" data-type="link" data-label="Primary link" href="#highlight">Explore the details</a>
+  </section>
+
+  <section id="highlight" class="starter-highlight" data-section="highlight" data-label="Highlight" data-group="Sections">
+    <h2 class="starter-highlight-title" data-edit="highlight.title" data-type="text" data-label="Heading">Make this page your own</h2>
+    <div class="starter-highlight-color" data-edit="highlight.background" data-type="color" data-label="Background"
+         style="background-color: #dbeafe" aria-label="Highlight background"></div>
+  </section>
+</main>
 
 <style data-tokens>
   :root {
     --primary: #2563eb;
-    --bg: #ffffff;
+    --surface: #ffffff;
+    --text: #172033;
   }
+  .starter-page { color: var(--text); background: var(--surface); font-family: system-ui, sans-serif; }
+  .starter-hero, .starter-highlight { max-width: 960px; margin: auto; padding: 64px 24px; }
+  .starter-image { display: block; width: 100%; margin: 24px 0; }
+  .starter-cta { color: var(--primary); }
+  .starter-highlight-color { min-height: 96px; }
 </style>
 """
 
@@ -580,6 +593,8 @@ def _run_annotation_job(job_id, raw_html):
             "reconciled_fields": annotation.reconciled_fields,
             "dropped_fields": annotation.dropped_fields,
             "backfilled_fields": annotation.backfilled_fields,
+            "promoted_sections": annotation.promoted_sections,
+            "salvaged_fields": annotation.salvaged_fields,
             "model": annotation.model,
             "prompt_tokens": annotation.prompt_tokens,
             "completion_tokens": annotation.completion_tokens,
@@ -762,6 +777,8 @@ def template_annotate_status(request, job_id):
                 "reconciled_fields",
                 "dropped_fields",
                 "backfilled_fields",
+                "promoted_sections",
+                "salvaged_fields",
                 "model",
                 "prompt_tokens",
                 "completion_tokens",
