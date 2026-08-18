@@ -53,7 +53,7 @@
           Paste the page's HTML below (annotate it with AI for the editable fields) — each page gets its own template.
         </p>
         {% include "dashboard/_html_source_editor.html" with html_value="" %}
-        <div class="row-end">
+        <div class="row-end source-form-actions">
           <button type="submit" class="btn btn-primary">
             <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
             Add page
@@ -92,6 +92,7 @@
         if (!btn || !input || !statusBox) return;
 
         var csrf = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
+        var annotationRows = {};
 
         function show(msg, kind) {
           statusBox.hidden = false;
@@ -110,9 +111,61 @@
           items.forEach(function (item) {
             var li = document.createElement("li");
             li.textContent = formatter(item);
+            if (item.annotation_job_id) {
+              annotationRows[item.annotation_job_id] = li;
+            }
             list.appendChild(li);
           });
           container.appendChild(list);
+        }
+
+        function annotationLabel(item, state) {
+          return "/" + item.slug + "/: " + item.title + " (" + state + ")";
+        }
+
+        function failAnnotation(item, message) {
+          var row = annotationRows[item.annotation_job_id];
+          if (row) row.textContent = annotationLabel(item, "AI annotation failed: " + message);
+          statusBox.dataset.state = "error";
+        }
+
+        function pollAnnotation(item) {
+          if (!item.annotation_status_url) {
+            failAnnotation(item, "status endpoint unavailable");
+            return;
+          }
+          fetch(item.annotation_status_url, { headers: { "Accept": "application/json" } })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                var body = null;
+                try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+                return { ok: response.ok, status: response.status, body: body };
+              });
+            })
+            .then(function (result) {
+              var body = result.body || {};
+              if (!result.ok) {
+                failAnnotation(item, body.error || "status check returned HTTP " + result.status);
+                return;
+              }
+              if (body.status === "done") {
+                var row = annotationRows[item.annotation_job_id];
+                if (row) row.textContent = annotationLabel(item, "editable fields are ready");
+                return;
+              }
+              if (body.status === "error") {
+                failAnnotation(item, body.error || "annotation failed");
+                return;
+              }
+              if (body.status !== "pending" && body.status !== "running") {
+                failAnnotation(item, body.error || "unknown annotation status");
+                return;
+              }
+              setTimeout(function () { pollAnnotation(item); }, 2500);
+            })
+            .catch(function () {
+              failAnnotation(item, "the status check could not reach the server");
+            });
         }
 
         btn.addEventListener("click", function () {
@@ -170,6 +223,7 @@
             reload.appendChild(reloadLink);
             result.appendChild(reload);
             show(result, "info");
+            created.forEach(pollAnnotation);
           })
           .catch(function () { show("Pages could not be imported because the network connection failed. Check your connection and try again.", "error"); })
           .then(function () { btn.disabled = false; });

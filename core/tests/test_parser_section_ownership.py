@@ -25,3 +25,30 @@ class NestedSectionOwnershipTests(SimpleTestCase):
 
         self.assertEqual(fields["outer"], ["outer.title"])
         self.assertEqual(fields["inner"], ["inner.title"])
+
+    def test_duplicate_field_ids_are_not_added_twice(self):
+        schema = build_schema(
+            "<section data-section='hero'>"
+            "<h1 data-edit='hero.title'>First</h1>"
+            "<p data-edit='hero.title'>Second</p>"
+            "</section>"
+        )
+
+        self.assertEqual(
+            [field["id"] for field in schema["sections"][0]["fields"]],
+            ["hero.title"],
+        )
+        self.assertEqual(schema["defaults"], {"hero": {"title": "First"}})
+
+    def test_duplicate_section_ids_are_not_added_twice(self):
+        schema = build_schema(
+            "<section data-section='hero'>"
+            "<h1 data-edit='hero.title'>First</h1>"
+            "</section>"
+            "<section data-section='hero'>"
+            "<p data-edit='hero.copy'>Second</p>"
+            "</section>"
+        )
+
+        self.assertEqual([section["id"] for section in schema["sections"]], ["hero"])
+        self.assertEqual(schema["defaults"], {"hero": {"title": "First"}})

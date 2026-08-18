@@ -153,6 +153,22 @@ class ReconcileAnnotatedFieldsTests(TestCase):
         self.assertNotIn("data-type", orphan.attrs)
         self.assertNotIn("data-label", orphan.attrs)
 
+    def test_uniquifies_duplicate_field_ids_within_the_owning_section(self):
+        soup = _soup(
+            "<section data-section='hero'>"
+            "<h1 data-edit='hero.title'>First</h1>"
+            "<p data-edit='hero.title'>Second</p>"
+            "</section>"
+        )
+
+        reconciled, dropped = _reconcile_annotated_fields(soup)
+
+        self.assertEqual((reconciled, dropped), (1, 0))
+        self.assertEqual(
+            [element["data-edit"] for element in soup.find_all(attrs={"data-edit": True})],
+            ["hero.title", "hero.title_2"],
+        )
+
 
 class AnnotateOneChunkRetryTests(TestCase):
     def _client_raising_then_ok(self, fail_times, ok_content):

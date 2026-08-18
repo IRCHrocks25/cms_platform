@@ -56,6 +56,13 @@ class PageCreateFromHtmlTests(TestCase):
         )
         self.assertFalse(self.tenant.pages.filter(slug="about").exists())
 
+    def test_page_list_marks_new_page_save_row_as_sticky(self):
+        response = self.client.get(
+            reverse("dashboard:page_list", args=[self.tenant.pk])
+        )
+
+        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+
     def test_create_warns_when_submitted_markers_are_ignored(self):
         response = self.client.post(
             self.url,

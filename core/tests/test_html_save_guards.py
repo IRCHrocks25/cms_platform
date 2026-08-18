@@ -105,6 +105,18 @@ class IgnoredSubmittedMarkerWarningTest(TestCase):
 
         self.assertEqual(ignored, ["hero.title"])
 
+    def test_occurrence_count_finds_duplicate_marker_inside_one_section(self):
+        html = (
+            '<section data-section="hero">'
+            '<h1 data-edit="hero.title">Kept</h1>'
+            '<p data-edit="hero.title">Ignored duplicate</p>'
+            '</section>'
+        )
+
+        ignored = template_svc.ignored_submitted_field_markers(html)
+
+        self.assertEqual(ignored, ["hero.title"])
+
     def test_template_create_warns_after_redirect_with_marker_names(self):
         response = self.client.post(
             "/dashboard/templates/new/",

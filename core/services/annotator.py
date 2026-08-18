@@ -314,6 +314,7 @@ def _reconcile_annotated_fields(soup) -> tuple[int, int]:
     """
     reconciled = 0
     dropped = 0
+    used_field_ids: dict[str, set[str]] = {}
     for field_el in soup.find_all(attrs={"data-edit": True}):
         section = field_el.find_parent(attrs={"data-section": True})
         section_id = (section.get("data-section") or "").strip() if section else ""
@@ -325,13 +326,28 @@ def _reconcile_annotated_fields(soup) -> tuple[int, int]:
             continue
 
         section_part, field_part = full_id.split(".", 1)
+        field_part = field_part.strip()
         if not field_part.strip():
             for attr in ("data-edit", "data-type", "data-label"):
                 field_el.attrs.pop(attr, None)
             dropped += 1
             continue
+        changed = False
         if section_part != section_id:
-            field_el["data-edit"] = f"{section_id}.{field_part}"
+            changed = True
+
+        used = used_field_ids.setdefault(section_id, set())
+        unique_field_part = field_part
+        suffix = 2
+        while unique_field_part in used:
+            unique_field_part = f"{field_part}_{suffix}"
+            suffix += 1
+        if unique_field_part != field_part:
+            changed = True
+        used.add(unique_field_part)
+
+        if changed:
+            field_el["data-edit"] = f"{section_id}.{unique_field_part}"
             reconciled += 1
     return reconciled, dropped
 

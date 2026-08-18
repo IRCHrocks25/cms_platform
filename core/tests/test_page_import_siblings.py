@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Page, Template, Tenant
+from core.models import AnnotationJob, Page, Template, Tenant
 
 
 @override_settings(
@@ -104,6 +104,9 @@ class PageImportSiblingsTests(TestCase):
         )
         for c in body["created"]:
             self.assertEqual(c["annotation_status"], "pending")
+            self.assertIn("annotation_job_id", c)
+            self.assertIn(c["annotation_job_id"], c["annotation_status_url"])
+        self.assertEqual(AnnotationJob.objects.count(), 2)
 
     def test_skips_existing_slugs(self):
         existing_tpl = Template.objects.create(
@@ -146,5 +149,15 @@ class PageImportSiblingsTests(TestCase):
         # have been queued for execution exactly once.
         self.assertEqual(mock_bg.call_count, 1)
         kwargs_or_args = mock_bg.call_args[0]
-        # Args: (template_id, sibling_html)
-        self.assertEqual(len(kwargs_or_args), 2)
+        # Args: (template_id, sibling_html, annotation_job_id)
+        self.assertEqual(len(kwargs_or_args), 3)
+
+    def test_page_list_reports_background_annotation_errors_to_the_operator(self):
+        response = self.client.get(
+            reverse("dashboard:page_list", args=[self.tenant.pk])
+        )
+        source = response.content.decode()
+
+        self.assertIn("annotation_status_url", source)
+        self.assertIn("AI annotation failed: ", source)
+        self.assertIn('body.status === "error"', source)

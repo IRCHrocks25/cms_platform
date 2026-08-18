@@ -169,3 +169,30 @@ class InlineTemplateCreatePlugAndForgetTests(TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual({r.slug for r in rows}, {"acme"})
         self.assertEqual(len({r.tenant_id for r in rows}), 2)
+
+    def test_inline_template_warns_when_submitted_markers_are_ignored(self):
+        client = self._client()
+        response = client.post(
+            reverse("dashboard:tenant_create"),
+            {
+                "name": "Marker Audit",
+                "subdomain": "marker-audit",
+                "template": "__new__",
+                "custom_domain": "",
+                "client_username": "marker_audit_owner",
+                "client_email": "",
+                "new_template_name": "",
+                "new_template_description": "",
+                "new_template_html": (
+                    "<section data-section='hero'>"
+                    "<h1 data-edit='hero.title'>Kept</h1>"
+                    "<p data-edit='wrong.copy'>Wrong prefix</p>"
+                    "</section>"
+                ),
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "submitted editable markers were not added")
+        self.assertContains(response, "wrong.copy")

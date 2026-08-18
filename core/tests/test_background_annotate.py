@@ -12,7 +12,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import AnnotationJob, Template
-from core.services.annotator import AnnotationResult
+from core.services.annotator import AnnotationResult, AnnotatorError
 
 
 PLAIN_STATIC = {
@@ -45,6 +45,42 @@ class BackgroundAnnotateTests(TestCase):
         self.assertIn("data-section", tpl.html_source)
         ids = [s["id"] for s in tpl.schema.get("sections", [])]
         self.assertIn("hero", ids)
+
+    def test_records_sibling_annotation_failure_on_its_job(self):
+        raw = "<div><h1>Hi</h1></div>"
+        tpl = Template.objects.create(name="failed", html_source=raw)
+        job = AnnotationJob.objects.create()
+        from dashboard.views import _annotate_template_in_background
+
+        with mock.patch(
+            "dashboard.views.annotate_html",
+            side_effect=AnnotatorError("Provider rejected the request."),
+        ), mock.patch.object(connection, "close"):
+            _annotate_template_in_background(tpl.pk, raw, str(job.id))
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AnnotationJob.STATUS_ERROR)
+        self.assertEqual(job.error, "Provider rejected the request.")
+
+    def test_records_sibling_annotation_success_only_after_template_save(self):
+        raw = "<div><h1>Hi</h1></div>"
+        tpl = Template.objects.create(name="successful", html_source=raw)
+        job = AnnotationJob.objects.create()
+        annotated = (
+            "<section data-section='hero' data-label='Hero'>"
+            "<h1 data-edit='hero.title'>Hi</h1></section>"
+        )
+        from dashboard.views import _annotate_template_in_background
+
+        with mock.patch(
+            "dashboard.views.annotate_html", return_value=annotated
+        ), mock.patch.object(connection, "close"):
+            _annotate_template_in_background(tpl.pk, raw, str(job.id))
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AnnotationJob.STATUS_DONE)
+        self.assertEqual(job.result_html, annotated)
+        self.assertEqual(job.sections["items"][0]["id"], "hero")
 
 
 class AnnotationJobSummaryTests(TestCase):
@@ -174,6 +210,11 @@ class AnnotationEditorUiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         return response.content.decode()
 
+    def _new_site_source(self):
+        response = self.client.get(reverse("dashboard:tenant_create"))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
     def test_poll_fails_immediately_for_non_2xx_and_error_only_json(self):
         source = self._source()
 
@@ -203,3 +244,22 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.reconciled_fields", source)
         self.assertIn("body.dropped_fields", source)
         self.assertIn("body.backfilled_fields", source)
+
+    def test_new_site_annotation_ui_has_the_same_terminal_failure_contract(self):
+        source = self._new_site_source()
+
+        self.assertIn("if (!r.ok) return fail(responseMessage", source)
+        self.assertIn("if (r.body.error && !r.body.status)", source)
+        self.assertIn('id="compare-loading-close"', source)
+        self.assertIn("compareLoading.classList.add(\"is-error\")", source)
+
+    def test_new_site_annotation_ui_reports_counts_and_zero_section_warning(self):
+        source = self._new_site_source()
+
+        self.assertIn("body.reconciled_fields", source)
+        self.assertIn("body.dropped_fields", source)
+        self.assertIn("body.backfilled_fields", source)
+        self.assertIn(
+            "Applying this result will produce a template with no editable fields.",
+            source,
+        )

@@ -981,6 +981,10 @@ def tenant_create(request):
             status=400,
         )
 
+    if inline_new_template:
+        _warn_ignored_submitted_field_markers(
+            request, new_template_html, tenant.template.schema
+        )
     token = _stash_credentials_in_session(request, user, password)
     return redirect(
         f"{reverse('dashboard:site_created', args=[tenant.pk])}?token={token}"
@@ -1968,18 +1972,27 @@ def page_create(request, pk):
     return _page_create(request, get_object_or_404(Tenant, pk=pk), "agency")
 
 
-def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
+def _annotate_template_in_background(
+    template_id: int,
+    raw_html: str,
+    job_id: str | None = None,
+) -> None:
     """Run the AI annotator on `raw_html` and update Template `template_id` in
     place when it completes. Used by page_import_siblings to upgrade an
     imported sibling Page from "renders as static HTML" to "editable in CMS"
     asynchronously — the import response returns immediately, and the
     annotated HTML lands a minute or two later.
 
-    Errors are logged but otherwise swallowed: a Template that failed to
-    annotate stays usable as static HTML, which is good enough for legal
-    pages.
+    A persisted AnnotationJob makes completion or failure visible to the
+    importing operator. The raw Template remains usable if annotation fails.
     """
     from django.db import connection
+
+    def update_job(**values):
+        if job_id:
+            AnnotationJob.objects.filter(id=job_id).update(**values)
+
+    update_job(status=AnnotationJob.STATUS_RUNNING)
     try:
         # annotate_html returns the annotated HTML as a STRING.
         annotated_html = annotate_html(raw_html)
@@ -1987,11 +2000,16 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         logger.warning(
             "Sibling annotation failed for template=%s: %s", template_id, exc,
         )
+        update_job(status=AnnotationJob.STATUS_ERROR, error=str(exc))
         connection.close()
         return
     except Exception as exc:
         logger.exception(
             "Sibling annotation crashed for template=%s: %s", template_id, exc,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_ERROR,
+            error=f"Unexpected error during sibling annotation: {exc}",
         )
         connection.close()
         return
@@ -2020,6 +2038,31 @@ def _annotate_template_in_background(template_id: int, raw_html: str) -> None:
         logger.info(
             "Sibling annotation applied to template=%s (%d sections)",
             template_id, section_count,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_DONE,
+            result_html=annotated_html,
+            sections={
+                "items": [
+                    {
+                        "id": section["id"],
+                        "label": section["label"],
+                        "field_count": len(section.get("fields", [])),
+                    }
+                    for section in (template.schema or {}).get("sections", [])
+                ],
+                "reconciled_fields": 0,
+                "dropped_fields": 0,
+                "backfilled_fields": 0,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Could not save sibling annotation for template=%s", template_id,
+        )
+        update_job(
+            status=AnnotationJob.STATUS_ERROR,
+            error=f"Could not save sibling annotation: {exc}",
         )
     finally:
         connection.close()
@@ -2123,9 +2166,10 @@ def page_import_siblings(request, pk):
                 tenant=tenant, template=template, title=title, slug=slug,
             )
 
+        annotation_job = AnnotationJob.objects.create(created_by=request.user)
         threading.Thread(
             target=_annotate_template_in_background,
-            args=(template.pk, sibling_html),
+            args=(template.pk, sibling_html, str(annotation_job.id)),
             name=f"annotate-sibling-{template.pk}",
             daemon=True,
         ).start()
@@ -2133,6 +2177,10 @@ def page_import_siblings(request, pk):
         created.append({
             "slug": slug, "title": title, "page_id": page.pk,
             "annotation_status": "pending",
+            "annotation_job_id": str(annotation_job.id),
+            "annotation_status_url": reverse(
+                "dashboard:template_annotate_status", args=[annotation_job.id]
+            ),
         })
 
     return JsonResponse({"created": created, "skipped": skipped})
