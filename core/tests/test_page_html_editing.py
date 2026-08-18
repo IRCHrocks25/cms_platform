@@ -71,6 +71,16 @@ class PageEditHtmlTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "data-section")
 
+    def test_get_uses_shared_annotation_error_controls(self):
+        r = self.client.get(self.url)
+
+        self.assertContains(r, 'id="compare-loading-retry"', html=False)
+        self.assertContains(r, 'id="compare-loading-close"', html=False)
+        self.assertContains(
+            r,
+            "Applying this result will produce a template with no editable fields.",
+        )
+
     def test_post_updates_html_and_rebuilds_schema(self):
         r = self.client.post(self.url, {"html_source": _CTA})
         self.assertEqual(r.status_code, 302)

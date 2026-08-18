@@ -8,11 +8,19 @@ from unittest import mock
 
 from django.contrib.auth.models import User
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import AnnotationJob, Template
 from core.services.annotator import AnnotationResult
+
+
+PLAIN_STATIC = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+    },
+}
 
 
 class BackgroundAnnotateTests(TestCase):
@@ -125,3 +133,73 @@ class AnnotationJobSummaryTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sections"], sections)
+
+    def test_status_preserves_the_workers_exact_error_message(self):
+        message = "The model returned invalid JSON after chunk 2."
+        job = AnnotationJob.objects.create(
+            created_by=self.staff,
+            status=AnnotationJob.STATUS_ERROR,
+            error=message,
+        )
+
+        response = self.client.get(
+            reverse("dashboard:template_annotate_status", args=[job.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["error"], message)
+
+    def test_missing_job_returns_the_exact_server_message(self):
+        response = self.client.get(
+            reverse(
+                "dashboard:template_annotate_status",
+                args=["00000000-0000-0000-0000-000000000001"],
+            )
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "Job not found."})
+
+
+@override_settings(STORAGES=PLAIN_STATIC)
+class AnnotationEditorUiTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            "annotation-ui-operator", password="pw", is_staff=True
+        )
+        self.client.force_login(self.staff)
+
+    def _source(self):
+        response = self.client.get(reverse("dashboard:template_create"))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_poll_fails_immediately_for_non_2xx_and_error_only_json(self):
+        source = self._source()
+
+        self.assertIn("if (!r.ok) return fail(responseMessage", source)
+        self.assertIn("if (r.body.error && !r.body.status)", source)
+
+    def test_overlay_has_explicit_error_retry_and_close_controls(self):
+        source = self._source()
+
+        self.assertIn('id="compare-loading-retry"', source)
+        self.assertIn('id="compare-loading-close"', source)
+        self.assertIn("compareLoading.classList.add(\"is-error\")", source)
+
+    def test_zero_sections_is_an_explicit_warning_not_success(self):
+        source = self._source()
+
+        self.assertIn(
+            "Applying this result will produce a template with no editable fields.",
+            source,
+        )
+        self.assertIn('setStatus("warning"', source)
+        self.assertIn('compareApply.textContent = "Apply without editable fields"', source)
+
+    def test_compare_summary_reports_integrity_counts(self):
+        source = self._source()
+
+        self.assertIn("body.reconciled_fields", source)
+        self.assertIn("body.dropped_fields", source)
+        self.assertIn("body.backfilled_fields", source)
