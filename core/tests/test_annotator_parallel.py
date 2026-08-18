@@ -262,6 +262,23 @@ class AnnotateOneChunkRetryTests(TestCase):
         self.assertNotIn("max_tokens", captured)
         self.assertNotIn("temperature", captured)
 
+    @override_settings(OPENAI_ANNOTATE_REASONING_EFFORT="high")
+    def test_luna_request_uses_configured_reasoning_effort(self):
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _fake_completion('{"sections":[],"fields":[]}')
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+
+        _annotate_one_chunk(client, "x", model="gpt-5.6-luna", retries=0)
+
+        self.assertEqual(captured["reasoning_effort"], "high")
+
+    @override_settings(OPENAI_ANNOTATE_REASONING_EFFORT="high")
     def test_non_reasoning_model_overrides_keep_live_verified_output_caps(self):
         expected_caps = {
             "gpt-4o-mini": 16_384,

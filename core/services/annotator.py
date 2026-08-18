@@ -574,7 +574,7 @@ def _completion_request_options(model: str) -> dict:
         "response_format": {"type": "json_object"},
     }
     if model == _LUNA_MODEL:
-        options["reasoning_effort"] = "low"
+        options["reasoning_effort"] = settings.OPENAI_ANNOTATE_REASONING_EFFORT
     return options
 
 

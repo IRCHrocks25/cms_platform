@@ -151,8 +151,11 @@ Model selection: `settings.OPENAI_ANNOTATE_MODEL` (default `gpt-5.6-luna`,
 override in `.env`). Luna uses a 65,536-token completion budget. Live-verified
 fallback caps are 32,768 for GPT-4.1 models and 16,384 for GPT-4o and
 GPT-4o-mini; set `OPENAI_ANNOTATE_MAX_COMPLETION_TOKENS` when selecting a model
-with a different cap. Prompt, completion, reasoning, and total token usage are
-summed across chunks and stored with the annotation job for diagnostics.
+with a different cap. `OPENAI_ANNOTATE_REASONING_EFFORT` selects Luna's effort
+(`none`, `low`, `medium`, `high`, `xhigh`, or `max`; default `low`) and is never
+sent to GPT-4o models, which reject it. Prompt, completion, reasoning, and total
+token usage are summed across chunks and stored with the annotation job for
+diagnostics.
 
 The 500,000-character input ceiling and 40,000-character chunk target remain
 intentional. A request sees one chunk rather than the whole page, and these
