@@ -42,6 +42,34 @@ document.querySelectorAll("[data-source-edit-form]").forEach((form) => {
   form.addEventListener("submit", () => {
     indicator.hidden = true;
   });
+  form.addEventListener("keydown", (event) => {
+    if (
+      event.defaultPrevented ||
+      event.key !== "Enter" ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+
+    const input = event.target.closest?.("input");
+    const nonSubmittingTypes = new Set([
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ]);
+    if (!input || input.form !== form || nonSubmittingTypes.has(input.type)) return;
+
+    event.preventDefault();
+    form.requestSubmit();
+  });
 });
 
 document.addEventListener(

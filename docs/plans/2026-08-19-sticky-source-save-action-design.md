@@ -14,7 +14,7 @@ The annotation status returns to normal flow because a second sticky element wou
 
 Each source form marks its CodeMirror-backed textarea as the dirty-state source. The loaded textarea value is the baseline. Input events—already emitted by the CodeMirror synchronization path—show a muted “Unsaved changes” status when the current source differs and hide it when it matches again. A valid submit clears the status immediately. The canvas background keeps the existing muted token above 4.5:1 contrast.
 
-A document-level capture handler recognizes only unmodified Cmd/Ctrl+S on these marked source-editor screens, prevents the browser save dialog, and calls `requestSubmit()` on the associated form. It is a no-op when no marked form exists and leaves every other CodeMirror shortcut alone. Native button and implicit Enter submission continue through the same form.
+A document-level capture handler recognizes only unmodified Cmd/Ctrl+S on these marked source-editor screens, prevents the browser save dialog, and calls `requestSubmit()` on the associated form. It is a no-op when no marked form exists and leaves every other CodeMirror shortcut alone. The external button follows native form association. Because browsers do not consistently infer an external submitter for implicit Enter, the form also normalizes unmodified Enter from text-like inputs to `requestSubmit()`. Controls that already prevent Enter, such as Fetch URL, retain priority, and CodeMirror is unaffected because it is not a text input.
 
 ## Alternatives considered
 
