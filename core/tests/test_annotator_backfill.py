@@ -208,6 +208,24 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
 
 
 class BackfillCatchesUnmarkedContentImagesTests(TestCase):
+    def test_model_marked_image_is_not_backfilled_or_given_a_second_id(self):
+        s = _soup(
+            "<section data-section='hero'>"
+            "<img src='hero.jpg' alt='' data-edit='hero.primary_photo' "
+            "data-type='image' data-label='Primary photo'>"
+            "</section>"
+        )
+
+        added = _backfill_missed_image_fields(s)
+
+        image = s.find("img")
+        self.assertEqual(added, 0)
+        self.assertEqual(image.get("data-edit"), "hero.primary_photo")
+        self.assertEqual(
+            [element.get("data-edit") for element in s.select("[data-edit]")],
+            ["hero.primary_photo"],
+        )
+
     def test_empty_alt_content_image_is_promoted(self):
         s = _soup(
             "<section data-section='hero' data-label='Hero'>"

@@ -258,10 +258,33 @@ class AnnotateOneChunkRetryTests(TestCase):
         _annotate_one_chunk(client, "x", model="gpt-5.6-luna", retries=0)
 
         self.assertEqual(captured["max_completion_tokens"], 65_536)
-        self.assertEqual(captured["reasoning_effort"], "low")
+        self.assertEqual(captured["reasoning_effort"], "medium")
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertNotIn("max_tokens", captured)
         self.assertNotIn("temperature", captured)
+
+    def test_image_prompt_uses_context_for_empty_alt_and_decorative_exclusions(self):
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _fake_completion('{"sections":[],"fields":[]}')
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+
+        _annotate_one_chunk(client, "x", model="gpt-5.6-luna", retries=0)
+
+        prompt = " ".join(captured["messages"][0]["content"].split())
+        self.assertIn(
+            'alt="" is not by itself proof that an image is decorative',
+            prompt,
+        )
+        self.assertIn('role="presentation"', prompt)
+        self.assertIn('aria-hidden="true"', prompt)
+        for signal in ("icons", "logos", "spacers", "tracking pixels", "badges"):
+            self.assertIn(signal, prompt)
 
     @override_settings(OPENAI_ANNOTATE_REASONING_EFFORT="high")
     def test_luna_request_uses_configured_reasoning_effort(self):

@@ -54,6 +54,7 @@ if (annotateAudit) {
     bytes: annotatedSample.length,
     sectionMarkers: (annotatedSample.match(/\sdata-section=/g) || []).length,
     fieldMarkers: (annotatedSample.match(/\sdata-edit=/g) || []).length,
+    imageMarkers: (annotatedSample.match(/\sdata-type=(?:"image"|'image')/g) || []).length,
   };
   annotationAuditSource = annotatedSample.replace(
     /\sdata-(?:section|edit|type|label|icon|group|tokens)=(?:"[^"]*"|'[^']*')/g,
@@ -286,6 +287,7 @@ try {
             applyText: apply?.textContent?.trim() || '',
             outputMarkers: outputDocument.querySelectorAll('[data-edit]').length,
             outputSections: outputDocument.querySelectorAll('[data-section]').length,
+            outputImages: outputDocument.querySelectorAll('[data-edit][data-type="image"]').length,
             jobId: window.__cmsAnnotationAudit?.jobId || '',
             response: window.__cmsAnnotationAudit?.final || null,
           };
@@ -380,6 +382,7 @@ try {
             deleteUrl: document.querySelector('form[action$="/delete/"]')?.action || '',
             markerCount: markerIds.length,
             uniqueMarkerCount: new Set(markerIds).size,
+            imageMarkerCount: parsed.querySelectorAll('[data-edit][data-type="image"]').length,
             sectionCount: parsed.querySelectorAll('[data-section]').length,
             detectedSectionCount: badges.length,
             detectedFieldCount: detectedFieldCount,
@@ -401,6 +404,8 @@ try {
         annotationResult.saved.markerCount !== annotationResult.saved.uniqueMarkerCount ||
         annotationResult.saved.markerCount !== annotationResult.saved.detectedNonBrandFieldCount ||
         annotationResult.saved.markerCount !== annotationResult.outputMarkers ||
+        annotationResult.saved.imageMarkerCount !== annotationResult.outputImages ||
+        annotationResult.saved.imageMarkerCount !== annotationBaseline.imageMarkers ||
         annotationResult.saved.sectionCount !== annotationResult.saved.detectedNonBrandSectionCount ||
         annotationResult.saved.sectionCount !== annotationResult.outputSections ||
         responseSections.length !== annotationResult.saved.detectedSectionCount ||
