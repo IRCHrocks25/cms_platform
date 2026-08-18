@@ -28,6 +28,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -40,6 +41,16 @@ logger = logging.getLogger(__name__)
 
 class AnnotatorError(Exception):
     """Raised when annotation fails (missing key, API error, invalid output)."""
+
+
+@dataclass(frozen=True)
+class AnnotationResult:
+    """Annotated HTML plus deterministic integrity counters for operators."""
+
+    html: str
+    reconciled_fields: int
+    dropped_fields: int
+    backfilled_fields: int
 
 
 _SYSTEM_PROMPT = """You annotate raw HTML so a locked-structure CMS can build a client editing UI from it.
@@ -622,7 +633,7 @@ def _merge_chunk_results(results) -> dict:
     return {"sections": merged_sections, "fields": merged_fields}
 
 
-def annotate_html(raw_html: str) -> str:
+def annotate_html_result(raw_html: str) -> AnnotationResult:
     """Send raw HTML through OpenAI and return annotated HTML.
 
     The document is marked with global refs, split into chunks of whole
@@ -755,7 +766,17 @@ def annotate_html(raw_html: str) -> str:
         "%d reconciled, %d dropped.",
         len(sections), applied, backfilled, reconciled, dropped,
     )
-    return annotated
+    return AnnotationResult(
+        html=annotated,
+        reconciled_fields=reconciled,
+        dropped_fields=dropped,
+        backfilled_fields=backfilled,
+    )
+
+
+def annotate_html(raw_html: str) -> str:
+    """Return annotated HTML for existing string-based callers."""
+    return annotate_html_result(raw_html).html
 
 
 def _strip_code_fences(text: str) -> str:

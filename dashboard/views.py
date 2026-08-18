@@ -38,7 +38,7 @@ from core.services.accounts import (
     create_tenant_account,
     generate_password,
 )
-from core.services.annotator import annotate_html, AnnotatorError
+from core.services.annotator import annotate_html, annotate_html_result, AnnotatorError
 from core.services.sanitizer import sanitize_html
 from core.services import templates as template_svc
 from core import ghl_crypto
@@ -546,12 +546,22 @@ def _run_annotation_job(job_id, raw_html):
 
     AnnotationJob.objects.filter(id=job_id).update(status=AnnotationJob.STATUS_RUNNING)
     try:
-        annotated = annotate_html(raw_html)
+        annotation = annotate_html_result(raw_html)
+        annotated = annotation.html
         schema = build_schema(annotated)
-        sections_summary = [
-            {"id": s["id"], "label": s["label"], "field_count": len(s.get("fields", []))}
-            for s in schema.get("sections", [])
-        ]
+        sections_summary = {
+            "items": [
+                {
+                    "id": s["id"],
+                    "label": s["label"],
+                    "field_count": len(s.get("fields", [])),
+                }
+                for s in schema.get("sections", [])
+            ],
+            "reconciled_fields": annotation.reconciled_fields,
+            "dropped_fields": annotation.dropped_fields,
+            "backfilled_fields": annotation.backfilled_fields,
+        }
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_DONE,
             result_html=annotated,
@@ -722,7 +732,17 @@ def template_annotate_status(request, job_id):
     body = {"job_id": str(job.id), "status": job.status}
     if job.status == AnnotationJob.STATUS_DONE:
         body["html"] = job.result_html
-        body["sections"] = job.sections
+        if isinstance(job.sections, dict):
+            body["sections"] = job.sections.get("items", [])
+            for key in (
+                "reconciled_fields",
+                "dropped_fields",
+                "backfilled_fields",
+            ):
+                body[key] = job.sections.get(key, 0)
+        else:
+            # Rows created before integrity counters used a plain section list.
+            body["sections"] = job.sections
     elif job.status == AnnotationJob.STATUS_ERROR:
         body["error"] = job.error or "Annotation failed."
     return JsonResponse(body)
