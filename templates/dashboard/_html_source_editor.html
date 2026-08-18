@@ -229,6 +229,12 @@
       if (body.backfilled_fields) {
         details.push(body.backfilled_fields + " missed text field" + (body.backfilled_fields === 1 ? "" : "s") + " added");
       }
+      if (body.promoted_sections) {
+        details.push(body.promoted_sections + " wrapper" + (body.promoted_sections === 1 ? "" : "s") + " promoted to section");
+      }
+      if (body.salvaged_fields) {
+        details.push(body.salvaged_fields + " orphan field" + (body.salvaged_fields === 1 ? "" : "s") + " recovered");
+      }
       return details.length ? " Integrity checks: " + details.join(", ") + "." : "";
     }
     function fillCompareResult(annotatedHtml, sections, body) {
@@ -237,12 +243,13 @@
       setView("left", "code");
       setView("right", "code");
       var hasSections = sections.length > 0;
+      var hasIntegrityWarning = !!(body.dropped_fields || body.promoted_sections || body.salvaged_fields);
       var summary = hasSections
         ? "AI detected " + sections.length + " section" + (sections.length === 1 ? "" : "s") +
           ": " + sections.map(function (s) { return s.label + " (" + s.field_count + " field" + (s.field_count === 1 ? "" : "s") + ")"; }).join(", ")
         : "Applying this result will produce a template with no editable fields.";
       overlaySummary.textContent = summary + integritySummary(body);
-      overlaySummary.dataset.state = hasSections ? "success" : "warning";
+      overlaySummary.dataset.state = hasSections && !hasIntegrityWarning ? "success" : "warning";
       if (compareApply) {
         compareApply.disabled = false;
         if (hasSections) {

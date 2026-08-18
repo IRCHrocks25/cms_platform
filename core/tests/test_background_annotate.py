@@ -101,6 +101,8 @@ class AnnotationJobSummaryTests(TestCase):
             reconciled_fields=2,
             dropped_fields=1,
             backfilled_fields=3,
+            promoted_sections=4,
+            salvaged_fields=5,
             model="gpt-5.6-luna",
             prompt_tokens=101,
             completion_tokens=52,
@@ -123,6 +125,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "promoted_sections": 4,
+                "salvaged_fields": 5,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -141,6 +145,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "promoted_sections": 4,
+                "salvaged_fields": 5,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -166,6 +172,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "reconciled_fields": 2,
                 "dropped_fields": 1,
                 "backfilled_fields": 3,
+                "promoted_sections": 4,
+                "salvaged_fields": 5,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -264,6 +272,9 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.reconciled_fields", source)
         self.assertIn("body.dropped_fields", source)
         self.assertIn("body.backfilled_fields", source)
+        self.assertIn("body.promoted_sections", source)
+        self.assertIn("body.salvaged_fields", source)
+        self.assertIn("var hasIntegrityWarning", source)
 
     def test_new_site_annotation_ui_has_the_same_terminal_failure_contract(self):
         source = self._new_site_source()
@@ -279,6 +290,9 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.reconciled_fields", source)
         self.assertIn("body.dropped_fields", source)
         self.assertIn("body.backfilled_fields", source)
+        self.assertIn("body.promoted_sections", source)
+        self.assertIn("body.salvaged_fields", source)
+        self.assertIn("var hasIntegrityWarning", source)
         self.assertIn(
             "Applying this result will produce a template with no editable fields.",
             source,
