@@ -4,7 +4,7 @@ cross-site iframes despite SameSite=None; Secure.
 
 These tests drive the REAL middleware chain via Django's test Client
 because a synthetic single-middleware test passes even when the cookie
-middleware is mis-ordered relative to Session/Csrf — which was the bug
+middleware is mis-ordered relative to Session/Csrf, which was the bug
 that shipped in 7402e5b. End-to-end is the only correct shape here.
 """
 from django.contrib.auth import get_user_model
@@ -29,7 +29,7 @@ class PartitionedCookieEndToEndTests(TestCase):
         r = client.get("/admin/login/")
         morsel = r.cookies.get("csrftoken")
         self.assertIsNotNone(
-            morsel, "Django didn't emit csrftoken on /admin/login/ — fixture broken"
+            morsel, "Django didn't emit csrftoken on /admin/login/; fixture broken"
         )
         self.assertIn("Partitioned", morsel.OutputString())
 
@@ -55,7 +55,7 @@ class PartitionedCookieEndToEndTests(TestCase):
         )
         morsel = r.cookies.get("sessionid")
         self.assertIsNotNone(
-            morsel, "login POST didn't set sessionid — fixture broken"
+            morsel, "login POST didn't set sessionid; fixture broken"
         )
         self.assertIn("Partitioned", morsel.OutputString())
 

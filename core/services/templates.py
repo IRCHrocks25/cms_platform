@@ -1,4 +1,4 @@
-"""CMS-27 — single write path for Template HTML, ownership, and versions.
+"""CMS-27: single write path for Template HTML, ownership, and versions.
 
 Dashboard / MCP call these helpers. ``Template.save()`` still re-derives
 schema unconditionally; these guards protect product surfaces, not the DB.
@@ -50,7 +50,7 @@ def prepare_owned_templates_for_tenant_delete(tenant: Tenant) -> int:
         return 0
 
     # Slugs already claimed by the library, plus every owned slug we will keep
-    # or assign — siblings promote together and must not collide with each other.
+    # or assign; siblings promote together and must not collide with each other.
     taken: set[str] = set(
         Template.objects.filter(tenant__isnull=True).values_list("slug", flat=True)
     )

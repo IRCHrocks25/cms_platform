@@ -4,7 +4,7 @@ when applying tenant richtext edits.
 The pre-existing ``core/services/sanitizer.py`` is built for untrusted
 blog body input (tight allowlist, strips classes / styles / data-attrs,
 unwraps everything outside its small tag list). Applying it on every
-render of an agency-annotated template visibly destroys the design —
+render of an agency-annotated template visibly destroys the design, so
 utility classes vanish, structural wrappers unwrap, design tokens drop.
 
 ``sanitize_template_html`` is the wider-allowlist replacement used only

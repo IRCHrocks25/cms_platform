@@ -46,7 +46,7 @@ def _template_html(title: str, section_count: int) -> str:
             <section id="{section_id}" data-section="{section_id}"
                      data-label="Section {number:02d}" data-group="Page sections">
               <p class="eyebrow" data-edit="{section_id}.eyebrow" data-label="Eyebrow">Chapter {number:02d}</p>
-              <h2 data-edit="{section_id}.title" data-label="Heading">{title} — section {number:02d}</h2>
+              <h2 data-edit="{section_id}.title" data-label="Heading">{title}: section {number:02d}</h2>
               <p data-edit="{section_id}.body" data-type="richtext" data-label="Body copy">
                 Thoughtful placeholder copy for reviewing realistic content density and editor controls.
               </p>
@@ -80,7 +80,7 @@ TEMPLATE_SPECS = (
 SITE_SPECS = (
     {
         "subdomain": "demo-northstar-operations",
-        "name": "[DEMO] Northstar International Hospitality and Destination Management Group — Southeast Asia Operations",
+        "name": "[DEMO] Northstar International Hospitality and Destination Management Group: Southeast Asia Operations",
         "template": "demo-seed-horizon",
         "pages": 7,
         "posts": 18,
@@ -263,7 +263,7 @@ class Command(BaseCommand):
                 )
 
             for post_index in range(spec["posts"]):
-                title = f"{('A local guide', 'Studio notes', 'Behind the work')[post_index % 3]} — volume {post_index + 1:02d}"
+                title = f"{('A local guide', 'Studio notes', 'Behind the work')[post_index % 3]}: volume {post_index + 1:02d}"
                 BlogPost.objects.update_or_create(
                     tenant=tenant,
                     slug=f"demo-post-{post_index + 1:02d}",

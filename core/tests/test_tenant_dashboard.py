@@ -165,6 +165,7 @@ class TenantDashboardAccessTests(TestCase):
         pages_url = reverse("dashboard:page_list_self")
         self.assertContains(response, f'href="{pages_url}"')
         self.assertContains(response, "<span>Pages</span>", html=True)
+        self.assertNotContains(response, "New client")
 
     def test_tenant_page_list_has_active_nav_and_client_safe_empty_state(self):
         c = self._client("acme.localhost")

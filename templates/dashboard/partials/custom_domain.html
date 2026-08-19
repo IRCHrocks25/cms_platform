@@ -1,10 +1,10 @@
 {% comment %}
   Re-rendered server-side on initial page load and via fetch+swap on every
   add/verify/delete. The wrapping #custom-domain-section element is the swap
-  target — see static/js/section-fetch.js.
+  target; see static/js/section-fetch.js.
 
   Multiple domains per tenant: each verified CustomDomain becomes its own
-  Traefik Host() router + Let's Encrypt cert (direct-to-origin — the client
+  Traefik Host() router + Let's Encrypt cert (direct-to-origin; the client
   points an A record at our origin IP ({{ target_ip }}); no Cloudflare for SaaS,
   no _acme-challenge record). This panel lists every domain and manages each
   one independently.
@@ -34,7 +34,7 @@
     {% if d.obj.is_verified %}
       {# Verified and live #}
       <p class="cell-muted domain-copy">
-        Live over HTTPS — visitors to <code>{{ d.obj.domain }}</code> see this site
+        Live over HTTPS. Visitors to <code>{{ d.obj.domain }}</code> see this site
         with a valid SSL certificate.
       </p>
       <div class="row domain-actions">
@@ -136,7 +136,7 @@
   </form>
   <p class="field-hint domain-footnote" id="domain-format-help">
     Serving both the root and <code>www</code>? Add each as its own domain here
-    (e.g. <code>acme.com</code> and <code>www.acme.com</code>) — or point
+    (e.g. <code>acme.com</code> and <code>www.acme.com</code>), or point
     <code>www</code> at the root with a <code>CNAME</code> → <code>acme.com</code>
     and add it here too. Once a domain resolves to <code>{{ target_ip }}</code>,
     HTTPS is issued automatically in about a minute. No Cloudflare, no extra records.

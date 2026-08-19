@@ -34,7 +34,7 @@ class NewClientFormInlineTemplateTests(TestCase):
 
     def test_inline_new_template_block_is_visible_by_default(self):
         """The inline block must NOT carry the `hidden` attribute on first
-        render — that's what makes "paste URL → annotate" the default flow."""
+        render. That's what makes "paste URL → annotate" the default flow."""
         html = self._get().content.decode()
         # Find the new-template-block div opening tag.
         idx = html.find('id="new-template-block"')
@@ -43,7 +43,7 @@ class NewClientFormInlineTemplateTests(TestCase):
         opening = html[idx : html.find(">", idx)]
         self.assertNotIn(
             " hidden", opening,
-            "new-template-block must NOT be hidden by default — "
+            "new-template-block must NOT be hidden by default; "
             "inline template-create is the primary flow.",
         )
 
@@ -85,7 +85,7 @@ class NewClientFormInlineTemplateTests(TestCase):
         self.assertIn(f'value="{self.saved_template.pk}"', html)
 
     def test_template_name_input_is_marked_optional(self):
-        """Inline template-create is plug-and-forget — the operator doesn't
+        """Inline template-create is plug-and-forget; the operator doesn't
         have to name a template they won't reuse. The visible affordance
         next to 'Template name' must communicate that."""
         html = self._get().content.decode()
@@ -105,7 +105,7 @@ class NewClientFormInlineTemplateTests(TestCase):
 class InlineTemplateCreatePlugAndForgetTests(TestCase):
     """The inline path on tenant_create should:
        1. Accept an empty 'new_template_name' and auto-derive it from the
-          site name (plug-and-forget — no manual template naming required).
+          site name (plug-and-forget, with no manual template naming required).
        2. Survive a name collision: two clients can have inline templates
           named the same; the slug must auto-unique itself."""
 

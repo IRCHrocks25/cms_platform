@@ -1,4 +1,4 @@
-"""CMS-27 §7 / §11 — ownership backfill claims single-owner templates only."""
+"""CMS-27 §7 / §11: ownership backfill claims single-owner templates only."""
 
 from __future__ import annotations
 

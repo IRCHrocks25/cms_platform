@@ -1,19 +1,19 @@
-"""GHL marketplace OAuth — install URL building, signed state tokens,
+"""GHL marketplace OAuth: install URL building, signed state tokens,
 and authorization-code → access-token exchange.
 
-The install/consent (chooselocation) step has TWO valid hosts, not one —
+The install/consent (chooselocation) step has TWO valid hosts, not one:
 picked via ``build_install_url(..., variant=...)``:
 
-  - "whitelabel" (default): ``marketplace.leadconnectorhq.com/v2/...`` —
+  - "whitelabel" (default): ``marketplace.leadconnectorhq.com/v2/...``,
     GHL's branded/SaaS-Mode marketplace.
-  - "standard": ``marketplace.gohighlevel.com/v2/...`` — the classic
+  - "standard": ``marketplace.gohighlevel.com/v2/...``, the classic
     marketplace UI.
 
 Confirmed 2026-08-06 (Willow Tree / Stephanie Yee install): the
 ``leadconnectorhq.com`` chooser silently omits sub-accounts that aren't
 under a whitelabeled/branded agency (or have no agency at all) from the
 account list. The ``gohighlevel.com`` chooser shows every location the
-installing user has access to. Both keep the ``/v2/`` path — this is
+installing user has access to. Both keep the ``/v2/`` path; this is
 NOT the same URL as the legacy, genuinely-broken
 ``marketplace.gohighlevel.com/oauth/chooselocation`` (no ``/v2/``), which
 returns "no integration found" for newer client IDs and is why the code
@@ -45,11 +45,11 @@ logger = logging.getLogger(__name__)
 # it vs. bouncing to the agency home; /v2/ is current. Override via
 # settings.GHL_CHOOSELOCATION_URL (env GHL_CHOOSELOCATION_URL).
 AUTH_BASE_WHITELABEL = "https://marketplace.leadconnectorhq.com/v2/oauth/chooselocation"
-# Standard (non-whitelabel) install/consent endpoint — see module docstring
+# Standard (non-whitelabel) install/consent endpoint; see module docstring
 # for why this exists alongside AUTH_BASE_WHITELABEL. Override via
 # settings.GHL_CHOOSELOCATION_URL_STANDARD (env GHL_CHOOSELOCATION_URL_STANDARD).
 AUTH_BASE_STANDARD = "https://marketplace.gohighlevel.com/v2/oauth/chooselocation"
-# Back-compat alias — existing callers/tests importing AUTH_BASE keep working.
+# Back-compat alias; existing callers/tests importing AUTH_BASE keep working.
 AUTH_BASE = AUTH_BASE_WHITELABEL
 TOKEN_URL = "https://services.leadconnectorhq.com/oauth/token"
 LOCATION_TOKEN_URL = "https://services.leadconnectorhq.com/oauth/locationToken"
@@ -59,13 +59,13 @@ INSTALLED_LOCATIONS_URL = (
 FORMS_URL = "https://services.leadconnectorhq.com/forms/"
 GHL_API_VERSION = "2021-07-28"
 
-# State TTL — 30 minutes. Long enough that a user choosing a location at a
+# State TTL: 30 minutes. Long enough that a user choosing a location at a
 # leisurely pace doesn't time out; short enough that a leaked state link
 # can't be replayed indefinitely.
 STATE_TTL_SECONDS = 30 * 60
 
 # Default OAuth scopes. Override per-call if a flow needs more.
-# Keep this minimal — every scope you request must be valid on GHL's side AND
+# Keep this minimal. Every scope you request must be valid on GHL's side AND
 # enabled on your marketplace app. `users.readonly` is NOT a valid GHL scope
 # name (the install fails with "Invalid scope(s)"). For a Custom Page that
 # uses signed-blob SSO, no scope is strictly required; we keep
@@ -122,10 +122,10 @@ def build_install_url(
 
     GHL marketplace client IDs are formatted ``<app_id>-<version_suffix>``
     (e.g. ``6a26a22d7ea963384e3e358a-mq5jclqk``). The chooselocation URL
-    requires ``version_id`` — omitting it fails with noAppVersionIdFound.
+    requires ``version_id``; omitting it fails with noAppVersionIdFound.
     Default to the prefix; override with GHL_APP_VERSION_ID if needed.
 
-    ``variant`` picks the chooselocation host — "whitelabel" (default) or
+    ``variant`` picks the chooselocation host: "whitelabel" (default) or
     "standard". See the module docstring for why both exist.
     """
     client_id = settings.GHL_CLIENT_ID
@@ -154,7 +154,7 @@ def build_install_url(
 def exchange_code(*, code: str, redirect_uri: str, user_type: str = "Location") -> dict[str, Any]:
     """POST the auth code to GHL and get back an access token.
 
-    user_type='Location' is a hint — GHL still returns userType='Company'
+    user_type='Location' is a hint. GHL still returns userType='Company'
     when the installer is an agency owner OR the app's scope set includes
     agency-level scopes. Caller normalizes downstream."""
     client_id = settings.GHL_CLIENT_ID

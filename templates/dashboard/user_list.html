@@ -55,7 +55,7 @@
               {% with u=row.user %}
                 <tr>
                   <td data-label="User"><a href="{% url 'dashboard:user_detail' u.pk %}" class="cell-strong">{{ u.username }}</a></td>
-                  <td class="cell-muted" data-label="Email">{{ u.email|default:'—' }}</td>
+                  <td class="cell-muted" data-label="Email">{{ u.email|default:'Not provided' }}</td>
                   <td data-label="Role">
                     {% if u.is_staff or u.is_superuser %}
                       <span class="badge badge-blue">Agency staff</span>
@@ -67,7 +67,7 @@
                     {% if row.site_names %}
                       {{ row.site_names_truncated|join:", " }}{% if row.site_names_overflow %} +{{ row.site_names_overflow }} more{% endif %}
                     {% else %}
-                      —
+                      None
                     {% endif %}
                   </td>
                   <td class="cell-muted" data-label="Last login">

@@ -108,7 +108,7 @@ def bind_location(*, agency: GhlAgencyInstall, location_id: str, tenant: Tenant)
 
 
 def bind_orphan_install(*, install: GhlInstall, tenant: Tenant) -> GhlInstall:
-    """Link a direct (agency-less) GhlInstall to a Tenant. No token minting —
+    """Link a direct (agency-less) GhlInstall to a Tenant. No token minting;
     the install already holds its own valid token from the direct OAuth
     exchange. Caller is responsible for clash-checking first, mirroring
     integrations_bind's convention (the clash check lives in the view, not
@@ -116,7 +116,7 @@ def bind_orphan_install(*, install: GhlInstall, tenant: Tenant) -> GhlInstall:
 
     The atomic block keeps this call's own two writes consistent with each
     other, but it does not re-validate the clash check against fresh DB
-    state — two concurrent calls binding different installs to the same
+    state. Two concurrent calls binding different installs to the same
     tenant can still both succeed, leaving Tenant.ghl_location_id pointing
     at only one of them. Acceptable for this low-traffic, superuser-only
     admin action; would need select_for_update() to close fully."""

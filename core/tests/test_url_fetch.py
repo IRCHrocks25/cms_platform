@@ -199,7 +199,7 @@ class RewriteRelativeUrlsTests(TestCase):
         self.assertNotIn("susan-rabbyv2.pages.dev", out)
 
     def test_sibling_page_link_goes_to_source_origin(self):
-        """Privacy and terms still get rewritten to absolute — they aren't
+        """Privacy and terms still get rewritten to absolute because they aren't
         the same page as the imported home."""
         out = rewrite_relative_urls(
             "<a href='./privacy-policy.html'>Privacy</a>", self.BASE,

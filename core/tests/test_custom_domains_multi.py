@@ -1,4 +1,4 @@
-"""Multiple custom domains per tenant — list management on the per-tenant panel.
+"""Multiple custom domains per tenant: list management on the per-tenant panel.
 
 The CustomDomain model + route-syncer already handle N domains; these tests pin
 the agency dashboard surface so it manages each domain independently (add /

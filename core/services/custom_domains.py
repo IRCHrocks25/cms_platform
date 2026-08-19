@@ -23,7 +23,7 @@ def normalize_domain(raw_domain: str) -> str:
 
 def resolve_a_records(domain: str) -> list:
     """Best-effort A-record lookup for ``domain``. Returns the resolved IPv4
-    addresses (empty list on any failure — NXDOMAIN, timeout, no A record)."""
+    addresses (empty list on any failure: NXDOMAIN, timeout, or no A record)."""
     try:
         infos = socket.getaddrinfo(domain, None, family=socket.AF_INET)
     except OSError:
@@ -34,7 +34,7 @@ def resolve_a_records(domain: str) -> list:
 def add_custom_domain(tenant: Tenant, raw_domain: str):
     """Normalise, validate, and create a ``CustomDomain`` row for ``tenant``.
 
-    Returns ``(custom_domain, error)`` — exactly one is set. No external
+    Returns ``(custom_domain, error)``; exactly one is set. No external
     registration step: the client just points an A record at our origin. The
     row starts unverified; ``verify_custom_domain`` confirms the DNS resolves
     to us before the route-syncer emits the Traefik router (which is what
@@ -57,7 +57,7 @@ def add_custom_domain(tenant: Tenant, raw_domain: str):
 def verify_custom_domain(custom_domain: CustomDomain):
     """Resolve ``custom_domain``'s A records and flip ``is_verified`` when they
     include ``settings.CUSTOM_DOMAIN_TARGET_IP``. Returns ``(is_verified,
-    resolved)`` — ``resolved`` is always returned (even on success) so callers
+    resolved)``. ``resolved`` is always returned (even on success) so callers
     needing the raw addresses don't have to re-resolve.
     """
     target_ip = settings.CUSTOM_DOMAIN_TARGET_IP

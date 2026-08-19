@@ -1,7 +1,7 @@
 """Renderer: when a field's value equals what's already in the element
 (i.e. no client edit), the renderer must NOT roundtrip it through the
 sanitizer or re-injection path. The sanitizer is designed for untrusted
-client-authored content (blog bodies) — applying it to the agency's
+client-authored content (blog bodies). Applying it to the agency's
 own trusted template HTML strips CSS classes, unwraps tags outside its
 tight allowlist (span, div, h1, h5, h6, etc.), and collapses internal
 whitespace inside text nodes. Designs get visibly broken without anyone
@@ -20,7 +20,7 @@ class NoOpApplyPreservesOriginalHtmlTests(TestCase):
             "<h2 data-edit='hero.title' data-type='text'>Hello   world</h2>"
             "</section>"
         )
-        # Content equals the default (no edit) — element must not be rewritten.
+        # Content equals the default (no edit), so the element must not be rewritten.
         out = render_site(template, {"hero": {"title": "Hello   world"}})
         self.assertIn("Hello   world", out)
 
@@ -43,7 +43,7 @@ class NoOpApplyPreservesOriginalHtmlTests(TestCase):
         self.assertIn("accent", out, "class='accent' must not be stripped")
 
     def test_unedited_richtext_preserves_div_and_other_tags(self):
-        """Sanitizer's ALLOWED_TAGS is a tight set — div, section, h1, h5,
+        """Sanitizer's ALLOWED_TAGS is a tight set: div, section, h1, h5,
         h6, button, etc. all get unwrapped. The renderer must skip the
         sanitize step entirely when the field hasn't been edited."""
         template = (

@@ -3,7 +3,7 @@
 A published BlogPost with publish_date=NULL is invisible to the public
 queries (published_posts / is_live require publish_date IS NOT NULL for
 stable ordering), so it never appears in the blog index, post pages, or
-homepage strip — even though the dashboard shows it as "Published". The model
+homepage strip, even though the dashboard shows it as "Published". The model
 now stamps a
 publish_date on save, but existing rows written before that (admin, seed
 scripts, the featured-star toggle on an undated post) need repair. Use

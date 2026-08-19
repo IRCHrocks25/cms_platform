@@ -1,6 +1,6 @@
 """Tests for the GHL OAuth install flow.
 
-We don't hit GHL's live endpoints — exchange_code is mocked. What we cover:
+We don't hit GHL's live endpoints; exchange_code is mocked. What we cover:
 - State token signs + verifies, expires after TTL.
 - /connect/install/ redirects to the leadconnectorhq.com chooselocation URL
   with our state in the query.
@@ -55,7 +55,7 @@ class InstallRedirectTests(TestCase):
         u = urlparse(r["Location"])
         self.assertEqual(u.scheme, "https")
         self.assertIn("leadconnectorhq.com", u.netloc)
-        # Must be the /v2/ chooselocation path — the non-v2 path bounces GHL to
+        # Must be the /v2/ chooselocation path; the non-v2 path bounces GHL to
         # the agency home instead of rendering the consent screen.
         self.assertEqual(u.path, "/v2/oauth/chooselocation")
         q = parse_qs(u.query)
@@ -79,7 +79,7 @@ class InstallRedirectTests(TestCase):
 
     def test_install_standard_variant_uses_gohighlevel_host(self):
         # Some sub-accounts (no agency, or no whitelabel/SaaS Mode) don't
-        # show up in the leadconnectorhq.com chooser — ?variant=standard
+        # show up in the leadconnectorhq.com chooser; ?variant=standard
         # routes to marketplace.gohighlevel.com/v2/... instead, which does
         # show them (confirmed 2026-08-06, Willow Tree / Stephanie Yee).
         r = Client().get("/connect/install/?variant=standard")

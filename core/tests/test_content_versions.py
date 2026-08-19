@@ -143,7 +143,7 @@ class ContentVersionServiceTests(TestCase):
         cv.restore_tenant_content(self.tenant, version, user=self.other)
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.content, {"hero": {"title": "A"}})
-        # Restore itself is undoable — current was snapshotted first.
+        # Restore itself is undoable because current was snapshotted first.
         newest = self.tenant.versions.order_by("-saved_at").first()
         self.assertEqual(newest.snapshot, {"hero": {"title": "B"}})
 

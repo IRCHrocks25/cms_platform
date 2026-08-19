@@ -7,7 +7,7 @@ from core.renderer import render_site, merge_with_defaults
 
 def _classes(html, attr, value):
     """Return the class list of the element matching attr=value (order-agnostic
-    — lxml alphabetizes attributes, so we can't assert on raw string order)."""
+    because lxml alphabetizes attributes, so we can't assert on raw string order)."""
     el = BeautifulSoup(html, "lxml").find(attrs={attr: value})
     return el.get("class", []) if el else None
 

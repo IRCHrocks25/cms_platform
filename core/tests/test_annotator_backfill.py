@@ -1,7 +1,7 @@
 """Tests for deterministic text and content-image annotation backfill.
 
 The annotator's first pass is whatever the model returns. That's good enough
-most of the time, but body text reliably leaks through — short paragraphs,
+most of the time, but body text reliably leaks through: short paragraphs,
 the second card description in a repeated group, an h3 inside a deep wrapper.
 _backfill_missed_text_fields runs after _apply_annotations and promotes any
 unmarked text-bearing tag inside a data-section to an editable field so the
@@ -54,7 +54,7 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         self.assertEqual(p.get("data-type"), "richtext")
 
     def test_already_marked_fields_are_left_alone(self):
-        """The model already marked the title — backfill must not overwrite it."""
+        """The model already marked the title, so backfill must not overwrite it."""
         s = _soup(
             "<section data-section='hero'>"
             "<h2 data-edit='hero.title' data-type='text' data-label='Title'>X</h2>"
@@ -108,7 +108,7 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         self.assertEqual(added, 1, "Only the paragraph with real text should be promoted")
 
     def test_elements_inside_nav_button_anchor_are_skipped(self):
-        """Body-text backfill should NOT touch chrome — nav link labels,
+        """Body-text backfill should NOT touch chrome: nav link labels,
         button labels, and anchor text are handled by the link/text rules
         in the model pass."""
         s = _soup(
@@ -124,7 +124,7 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         self.assertEqual(s.find("p").get("data-edit"), "page.p_1")
 
     def test_brand_section_is_not_touched(self):
-        """The brand section is synthetic (built from CSS variables) — it
+        """The brand section is synthetic (built from CSS variables), so it
         has no data-section attribute on a real wrapper, but skip
         defensively if someone ever annotates one."""
         s = _soup(
@@ -172,7 +172,7 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
     def test_heading_with_inline_children_gets_richtext_type(self):
         """If we mark an <h2> with inner <span> / <strong> / <em> as plain
         text, the renderer's text path does `el.string = value` and FLATTENS
-        the inline children — the highlight span vanishes and the visual
+        the inline children. The highlight span vanishes and the visual
         design breaks. Pick richtext when the element has any child tags so
         the inline structure survives on render."""
         s = _soup(

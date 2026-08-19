@@ -1,4 +1,4 @@
-"""CMS-27 §6 / §11 — template write service guards and versioning."""
+"""CMS-27 §6 / §11: template write service guards and versioning."""
 
 from __future__ import annotations
 

@@ -12,7 +12,7 @@ Why JSON instead of "echo the whole document":
 
   This version never asks the model to reproduce the HTML. Instead:
 
-  1. Strip <style>/<script> blocks (placeholders), as before — they don't need
+  1. Strip <style>/<script> blocks (placeholders), as before; they don't need
      annotating and waste tokens.
   2. Tag every element with a unique `data-cms-ref="N"`.
   3. Send the marked HTML and ask the model for a COMPACT JSON object listing
@@ -20,7 +20,7 @@ Why JSON instead of "echo the whole document":
   4. Apply those attributes server-side by ref, drop the refs, restore blocks.
 
   The model's output is proportional to the number of annotations (a few KB),
-  not the page size — so truncation no longer happens on large pages.
+  not the page size, so truncation no longer happens on large pages.
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ Every element in the HTML has a unique `data-cms-ref="N"` attribute. You do NOT
 rewrite or return the HTML. You return ONLY a compact JSON object that says which
 elements (by their data-cms-ref number) are editable sections and fields.
 
-Output JSON shape (and nothing else — no markdown, no prose):
+Output JSON shape (and nothing else: no markdown, no prose):
 {
   "sections": [
     {"ref": <int>, "id": "<snake_id>", "label": "<friendly name>", "icon": "<lucide hint>", "group": "Header|Home|Sections|Footer"}
@@ -94,7 +94,7 @@ Rules:
    - link     -> <a> elements whose href is the editable thing (nav links, PDF links).
                  Use `text` for CTA button labels where the visible text is edited.
    - color    -> elements whose inline background-color/color is meaningful to edit
-4. Images — be generous on CONTENT, strict on CHROME.
+4. Images: be generous on CONTENT, strict on CHROME.
    INCLUDE every <img> whose role on the page is a real photograph or
    illustration the client would want to swap:
      - hero / banner photo
@@ -103,7 +103,7 @@ Rules:
      - gallery / portfolio / case-study image
      - blog post feature image, "about us" photo
    When an <img> sits inside a <picture>, annotate the inner <img> (not the
-   <source>) — the renderer keeps responsive candidates aligned to the new src.
+   <source>); the renderer keeps responsive candidates aligned to the new src.
    Judge each image by its role and surrounding content. alt="" is not by itself
    proof that an image is decorative: a content photograph inside a content
    section is editable regardless of alt text.
@@ -117,8 +117,8 @@ Rules:
        dimensions), including small icons inside a button next to a label
    When choosing the label, prefer a human-recognizable description derived
    from the alt text or the nearest heading ("Chef portrait", "Restaurant
-   exterior", "Founder headshot") — avoid generic "Image 1", "Photo".
-5. Body text — be EXHAUSTIVE. When in doubt, INCLUDE.
+   exterior", "Founder headshot"); avoid generic "Image 1", "Photo".
+5. Body text: be EXHAUSTIVE. When in doubt, INCLUDE.
    Mark every visible piece of copy a non-technical client might want to edit:
      - every heading at any level (h1, h2, h3, h4, h5, h6)
      - every paragraph, even short ones (a 3-word tagline is still text)
@@ -133,7 +133,7 @@ Rules:
      - any visible <span> / <strong> / <em> that holds standalone copy
    Pick the TIGHTEST element wrapping the editable copy. A <p> wrapping a
    sentence -> richtext on the <p>. An <h2> -> text on the <h2>.
-   Don't lump multiple paragraphs into one richtext on a <div> wrapper —
+   Don't lump multiple paragraphs into one richtext on a <div> wrapper;
    mark each <p> separately so the client edits them as distinct fields.
    "Short" or "small" or "repeated-looking" copy is NOT a reason to skip.
 6. Repeating items (e.g. three feature cards): give each distinct field ids
@@ -141,8 +141,8 @@ Rules:
 7. Every section MUST contain at least one field, or it will be dropped.
 8. Skip decorative/structural-only elements (spacers, layout wrappers whose
    own direct text is empty, icon-only SVGs). A wrapper whose CHILDREN hold
-   visible text is NOT decorative — annotate the children. Brand-color CSS
-   variables are handled automatically — ignore them.
+   visible text is NOT decorative. Annotate the children. Brand-color CSS
+   variables are handled automatically; ignore them.
 9. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
 
 
@@ -548,7 +548,7 @@ def _backfill_missed_text_fields(soup) -> int:
             existing_field_ids.add(field_id)
 
             # Pick richtext when the tag contains inline children (a <span
-            # class='accent'>, an <em>, an inline <a>) — text-type rendering
+            # class='accent'>, an <em>, an inline <a>); text-type rendering
             # does `el.string = value` and would flatten the children on
             # render, breaking the visual design. Plain text-only tags
             # default to text so the editor shows a single-line input.
@@ -755,7 +755,7 @@ def _find_split_root(soup):
     """Return the node whose element children are the page's top-level blocks.
 
     Starts at <body> (or the document root) and descends through single-element
-    wrappers — Figma Make / Vite exports bury the whole page under one
+    wrappers. Figma Make / Vite exports bury the whole page under one
     ``<div id="root">`` / ``<main>``, and splitting at that lone wrapper would
     yield a single un-parallelisable chunk. Stops before descending into a leaf
     so the caller always gets real content blocks to split on.
@@ -778,7 +778,7 @@ def _find_split_root(soup):
 def _chunk_nodes(nodes, target_chars):
     """Group nodes into chunks whose serialized length stays near target_chars.
 
-    A chunk is always a list of WHOLE nodes — the split points fall between
+    A chunk is always a list of WHOLE nodes. The split points fall between
     top-level subtrees, never inside one, so no tag/attribute/word is ever cut.
     A single node larger than the target gets its own chunk rather than being
     split.
@@ -864,7 +864,7 @@ def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) ->
 
     Returns the parsed ``{"sections", "fields"}`` dict. Retries on API errors,
     empty responses, and invalid JSON (each a fresh attempt on the same small
-    input). A ``length`` finish_reason is NOT retried — a truncated chunk won't
+    input). A ``length`` finish_reason is NOT retried; a truncated chunk won't
     fix itself; it means the chunk itself is too big. Raises AnnotatorError when
     retries are exhausted or on a non-retryable failure.
     """
@@ -903,7 +903,7 @@ def _annotate_one_chunk(client, chunk_html: str, *, model: str, retries: int) ->
             return data
         except AnnotatorError:
             raise  # non-retryable (truncation)
-        except Exception as exc:  # noqa: BLE001 — retry any transient failure
+        except Exception as exc:  # noqa: BLE001; retry any transient failure
             last_exc = exc
             logger.warning(
                 "Annotator: chunk attempt %d/%d failed: %s",
@@ -998,7 +998,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     truncated/invalid JSON, or output the parser can't extract any sections from.
     """
     if not raw_html or not raw_html.strip():
-        raise AnnotatorError("Empty HTML — nothing to annotate.")
+        raise AnnotatorError("Empty HTML. Nothing to annotate.")
 
     api_key = settings.OPENAI_API_KEY
     if not api_key:
@@ -1032,10 +1032,10 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     #    whole document first, so every chunk carries GLOBAL refs and merging is
     #    a plain concatenation by ref. The collapse-inter-tag-whitespace
     #    transform is applied per chunk (it only touches gaps between tags, so
-    #    text — including <pre> — is untouched).
+    #    text, including <pre>, is untouched).
     split_root = _find_split_root(soup)
     block_nodes = [c for c in split_root.children if getattr(c, "name", None)]
-    if not block_nodes:  # pathological (no element blocks) — annotate as one chunk
+    if not block_nodes:  # pathological (no element blocks); annotate as one chunk
         block_nodes = [t for t in soup.find_all(True, recursive=False)] or list(ref_map.values())[:1]
     node_chunks = _chunk_nodes(
         block_nodes,
@@ -1079,7 +1079,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
         del tag["data-cms-ref"]
 
     # Deterministic safety net: catch text-bearing tags inside any section
-    # the model skipped. The prompt alone is not enough — the LLM is
+    # the model skipped. The prompt alone is not enough because the LLM is
     # conservative on real pages, especially for short paragraphs, the 2nd
     # item in a repeating card group, or text nested deep in wrappers.
     text_backfilled = _backfill_missed_text_fields(soup)
@@ -1119,7 +1119,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
             "AI produced no editable sections "
             f"(model={settings.OPENAI_ANNOTATE_MODEL}, chunks={len(chunks_html)}, "
             f"sections={len(data.get('sections') or [])}, fields_applied={applied}). "
-            "The model may have referenced elements that don't form valid sections — "
+            "The model may have referenced elements that don't form valid sections; "
             "check the server log."
         )
 

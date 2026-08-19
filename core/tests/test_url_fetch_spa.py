@@ -6,7 +6,7 @@ Python asset rewriter), and the auto-fallback wiring on the
 Headless rendering itself uses Playwright + chromium and is intentionally
 opt-in on the deploy side (the dependency adds ~150MB to the image). The
 tests here keep both the production deploy and the test suite free of that
-weight by *mocking* the renderer at the import boundary — every behaviour
+weight by *mocking* the renderer at the import boundary. Every behaviour
 that matters at the view layer can be exercised by swapping
 ``render_url_html`` for a stub that returns a fixed string.
 """
@@ -75,7 +75,7 @@ class LooksLikeSpaShellTests(TestCase):
         self.assertFalse(looks_like_spa_shell(html))
 
     def test_long_static_landing_page_is_not_spa(self):
-        # A static landing page with no SPA mount point — never a shell.
+        # A static landing page with no SPA mount point is never a shell.
         html = (
             "<html><body>"
             "<h1>Acme Bakery</h1>"
@@ -89,7 +89,7 @@ class LooksLikeSpaShellTests(TestCase):
         self.assertFalse(looks_like_spa_shell("   "))
 
     def test_short_body_without_mount_point_is_not_spa(self):
-        # Could be a 404 page or a holding page — not necessarily SPA.
+        # Could be a 404 page or a holding page, not necessarily SPA.
         html = "<html><body><p>Coming soon.</p></body></html>"
         self.assertFalse(looks_like_spa_shell(html))
 

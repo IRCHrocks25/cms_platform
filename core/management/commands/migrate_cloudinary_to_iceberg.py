@@ -1,7 +1,7 @@
 """Re-host existing Cloudinary assets on Iceberg and rewrite stored URLs.
 
 The Cloudinary delivery URLs in tenant content are public, so we download the
-bytes directly — no Cloudinary API credentials needed. Dry-run by default.
+bytes directly, with no Cloudinary API credentials needed. Dry-run by default.
 """
 from __future__ import annotations
 
@@ -88,11 +88,11 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"  would migrate: {u} -> {iceberg_media._cdn_url(cloudinary_key(u))}"
                 )
-            self.stdout.write("Dry run — pass --apply to migrate.")
+            self.stdout.write("Dry run; pass --apply to migrate.")
             return
 
         # 2) re-host (or reuse), building the old->new map. If the target key is
-        # already on the CDN (a prior migration), just reuse it — don't re-upload.
+        # already on the CDN (a prior migration), just reuse it; don't re-upload.
         mapping = {}
         for u in sorted(urls):
             key = cloudinary_key(u)
@@ -171,7 +171,7 @@ class Command(BaseCommand):
                 a.save(update_fields=["secure_url"])
 
         # Rewrite template defaults. Template.save() rebuilds the derived schema,
-        # which is fine — only src attribute values change, not structure.
+        # which is fine. Only src attribute values change, not structure.
         rewritten_templates = 0
         for tpl in templates:
             html = tpl.html_source or ""

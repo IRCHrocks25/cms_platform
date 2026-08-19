@@ -56,12 +56,32 @@ class PageCreateFromHtmlTests(TestCase):
         )
         self.assertFalse(self.tenant.pages.filter(slug="about").exists())
 
-    def test_page_list_marks_new_page_save_row_as_sticky(self):
+    def test_page_list_renders_creation_actions_in_card_headings(self):
         response = self.client.get(
             reverse("dashboard:page_list", args=[self.tenant.pk])
         )
+        body = response.content.decode()
 
-        self.assertContains(response, 'class="row-end source-form-actions"', html=False)
+        self.assertContains(response, 'id="page-create-form"', html=False)
+        self.assertContains(
+            response,
+            'type="submit" form="page-create-form"',
+            html=False,
+        )
+        self.assertContains(response, 'class="content-block-action-head"', count=2)
+        self.assertNotContains(response, "source-form-actions", html=False)
+        self.assertLess(
+            body.index('type="submit" form="page-create-form"'),
+            body.index('id="page-create-form"'),
+        )
+        self.assertLess(
+            body.index("Import sibling pages from a URL"),
+            body.index('id="import-siblings-url"'),
+        )
+        self.assertLess(
+            body.index('id="import-siblings-btn"'),
+            body.index('id="import-siblings-url"'),
+        )
 
     def test_create_warns_when_submitted_markers_are_ignored(self):
         response = self.client.post(
@@ -84,7 +104,7 @@ class PageEditHtmlTests(TestCase):
         self.tenant = Tenant.objects.create(
             name="Acme", subdomain="acme", template=self.home_tpl, owner=self.staff,
         )
-        self.page_tpl = Template.objects.create(name="Acme — About", html_source=_HERO)
+        self.page_tpl = Template.objects.create(name="Acme: About", html_source=_HERO)
         self.page = Page.objects.create(
             tenant=self.tenant, template=self.page_tpl, title="About", slug="about",
         )

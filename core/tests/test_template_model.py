@@ -1,4 +1,4 @@
-"""CMS-27 — Template ownership, editing_mode matrix, slug constraints, versions."""
+"""CMS-27: Template ownership, editing_mode matrix, slug constraints, versions."""
 
 from __future__ import annotations
 

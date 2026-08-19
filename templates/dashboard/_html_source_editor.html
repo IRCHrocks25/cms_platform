@@ -19,7 +19,7 @@
 
   <div class="row source-fetch-row">
     <input type="url" id="fetch-url-input" class="input"
-           placeholder="Or paste a URL — e.g. https://susan-rabbyv1.pages.dev/" />
+           placeholder="Or paste a URL, e.g. https://susan-rabbyv1.pages.dev/" />
     <button type="button" id="fetch-url-btn" class="btn btn-ghost btn-sm"
             data-url="{% url 'dashboard:template_fetch_url' %}"
             title="Fetch the page's HTML and drop it into the textarea below">
@@ -38,7 +38,7 @@
 
   <div id="preview-panel" class="source-preview" hidden>
     <div class="row-between source-preview-head">
-      <span>Live preview of pasted HTML (raw — no content substitution)</span>
+      <span>Live preview of pasted HTML (raw, with no content substitution)</span>
       <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
     </div>
     <iframe id="preview-iframe" class="source-preview-frame" title="HTML source preview"></iframe>
@@ -169,7 +169,7 @@
     var compareRetry = document.getElementById("compare-retry");
     var compareReady = !!(overlay && overlaySummary && leftCode && rightCode && compareApply && compareCancel && compareClose && compareRetry);
     if (!compareReady) {
-      console.warn("[annotate] compare overlay elements missing — falling back to direct replace. Hard-refresh (Ctrl+Shift+R).");
+      console.warn("[annotate] compare overlay elements missing; falling back to direct replace. Hard-refresh (Ctrl+Shift+R).");
     }
     var savedInputForRetry = "";
 
@@ -399,7 +399,7 @@
 
       function poll(jobId) {
         if (!statusUrlTemplate) {
-          return fail("Status endpoint unavailable — hard-refresh (Ctrl+Shift+R) and retry.");
+          return fail("Status endpoint unavailable. Hard-refresh (Ctrl+Shift+R) and retry.");
         }
         var url = statusUrlTemplate.replace(JOB_ID_PLACEHOLDER, jobId);
         fetch(url, { headers: { "Accept": "application/json" } })
@@ -506,7 +506,7 @@
           textarea.value = data.html;
           textarea.dispatchEvent(new Event("input", { bubbles: true }));
           var bytes = (data.bytes || data.html.length).toLocaleString();
-          var rendered = data.rendered_with_js ? " — rendered with JavaScript (SPA detected)" : "";
+          var rendered = data.rendered_with_js ? ", rendered with JavaScript (SPA detected)" : "";
           var msg = "Loaded " + bytes + " bytes" + rendered + ". Click 'Annotate with AI' to continue.";
           if (data.warning) { msg += "\n\n" + data.warning; }
           showStatus(msg, "info");

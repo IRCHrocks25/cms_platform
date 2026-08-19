@@ -132,7 +132,7 @@ CREDS_TTL_MINUTES = 10
 
 
 def dashboard_root(request):
-    """`/dashboard/` — branches on whether the host resolved to a tenant."""
+    """`/dashboard/` branches on whether the host resolved to a tenant."""
     if request.tenant is not None:
         return tenant_home(request)
     return agency_home(request)
@@ -345,7 +345,7 @@ def template_detail(request, pk):
                 status=409,
             )
         if result.unchanged:
-            messages.info(request, "No HTML changes — metadata saved.")
+            messages.info(request, "No HTML changes; metadata saved.")
         else:
             messages.success(request, "Template updated.")
         _warn_ignored_submitted_field_markers(
@@ -571,7 +571,7 @@ def _run_annotation_job(job_id, raw_html):
 
     Has no request/proxy timeout, so the OpenAI call may take as long as
     settings.OPENAI_TIMEOUT. Writes the outcome back onto the AnnotationJob row.
-    Must never raise out of the thread — any escape is logged and recorded as an
+    Must never raise out of the thread. Any escape is logged and recorded as an
     error status so the poller stops cleanly instead of hanging forever.
     """
     from django.db import connection
@@ -610,7 +610,7 @@ def _run_annotation_job(job_id, raw_html):
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_ERROR, error=str(exc)
         )
-    except Exception as exc:  # noqa: BLE001 — background thread must never crash silently
+    except Exception as exc:  # noqa: BLE001; background thread must never crash silently
         logger.exception("Annotation job %s crashed", job_id)
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_ERROR,
@@ -679,7 +679,7 @@ def template_fetch_url(request):
                 html = inline_external_assets(rendered, base_url=url)
                 rendered_with_js = True
             except UrlFetchError as exc:
-                # Render path unavailable / failed — keep the static fetch
+                # Render path unavailable / failed; keep the static fetch
                 # and tell the operator what happened so they can either
                 # install the dependency on the server or paste manually.
                 warning = (
@@ -847,7 +847,7 @@ def tenant_create(request):
     """One-screen new client flow: User + Tenant + Membership atomically.
 
     Also supports creating a new Template inline by selecting `__new__`
-    in the template dropdown — the Template is created inside the same
+    in the template dropdown. The Template is created inside the same
     transaction so a partial failure leaks nothing.
     """
     templates = _templates_available()
@@ -925,7 +925,7 @@ def tenant_create(request):
     if not template_id:
         errors.append("Pick a template.")
     elif inline_new_template:
-        # Inline path is plug-and-forget — template name is optional and
+        # Inline path is plug-and-forget; template name is optional and
         # falls back to the site name. The slug is auto-uniqued in
         # Template.save() so reusing the site name across clients is safe.
         if not new_template_name:
@@ -1111,7 +1111,7 @@ def site_created(request, pk):
 
     Merges the one-time credentials reveal with the shareable URL bundle
     so the operator gets everything in one shot. Without a fresh `?token=`,
-    the credentials block is omitted and only the URL panel renders — the
+    the credentials block is omitted and only the URL panel renders. The
     page is then safe to bookmark/refresh.
     """
     tenant = get_object_or_404(Tenant, pk=pk)
@@ -1158,7 +1158,7 @@ def user_credentials(request, pk):
             "payload": payload,
             "login_url": None,
             "back_url": reverse("dashboard:user_detail", args=[user.pk]),
-            "back_label": "Done — back to user",
+            "back_label": "Done: back to user",
             "user_detail_url": reverse("dashboard:user_detail", args=[user.pk]),
         },
     )
@@ -1299,7 +1299,7 @@ def tenant_template_swap(request, pk):
         messages.info(request, f"“{tenant.name}” already uses that template.")
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
-    old_template_name = tenant.template.name if tenant.template_id else "—"
+    old_template_name = tenant.template.name if tenant.template_id else "None"
     try:
         assigned = template_svc.assign_template(
             tenant, new_template, user=request.user
@@ -1516,7 +1516,7 @@ def user_detail(request, pk):
 @require_POST
 def user_create_login(request, pk):
     """From a client's user page, mint an *additional* login on one of this
-    client's own sites — i.e. create a new user on their behalf.
+    client's own sites, i.e. create a new user on their behalf.
 
     Scoped to sites the client already belongs to, so this can't be used to
     attach accounts to arbitrary tenants from a user page.
@@ -1803,7 +1803,7 @@ def team_credentials_self(request):
             "tenant": request.tenant,
             "login_url": f"{request.scheme}://{request.get_host()}{reverse('login')}",
             "back_url": reverse("dashboard:team_self"),
-            "back_label": "Done — back to Team",
+            "back_label": "Done: back to Team",
             "user_detail_url": None,
         },
     )
@@ -1820,7 +1820,7 @@ def team_member_remove_self(request, membership_id):
         messages.error(request, "You can't remove your own access.")
         return redirect("dashboard:team_self")
     if membership.user_id == tenant.owner_id:
-        messages.error(request, "The site owner can't be removed here — ask your agency.")
+        messages.error(request, "The site owner can't be removed here. Ask your agency.")
         return redirect("dashboard:team_self")
     username = membership.user.username
     membership.delete()
@@ -1840,7 +1840,7 @@ def team_member_role_self(request, membership_id):
         messages.error(request, "Unknown role.")
         return redirect("dashboard:team_self")
     if membership.user_id == tenant.owner_id and role != TenantMembership.ROLE_OWNER:
-        messages.error(request, "The site owner's role can't be changed here — ask your agency.")
+        messages.error(request, "The site owner's role can't be changed here. Ask your agency.")
         return redirect("dashboard:team_self")
     membership.role = role
     membership.save(update_fields=["role"])
@@ -1879,7 +1879,7 @@ def _page_row_urls(request, scope, tenant, page):
             "edit": reverse("dashboard:page_editor_self", args=[page.pk]),
             "publish": reverse("dashboard:page_publish_self", args=[page.pk]),
             "delete": reverse("dashboard:page_delete_self", args=[page.pk]),
-            # Client is already on the tenant host — a relative slug link stays there.
+            # Client is already on the tenant host, so a relative slug link stays there.
             "live": f"/{page.slug}/",
         }
     return {
@@ -1894,7 +1894,7 @@ def _page_row_urls(request, scope, tenant, page):
 
 
 def _user_can_manage_pages(request):
-    """Adding/removing pages is structural — agency staff only.
+    """Adding/removing pages is structural and restricted to agency staff.
 
     Clients (non-staff tenant members) can edit and publish existing pages
     but cannot change the page structure. This is the same locked-structure
@@ -1942,7 +1942,7 @@ def _page_create(request, tenant, scope):
     if not slug:
         errors.append("A URL slug is required.")
     elif slug in RESERVED_PAGE_SLUGS:
-        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+        errors.append(f"'/{slug}/' is reserved. Choose a different slug.")
     elif tenant.pages.filter(slug=slug).exists():
         errors.append(f"This site already has a page at /{slug}/.")
     if not html_source.strip():
@@ -1957,7 +1957,7 @@ def _page_create(request, tenant, scope):
     # page's HTML can never affect another page or the home site.
     with transaction.atomic():
         template = Template.objects.create(
-            name=f"{tenant.name} — {title}",
+            name=f"{tenant.name}: {title}",
             html_source=html_source,
             tenant=tenant,
         )
@@ -1971,7 +1971,7 @@ def _page_create(request, tenant, scope):
     _warn_ignored_submitted_field_markers(
         request, html_source, template.schema
     )
-    messages.success(request, f"Page “{page.title}” created — start editing.")
+    messages.success(request, f"Page “{page.title}” created. Start editing.")
     if scope == "tenant":
         return redirect("dashboard:page_editor_self", page_pk=page.pk)
     return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
@@ -2007,7 +2007,7 @@ def _annotate_template_in_background(
     """Run the AI annotator on `raw_html` and update Template `template_id` in
     place when it completes. Used by page_import_siblings to upgrade an
     imported sibling Page from "renders as static HTML" to "editable in CMS"
-    asynchronously — the import response returns immediately, and the
+    asynchronously. The import response returns immediately, and the
     annotated HTML lands a minute or two later.
 
     A persisted AnnotationJob makes completion or failure visible to the
@@ -2108,7 +2108,7 @@ def page_import_siblings(request, pk):
     bind it to this Tenant via a Page row.
 
     Pages are created and returned IMMEDIATELY with the raw fetched HTML
-    so the operator can navigate to them right away — they render as
+    so the operator can navigate to them right away. They render as
     static HTML at the right CMS URLs. Then for each sibling we spawn a
     worker thread that runs the AI annotator and patches the Template's
     html_source in place when annotation finishes (~30–120 s per page),
@@ -2178,7 +2178,7 @@ def page_import_siblings(request, pk):
 
         with transaction.atomic():
             template = Template.objects.create(
-                name=f"{tenant.name} — {title}",
+                name=f"{tenant.name}: {title}",
                 description=f"Imported from {sibling['url']}",
                 html_source=sibling_html,
                 tenant=tenant,
@@ -2322,9 +2322,9 @@ def page_list_self(request):
 @tenant_member_required
 @require_POST
 def page_create_self(request):
-    # Structural change — clients can't add pages, only agency staff can.
+    # Structural change: clients can't add pages; only agency staff can.
     if not _user_can_manage_pages(request):
-        messages.error(request, "Adding pages is managed by your agency — get in touch and they'll set it up.")
+        messages.error(request, "Adding pages is managed by your agency. Get in touch and they'll set it up.")
         return redirect("dashboard:page_list_self")
     return _page_create(request, request.tenant, "tenant")
 
@@ -2361,7 +2361,7 @@ def page_publish_self(request, page_pk):
 @tenant_member_required
 @require_POST
 def page_delete_self(request, page_pk):
-    # Structural change — clients can't remove pages, only agency staff can.
+    # Structural change: clients can't remove pages; only agency staff can.
     if not _user_can_manage_pages(request):
         messages.error(request, "Removing pages is managed by your agency.")
         return redirect("dashboard:page_list_self")
@@ -2379,7 +2379,7 @@ def _render_editor(request, tenant, *, scope, page=None):
     # differences are the action URLs and the bar labels.
     editable = page or tenant
     # Build the schema fresh from the template HTML so the editor always reflects
-    # the CURRENT parser — per-element style flags, theme tokens, etc. — even for
+    # the CURRENT parser (per-element style flags, theme tokens, etc.) even for
     # templates whose stored schema predates those features (avoids a stale
     # schema hiding the Style panels / Design tab until every template is
     # re-saved). Public rendering still uses the stored schema for defaults.
@@ -2396,8 +2396,8 @@ def _render_editor(request, tenant, *, scope, page=None):
     # distinct from per-section content edits, so the editor surfaces each on its
     # own tab ("Brand" / "Navigation"). Everything else is "Content".
     brand_section = next((s for s in sections if s.get("id") == "brand"), None)
-    # The "Navigation" tab gathers the site chrome — both the header nav and the
-    # footer — so they live apart from the page-body content sections.
+    # The "Navigation" tab gathers the site chrome, both the header nav and the
+    # footer, so they live apart from the page-body content sections.
     nav_groups = {"header", "footer"}
     nav_sections = [
         s for s in sections
@@ -2423,7 +2423,7 @@ def _render_editor(request, tenant, *, scope, page=None):
 
     # Image/video uploads create per-tenant MediaAssets (page-independent), so
     # the page editor reuses the tenant-scoped upload/video endpoints. Version
-    # history is home-only for now — pages pass empty version URLs and the
+    # history is home-only for now; pages pass empty version URLs and the
     # editor hides the History button (see editor.html).
     if scope == "tenant":
         ghl_forms_url = reverse("dashboard:tenant_ghl_forms_self")
@@ -2625,7 +2625,7 @@ def _save_content(request, editable):
             {
                 "ok": False,
                 "error": (
-                    "This site isn't set up for editing yet — contact your agency."
+                    "This site isn't set up for editing yet. Contact your agency."
                 ),
             },
             status=403,
@@ -2910,7 +2910,7 @@ def _media_gallery_list(tenant):
             "bytes": nbytes or 0,
             "uploaded_at": uploaded_at or "",
             "source": source,
-            # Only uploaded MediaAssets can be renamed/deleted — template
+            # Only uploaded MediaAssets can be renamed/deleted; template
             # defaults and harvested page images are read-only in the gallery.
             "editable": source == "upload" and asset_id is not None,
         })
@@ -2982,7 +2982,7 @@ def _media_item_mutate(request, tenant, asset_id):
     """Rename (POST) or delete (DELETE) an uploaded MediaAsset.
 
     Default / harvested page images have no MediaAsset id and cannot reach
-    this endpoint — the gallery UI also hides those actions for them.
+    this endpoint. The gallery UI also hides those actions for them.
     """
     asset = tenant.assets.filter(
         pk=asset_id, resource_type=MediaAsset.RESOURCE_IMAGE
@@ -3051,7 +3051,7 @@ def _save_upload(request, tenant):
     except Exception:
         logger.exception("Iceberg image upload failed for tenant %s", tenant.pk)
         return JsonResponse(
-            {"ok": False, "error": "Upload failed — please try again."}, status=502
+            {"ok": False, "error": "Upload failed. Please try again."}, status=502
         )
 
     asset = MediaAsset.objects.create(
@@ -3067,7 +3067,7 @@ def _save_upload(request, tenant):
 
 def _save_video_upload(request, tenant):
     """Video upload: streamed through our server to Iceberg (no browser-direct
-    upload — R2 blocks cross-origin PUT from tenant domains)."""
+    upload because R2 blocks cross-origin PUT from tenant domains)."""
     upload = request.FILES.get("file")
     if not upload:
         return JsonResponse({"ok": False, "error": "No file received."}, status=400)
@@ -3176,7 +3176,7 @@ def tenant_site_settings_self(request):
 
 
 # --------------------------------------------------------------------------- #
-# Custom domain (direct-to-origin + Let's Encrypt) — agency surface            #
+# Custom domain (direct-to-origin + Let's Encrypt): agency surface            #
 # --------------------------------------------------------------------------- #
 
 
@@ -3253,7 +3253,7 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
         return _render_custom_domain_partial(
             request, tenant,
             info="DNS verified. Your SSL certificate is issued automatically "
-                 "within about a minute on first visit — then your domain is live.",
+                 "within about a minute on first visit. Then your domain is live.",
         )
 
     if resolved:
@@ -3263,7 +3263,7 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
     return _render_custom_domain_partial(
         request, tenant,
         info=(
-            f"Not verified yet — {custom_domain.domain} should point at "
+            f"Not verified yet. {custom_domain.domain} should point at "
             f"{settings.CUSTOM_DOMAIN_TARGET_IP}, but {detail}. Add the A "
             "record at your registrar, then check again."
         ),
@@ -3283,7 +3283,7 @@ def tenant_custom_domain_delete(request, pk, domain_pk):
 
 
 # --------------------------------------------------------------------------- #
-# Custom domain — agency-wide list + override actions                          #
+# Custom domain: agency-wide list + override actions                          #
 # --------------------------------------------------------------------------- #
 
 
@@ -3346,7 +3346,7 @@ def custom_domain_force_delete_local(request, pk):
 
 
 # --------------------------------------------------------------------------- #
-# Blog — shared helpers (two surfaces: agency by pk, tenant by host)           #
+# Blog: shared helpers (two surfaces: agency by pk, tenant by host)           #
 # --------------------------------------------------------------------------- #
 
 
@@ -3707,7 +3707,7 @@ def _blog_settings_save(request, tenant, scope):
 
 
 # --------------------------------------------------------------------------- #
-# Blog — agency surface (by pk)                                                #
+# Blog: agency surface (by pk)                                                #
 # --------------------------------------------------------------------------- #
 
 
@@ -3862,7 +3862,7 @@ def integrations_bind_orphan(request):
     install = get_object_or_404(GhlInstall, pk=request.POST.get("install_id"))
     tenant = get_object_or_404(Tenant, pk=request.POST.get("tenant_id"))
     if install.agency_id:
-        messages.error(request, "This install belongs to an agency — use the agency bind flow instead.")
+        messages.error(request, "This install belongs to an agency. Use the agency bind flow instead.")
         return redirect("dashboard:integrations")
     clash = (
         Tenant.objects.filter(ghl_location_id=install.location_id).exclude(pk=tenant.pk).exists()
@@ -3950,7 +3950,7 @@ def integrations_rename_agency(request):
 
 
 # --------------------------------------------------------------------------- #
-# Blog — tenant surface (host resolves to a tenant)                            #
+# Blog: tenant surface (host resolves to a tenant)                            #
 # --------------------------------------------------------------------------- #
 
 

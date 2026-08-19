@@ -439,7 +439,7 @@ class BlogChromeTests(TestCase):
         for st in soup.find_all("style"):
             css = st.string or ""
             if ".cms-blog" not in css:
-                continue  # client's own stylesheet — leave it alone
+                continue  # client's own stylesheet; leave it alone
             for rule in css.split("}"):
                 if "{" not in rule:
                     continue
@@ -834,7 +834,7 @@ class BlogPreviewTests(TestCase):
         c = self._tenant()
         strip = reverse("dashboard:blog_strip_preview_self")
 
-        # 1) Publish a post through the real form (no explicit publish_date —
+        # 1) Publish a post through the real form (no explicit publish_date;
         #    this is the path that previously left publish_date NULL).
         c.post(reverse("dashboard:blog_create_self"),
                {"title": "Alpha", "body": "<p>a</p>", "status": "published"})

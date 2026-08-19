@@ -11,7 +11,7 @@
     <div class="head-actions-vertical">
       <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">Connect GHL agency</a>
       <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
-         title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
+         title="Use this if the sub-account doesn't show up in the normal chooser. This happens for accounts with no agency or no white-label/SaaS Mode.">
         Sub-account missing? Use standard link
       </a>
     </div>
@@ -22,7 +22,7 @@
       {% if connected_type == "location" %}
         Sub-account connected: {{ connected_label }}
       {% else %}
-        Agency connected — choose sub-accounts to bind below.
+        Agency connected. Choose sub-accounts to bind below.
       {% endif %}
     </div>
   {% endif %}
@@ -57,7 +57,7 @@
         <div class="integration-card-actions">
           <a class="btn btn-secondary btn-sm" href="{% url 'ghl_oauth_install' %}">Add sub-accounts</a>
           <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
-             title="Use this if the sub-account doesn't show up via '+ Add sub-accounts' — happens for accounts with no agency or no white-label/SaaS Mode.">
+             title="Use this if the sub-account doesn't show up via '+ Add sub-accounts'. This happens for accounts with no agency or no white-label/SaaS Mode.">
             Standard link
           </a>
           <form method="post" action="{% url 'dashboard:integrations_refresh_locations' %}" class="inline-form">
@@ -177,7 +177,7 @@
       <div class="integration-empty-actions">
         <a class="btn btn-primary" href="{% url 'ghl_oauth_install' %}">Connect GHL agency</a>
         <a class="btn btn-ghost btn-sm" href="{% url 'ghl_oauth_install' %}?variant=standard"
-           title="Use this if the sub-account doesn't show up in the normal chooser — happens for accounts with no agency or no white-label/SaaS Mode.">
+           title="Use this if the sub-account doesn't show up in the normal chooser. This happens for accounts with no agency or no white-label/SaaS Mode.">
           Sub-account missing? Use standard link
         </a>
       </div>

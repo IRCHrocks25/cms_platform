@@ -48,7 +48,7 @@ class TenantAwareLoginView(LoginView):
             if getattr(settings, "SESSION_COOKIE_DOMAIN", None):
                 # Production: the session cookie spans the parent domain
                 # (COOKIE_PARENT_DOMAIN), so logging in here carries straight
-                # over to the subdomain editor — one login, no second prompt.
+                # over to the subdomain editor: one login, no second prompt.
                 auth_login(request, user)
                 return HttpResponseRedirect(tenant_editor_url(request, home_tenant))
             # Single-host / local dev: the cookie can't span hosts, so bounce
@@ -93,11 +93,11 @@ class TenantAwareLoginView(LoginView):
 # --------------------------------------------------------------------------- #
 # Self-service password reset (tenant-aware, Resend email, rate-limited).      #
 #                                                                              #
-# Uses Django's built-in reset machinery (default_token_generator — signed,   #
+# Uses Django's built-in reset machinery (default_token_generator: signed,   #
 # expiring per PASSWORD_RESET_TIMEOUT). The email link points back to the      #
 # SAME host the request came in on: with django.contrib.sites NOT installed,  #
 # Django's get_current_site() returns a RequestSite(request), so the link's   #
-# domain is request.get_host() — i.e. the client's own subdomain.             #
+# domain is request.get_host(), i.e. the client's own subdomain.             #
 # --------------------------------------------------------------------------- #
 
 _RESET_RATE_LIMIT = 5          # max reset requests

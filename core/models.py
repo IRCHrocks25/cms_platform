@@ -28,10 +28,10 @@ BLOG_STRIP_OVERLAY = "overlay"
 BLOG_STRIP_SPOTLIGHT = "spotlight"
 BLOG_STRIP_LIST = "list"
 BLOG_STRIP_CHOICES = [
-    (BLOG_STRIP_CARDS, "Cards — cover image, title & excerpt"),
-    (BLOG_STRIP_OVERLAY, "Overlay — title on a full-bleed image"),
-    (BLOG_STRIP_SPOTLIGHT, "Spotlight — one lead post + a list"),
-    (BLOG_STRIP_LIST, "Minimal list — clean, text-forward"),
+    (BLOG_STRIP_CARDS, "Cards (cover image, title & excerpt)"),
+    (BLOG_STRIP_OVERLAY, "Overlay (title on a full-bleed image)"),
+    (BLOG_STRIP_SPOTLIGHT, "Spotlight (one lead post + a list)"),
+    (BLOG_STRIP_LIST, "Minimal list (clean, text-forward)"),
 ]
 BLOG_STRIP_IDS = {c[0] for c in BLOG_STRIP_CHOICES}
 DEFAULT_BLOG_STRIP = BLOG_STRIP_CARDS
@@ -41,8 +41,8 @@ class Template(models.Model):
     EDITING_RAW = "raw"
     EDITING_EDITABLE = "editable"
     EDITING_MODE_CHOICES = [
-        (EDITING_RAW, "Raw — not client-editable"),
-        (EDITING_EDITABLE, "Editable — released to the client"),
+        (EDITING_RAW, "Raw (not client-editable)"),
+        (EDITING_EDITABLE, "Editable (released to the client)"),
     ]
 
     name = models.CharField(max_length=120)
@@ -186,14 +186,14 @@ class Tenant(models.Model):
     name = models.CharField(max_length=120)
     subdomain = models.SlugField(max_length=80, unique=True)
     # Display-only hint for core/urls_helpers.py (site_created page, tenant
-    # detail header) — NOT the source of truth for routing or TLS. Real
+    # detail header); NOT the source of truth for routing or TLS. Real
     # custom-domain resolution and the route-syncer key off the CustomDomain
     # table (`related_name="custom_domains"` below), which also tracks
     # verification. create_tenant_account() (CMS-37) writes both this field
     # and an unverified CustomDomain row so the two stay in sync at creation
     # time; nothing enforces that afterward (e.g. the per-tenant "Custom
     # Domain" panel only touches CustomDomain). Kept for the display call
-    # sites rather than dropped outright — see CMS-37 for the audit.
+    # sites rather than dropped outright; see CMS-37 for the audit.
     custom_domain = models.CharField(max_length=253, blank=True, default="")
 
     template = models.ForeignKey(
@@ -317,7 +317,7 @@ class Page(models.Model):
     a Page is any extra page, served at ``/<slug>/`` on the same host. Each
     Page is its own annotated ``Template`` + content blob and publishes
     independently of the home page. Rendering reuses ``render_site`` /
-    ``merge_with_defaults`` unchanged — a Page exposes the same
+    ``merge_with_defaults`` unchanged. A Page exposes the same
     ``template`` / ``content`` / ``is_published`` shape the editor already
     drives the home page with.
     """
@@ -402,7 +402,7 @@ class MediaAsset(models.Model):
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name="assets"
     )
-    # Legacy local storage — kept so already-stored /media/ assets still resolve.
+    # Legacy local storage, kept so already-stored /media/ assets still resolve.
     # New uploads go to Cloudinary and leave this blank.
     file = models.ImageField(upload_to="tenants/%Y/%m/", blank=True, null=True)
     original_name = models.CharField(max_length=240, blank=True)
@@ -593,7 +593,7 @@ class AnnotationJob(models.Model):
     browser polls ``template_annotate_status`` until the row is terminal. The
     request returns in milliseconds, so nothing upstream can ever time it out.
 
-    Rows are transient — they hold the result only until the browser fetches it,
+    Rows are transient. They hold the result only until the browser fetches it,
     and old rows are swept on the next submit (see ``template_annotate``).
     """
 

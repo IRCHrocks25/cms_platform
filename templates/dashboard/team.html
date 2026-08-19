@@ -16,7 +16,7 @@
         <h1 class="page-title m-0">Team</h1>
         <p class="page-subtitle">
           People who can sign in and edit <strong>{{ tenant.name }}</strong>.
-          Create a login to give a teammate access — they’ll only ever see this site.
+          Create a login to give a teammate access. They’ll only ever see this site.
         </p>
       </div>
       <div class="row">
@@ -47,7 +47,7 @@
                   <span class="badge badge-blue">Owner</span>
                 {% endif %}
               </td>
-              <td class="cell-muted" data-label="Email">{{ m.user.email|default:'—' }}</td>
+              <td class="cell-muted" data-label="Email">{{ m.user.email|default:'Not provided' }}</td>
               <td data-label="Role">
                 {% if m.user_id == owner_id %}
                   <span class="cell-muted">{{ m.get_role_display }}</span>
@@ -64,9 +64,9 @@
               </td>
               <td class="right" data-label="Actions">
                 {% if m.user_id == current_user_id %}
-                  <span class="cell-muted">—</span>
+                  <span class="cell-muted">Not available</span>
                 {% elif m.user_id == owner_id %}
-                  <span class="cell-muted">—</span>
+                  <span class="cell-muted">Not available</span>
                 {% else %}
                   <form method="post" action="{% url 'dashboard:team_member_remove_self' m.pk %}"
                         onsubmit="return confirm('Remove {{ m.user.username }} from this site?');" class="inline-form text-danger">
@@ -84,7 +84,7 @@
     <section class="card stack-4">
       <h2 class="card-title">Create a new login</h2>
       <p class="field-hint m-0">
-        We’ll generate a password and show it once — copy it and send it to the
+        We’ll generate a password and show it once. Copy it and send it to the
         person. They sign in at this site’s login page.
       </p>
       <form method="post" action="{{ team_create_url }}" class="form-row">

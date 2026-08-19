@@ -167,7 +167,7 @@
             {% for m in members %}
               <tr>
                 <td data-label="Member"><a href="{% url 'dashboard:user_detail' m.user.pk %}" class="cell-strong">{{ m.user.username }}</a></td>
-                <td class="cell-muted" data-label="Email">{{ m.user.email|default:'—' }}</td>
+                <td class="cell-muted" data-label="Email">{{ m.user.email|default:'Not provided' }}</td>
                 <td data-label="Role">
                   <form method="post" action="{% url 'dashboard:tenant_member_role' tenant.pk m.pk %}" class="inline-form">
                     {% csrf_token %}
@@ -208,7 +208,7 @@
           </tbody>
         </table>
       {% else %}
-        <p class="cell-muted m-0">No members yet — add one to give a client access to this site's editor.</p>
+        <p class="cell-muted m-0">No members yet. Add one to give a client access to this site's editor.</p>
       {% endif %}
 
       <div id="add-member-panel" hidden class="card-tight member-panel">
@@ -234,7 +234,7 @@
 
         <p class="field-hint mb-2">
           <strong>Create a new login for this site.</strong>
-          Makes a brand-new client account scoped only to this site — no new site.
+          Makes a brand-new client account scoped only to this site, with no new site.
         </p>
         <form method="post" action="{% url 'dashboard:tenant_member_create' tenant.pk %}" class="row member-form">
           {% csrf_token %}
@@ -335,7 +335,7 @@
               <span class="overview-val">
                 {% if tenant.owner %}
                   <a href="{% url 'dashboard:user_detail' tenant.owner.pk %}">{{ tenant.owner.username }}</a>
-                {% else %}—{% endif %}
+                {% else %}None{% endif %}
               </span>
             </div>
             <div class="overview-row">
@@ -361,12 +361,12 @@
             </div>
             <div class="overview-row">
               <span class="overview-key">Last edit</span>
-              <span class="overview-val">{% if activity %}{{ activity.0.saved_at|naturaltime }}{% else %}—{% endif %}</span>
+              <span class="overview-val">{% if activity %}{{ activity.0.saved_at|naturaltime }}{% else %}Never{% endif %}</span>
             </div>
           </div>
           <a href="{{ site_urls.fallback_url }}" target="_blank" rel="noopener"
              class="cell-muted text-sm"
-             title="Render this site on the current server — works without subdomain DNS, and lets you preview unpublished sites">
+             title="Render this site on the current server. This works without subdomain DNS and lets you preview unpublished sites">
             Preview on this server ↗
           </a>
         </section>
