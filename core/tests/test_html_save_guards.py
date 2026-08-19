@@ -286,7 +286,7 @@ class NoOpKeepsMetadataTest(TestCase):
         self.assertEqual(self.tpl.name, "After")
         self.assertEqual(self.tpl.description, "now described")
         msgs = [str(m) for m in get_messages(resp.wsgi_request)]
-        self.assertIn("No HTML changes — metadata saved.", msgs)
+        self.assertIn("No HTML changes; metadata saved.", msgs)
 
 
 class AdminCannotBypassTheServiceTest(TestCase):

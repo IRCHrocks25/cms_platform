@@ -136,7 +136,7 @@ class ComposeEnvPassthroughTests(unittest.TestCase):
         )
 
     def test_mcp_oauth_vars_are_forwarded(self):
-        """Deploy blocker: these fail closed when empty — must never rely on allow-list."""
+        """Deploy blocker: these fail closed when empty, so never rely on allow-list."""
         compose_keys = _compose_web_environment_keys(
             COMPOSE_PATH.read_text(encoding="utf-8")
         )

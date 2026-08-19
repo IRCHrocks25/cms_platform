@@ -41,7 +41,7 @@ class IntegrationsViewTests(TestCase):
     def test_site_choices_expose_full_name_for_truncated_select(self):
         self.tenant.name = (
             "Northstar International Hospitality and Destination Management "
-            "Group — Southeast Asia Operations"
+            "Group: Southeast Asia Operations"
         )
         self.tenant.save(update_fields=["name"])
 
@@ -288,7 +288,7 @@ class IntegrationsViewTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
     def test_integrations_page_shows_bind_form_for_unbound_orphan(self):
-        # NOTE: don't also assert on 'name="tenant_id"' here — the existing
+        # NOTE: don't also assert on 'name="tenant_id"' here; the existing
         # agency-bind form (integrations.html ~line 88) already renders that
         # attribute whenever setUp's self.agency has an unbound location, so
         # that assertion would false-pass even without this task's template

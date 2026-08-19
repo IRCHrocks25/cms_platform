@@ -246,7 +246,7 @@ def build_schema(html: str) -> dict[str, Any]:
     # In-page anchor destinations the template wires up (e.g. "#programs"), so the
     # editor can offer non-technical clients a friendly dropdown of their own
     # site's sections instead of asking them to type raw anchors. A link field can
-    # still hold a custom URL / mailto — this list is just the convenient choices.
+    # still hold a custom URL / mailto; this list is just the convenient choices.
     section_labels = {s["id"]: s["label"] for s in sections}
     link_targets: list[dict[str, str]] = []
     seen_anchors: set[str] = set()

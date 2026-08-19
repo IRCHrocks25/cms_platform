@@ -1,7 +1,7 @@
 """_annotate_template_in_background must apply the annotated HTML and rebuild
 the template schema. Regression: it treated annotate_html's return (a str) as
 an object (`result.html` / `result.sections`), which raised AttributeError,
-got swallowed, and left imported pages with raw HTML + an empty schema — so the
+got swallowed and left imported pages with raw HTML + an empty schema, so the
 editor showed no fields even though the page rendered fine.
 """
 from unittest import mock

@@ -31,7 +31,7 @@
 
     {% if template and tenants_using|length > 1 %}
       <div class="card page-section shared-template-warning" role="alert">
-        <strong class="shared-template-title">Heads-up — this template is shared</strong>
+        <strong class="shared-template-title">Heads-up: this template is shared</strong>
         <div class="shared-template-copy">
           Saving here updates the HTML on <strong>{{ tenants_using|length }}</strong> sites that use this template:
           <span class="break-word">
@@ -63,8 +63,8 @@
           <label class="field-label" for="id_editing_mode">Client editing</label>
           <select class="input" name="editing_mode" id="id_editing_mode">
             {% with mode=form_data.editing_mode|default_if_none:'raw' %}
-              <option value="raw" {% if mode == "raw" %}selected{% endif %}>Raw — not client-editable</option>
-              <option value="editable" {% if mode == "editable" %}selected{% endif %}>Editable — released to the client</option>
+              <option value="raw" {% if mode == "raw" %}selected{% endif %}>Raw (not client-editable)</option>
+              <option value="editable" {% if mode == "editable" %}selected{% endif %}>Editable (released to the client)</option>
             {% endwith %}
           </select>
           <p class="field-hint mt-2 text-sm text-soft">
@@ -77,11 +77,11 @@
             <strong>This save would drop fields used on a published site.</strong>
             <p class="text-sm field-loss-copy">
               Lost fields: {{ field_loss.lost_fields|join:", " }}.
-              Content is never deleted — confirm to proceed anyway.
+              Content is never deleted. Confirm to proceed anyway.
             </p>
             <label class="check-row text-sm">
               <input type="checkbox" name="allow_field_loss" value="1">
-              I understand — save anyway
+              I understand; save anyway
             </label>
           </div>
         {% endif %}
@@ -144,14 +144,14 @@
         <p>
           Deleting this template is permanent.
           {% if template.tenants.count %}
-            <strong>{{ template.tenants.count }} site{{ template.tenants.count|pluralize }} currently use{{ template.tenants.count|pluralize:"s," }} this template</strong> — you must switch them first.
+            <strong>{{ template.tenants.count }} site{{ template.tenants.count|pluralize }} currently use{{ template.tenants.count|pluralize:"s," }} this template</strong>; you must switch them first.
           {% endif %}
         </p>
         <details>
           <summary class="btn btn-danger danger-summary"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Delete template</summary>
           <form method="post" action="{% url 'dashboard:template_delete' template.pk %}" class="mt-3">
             {% csrf_token %}
-            <button type="submit" class="btn btn-danger"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Confirm — permanently delete</button>
+            <button type="submit" class="btn btn-danger"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Confirm permanent deletion</button>
           </form>
         </details>
       </section>

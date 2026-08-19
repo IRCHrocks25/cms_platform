@@ -93,7 +93,7 @@ class AccountServiceTests(TestCase):
 
 
 class CreateFromHtmlTests(TestCase):
-    """CMS-38 — html as an alternative seed to a library template."""
+    """CMS-38: html as an alternative seed to a library template."""
 
     @classmethod
     def setUpTestData(cls):
@@ -222,7 +222,7 @@ class CreateFromHtmlTests(TestCase):
 
 
 class CustomDomainAtCreationTests(TestCase):
-    """CMS-37 — custom_domain passed at creation now produces a real,
+    """CMS-37: custom_domain passed at creation now produces a real,
     unverified CustomDomain row instead of a write that nothing reads."""
 
     @classmethod

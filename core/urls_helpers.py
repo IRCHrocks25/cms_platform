@@ -5,11 +5,11 @@ Centralizes the logic for turning a Tenant into the absolute URLs we show
 on the post-create success page (and anywhere else that needs them).
 
 Resolution priority for the public hostname:
-    1. Tenant.custom_domain (if set) — always rendered https://
+    1. Tenant.custom_domain (if set), always rendered https://
     2. <subdomain>.<TENANT_BASE_DOMAIN> on the same scheme/port as the
        current request
 
-There is no TenantDomain table in this project — `core.middleware`
+There is no TenantDomain table in this project. `core.middleware`
 resolves request.tenant directly from `Tenant.subdomain`, so the
 "temporary domain" is purely derived, not persisted.
 """
@@ -64,7 +64,7 @@ def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
     """Absolute public URL from TENANT_BASE_DOMAIN (no request).
 
     Used by MCP write tools so callers get a link to inspect. Builds
-    ``{scheme}://{subdomain}.{TENANT_BASE_DOMAIN}/`` — never hardcodes a
+    ``{scheme}://{subdomain}.{TENANT_BASE_DOMAIN}/`` and never hardcodes a
     production hostname. Falls back to ``Tenant.custom_domain`` when set.
     """
     custom = (getattr(tenant, "custom_domain", None) or "").strip().lower()
@@ -86,7 +86,7 @@ def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
 def tenant_public_url(request, tenant):
     """
     Absolute base URL where visitors will see the site, e.g.
-        http://acme.lvh.me:8000/      (local dev — reaches this server)
+        http://acme.lvh.me:8000/      (local dev; reaches this server)
         https://acme.sites.katek.app/ (production)
         https://www.acmeclient.com/   (custom domain)
 
@@ -118,7 +118,7 @@ def tenant_public_url(request, tenant):
         # Dev base configured server-side: keep the caller's scheme/port.
         return f"{scheme}://{tenant.subdomain}.{base}{port}/"
     # Real base domain: the client's canonical public URL is https on the
-    # standard port — independent of the host the operator is browsing from.
+    # standard port, independent of the host the operator is browsing from.
     return f"https://{tenant.subdomain}.{base}/"
 
 

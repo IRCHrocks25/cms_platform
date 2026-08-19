@@ -1,4 +1,4 @@
-"""CMS-27 §7 — claim Template.tenant, set editing_mode, seed TemplateVersion v1."""
+"""CMS-27 §7: claim Template.tenant, set editing_mode, seed TemplateVersion v1."""
 
 from __future__ import annotations
 

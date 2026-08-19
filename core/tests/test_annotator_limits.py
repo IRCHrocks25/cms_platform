@@ -5,7 +5,7 @@ thousands of DOM nodes) both surfaced to the operator as the confusing
 "Annotation timed out on the server" stale-job message:
 
 1. The OpenAI client was built with the SDK default ``max_retries=2``, so a
-   request that hit ``OPENAI_TIMEOUT`` retried twice — multiplying wall-clock
+   request that hit ``OPENAI_TIMEOUT`` retried twice, multiplying wall-clock
    time (~120s x 3) past the 300s background-job stale threshold.
 2. Nothing rejected an input too big to ever succeed, so a doomed request ran
    for minutes before failing.

@@ -147,6 +147,6 @@ class BindOrphanInstallTests(TestCase):
         self.assertEqual(result.tenant_id, self.tenant.pk)
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.ghl_location_id, "loc_orphan")
-        # Tokens are untouched — still decrypt to their original values.
+        # Tokens are untouched and still decrypt to their original values.
         self.assertEqual(decrypt_token(result.access_token), "orig-access")
         self.assertEqual(decrypt_token(result.refresh_token), "orig-refresh")

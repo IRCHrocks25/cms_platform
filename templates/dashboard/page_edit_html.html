@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Edit HTML — {{ page.title }} · Locked CMS{% endblock %}
+{% block title %}Edit HTML: {{ page.title }} · Locked CMS{% endblock %}
 
 {% block content %}
   <div class="page">
@@ -14,7 +14,7 @@
 
     <div class="page-head source-page-head">
       <div class="source-page-head-main">
-        <h1 class="page-title">Edit HTML — {{ page.title }}</h1>
+        <h1 class="page-title">Edit HTML: {{ page.title }}</h1>
         <div class="source-page-actions">
           <span class="source-unsaved-indicator" data-source-unsaved-indicator role="status" aria-live="polite" hidden>Unsaved changes</span>
           <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>

@@ -30,7 +30,7 @@ class BuildConfigTests(TestCase):
 
     def test_emits_http_to_https_redirect_router(self):
         """Each domain also gets a :80 router that 308s to HTTPS (custom
-        domains hit the origin directly — no CF edge to upgrade http://)."""
+        domains hit the origin directly, with no CF edge to upgrade http://)."""
         t = _tenant()
         cd = CustomDomain.objects.create(
             tenant=t, domain="www.acme.com", is_verified=True
@@ -50,7 +50,7 @@ class BuildConfigTests(TestCase):
     @override_settings(TENANT_BASE_DOMAIN="sites.katek.app")
     def test_protected_hosts_emit_no_router(self):
         """Our own infra + the tenant base domain (and its subdomains) must
-        never get a custom-domain router — that's the catch-all safety net."""
+        never get a custom-domain router. That's the catch-all safety net."""
         for host in (
             "katek.app",
             "sites.katek.app",

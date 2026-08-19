@@ -36,7 +36,7 @@ def embed_view(request):
 
     Trust model (Phase 1): URL params are unsigned. Acceptable for an
     agency-private menu link, NOT for a public marketplace app. The
-    GHL_AUTO_LOGIN env var is the kill switch — disabled by default.
+    GHL_AUTO_LOGIN env var is the kill switch and is disabled by default.
     """
     if not settings.GHL_AUTO_LOGIN:
         raise Http404
@@ -69,7 +69,7 @@ def embed_view(request):
         user = tenant.owner
         if not user.is_active:
             return HttpResponse("Tenant owner inactive", status=403)
-        logger.info("GHL embed: email %r did not match — falling back to tenant.owner", email)
+        logger.info("GHL embed: email %r did not match; falling back to tenant.owner", email)
 
     user.backend = "django.contrib.auth.backends.ModelBackend"
     login(request, user)
@@ -102,14 +102,14 @@ def oauth_install(request):
     """Kick off the OAuth install flow.
 
     GHL marketplace can link directly to its own ``chooselocation`` URL,
-    but that path uses a state token GHL controls — short TTL, sometimes
+    but that path uses a state token GHL controls, with a short TTL and sometimes
     stuck in marketplace cookies after an uninstall, producing
     "Invalid state: Signature has expired" on reinstall. Going through
     /connect/install/ lets us sign our own state with a 30-minute TTL we
     control end-to-end.
 
     ?variant=standard uses marketplace.gohighlevel.com instead of the
-    default whitelabel host (marketplace.leadconnectorhq.com) — needed
+    default whitelabel host (marketplace.leadconnectorhq.com), which is needed
     when the target sub-account doesn't belong to a whitelabeled/branded
     agency and so doesn't show up in the default chooser. See
     ghl_oauth.py module docstring for the full story.
@@ -148,7 +148,7 @@ def oauth_callback(request):
 
     # State is only present when the install kicked off from our own
     # /connect/install/ link. Marketplace-initiated installs come straight
-    # from GHL with no state — accept those without verification, since the
+    # from GHL with no state. Accept those without verification, since the
     # user clicking "Install" inside GHL is the authorization signal.
     if state:
         try:
@@ -288,7 +288,7 @@ def _platform_legal_or_tenant_page(request, *, template_name: str, slug: str):
 
     These routes sit ahead of the tenant catch-all ``/<slug>/`` in the
     URLconf, so without a host check they claim ``/privacy/`` and
-    ``/terms/`` on every host — including tenant subdomains and custom
+    ``/terms/`` on every host, including tenant subdomains and custom
     domains. Gate on ``request.tenant`` (set by TenantResolverMiddleware,
     which already prefers ``X-Forwarded-Host`` behind Traefik) and fall
     through to the page renderer when a tenant is present.

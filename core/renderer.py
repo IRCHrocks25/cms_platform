@@ -135,7 +135,7 @@ PREVIEW_BRIDGE_SCRIPT = """
   }
   function cmsIsStyleable(host) {
     if (!host) return false;
-    // Any text-bearing field — headings, paragraphs, list items, etc. (like
+    // Any text-bearing field, including headings, paragraphs, list items, etc. (like
     // lp-cms, which lets you style every text element, not just "rich" ones).
     // Only non-text fields are excluded. Styling a plain text field just turns
     // its value into inline HTML (a styled span).
@@ -361,7 +361,7 @@ GHL_FORM_EMBED_BASE = "https://msgsndr.com/widget/form/"
 # that auto-wraps a typed line in <p> yields
 #   <p data-edit="..."><p>text</p></p>
 # and the browser then splits that into an *empty* editable host plus a second,
-# un-editable <p> holding the text — a visible duplicate that can't be clicked.
+# un-editable <p> holding the text, creating a visible duplicate that can't be clicked.
 _PHRASING_HOSTS = {
     "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "a", "cite", "em",
     "strong", "b", "i", "u", "small", "label", "summary", "figcaption",
@@ -391,7 +391,7 @@ def _flatten_for_phrasing_host(fragment) -> None:
 
 
 def _apply_image(el, value: str) -> None:
-    """Replace a content image. Naive `src=` fails on real-world markup —
+    """Replace a content image. Naive `src=` fails on real-world markup because
     responsive `srcset` candidates win, lazy-load libraries copy `data-src`
     over `src` after mount, and `<picture><source srcset>` siblings outrank
     the fallback `<img>`. Reconcile all of those to the new value so the
@@ -432,7 +432,7 @@ def _insert_sanitized_html(el, html: str) -> None:
 
 def _apply_field(el, value: str, ftype: str) -> None:
     # No-op short-circuit. Skip the write when the value already equals what's
-    # in the element — typically every render where the tenant hasn't actually
+    # in the element, typically every render where the tenant hasn't actually
     # edited that field (merge_with_defaults pre-fills every field with its
     # default, extracted from this same element). The richtext path falls back
     # to ``sanitize_template_html`` on a real edit, which preserves classes,
@@ -467,7 +467,7 @@ def _apply_field(el, value: str, ftype: str) -> None:
         return
     if ftype == "richtext":
         # First pass: byte-for-byte equality. Most no-edit renders hit
-        # this and we're done — saves a re-parse.
+        # this and we're done, which saves a re-parse.
         current = (el.decode_contents() or "").strip()
         value_stripped = (value or "").strip()
         if current == value_stripped:
@@ -626,7 +626,7 @@ def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
 
     Inline styles on the element win over the template's class rules for that
     element. But a text *color* must also reach styled descendants (an <em> or
-    <span> with its own color rule), which inline-on-the-parent can't do — the
+    <span> with its own color rule), which inline-on-the-parent can't do. The
     child's own rule wins. So for color we additionally emit a scoped
     ``[data-edit="id"] * { color: ... !important }`` stylesheet rule.
     """
@@ -695,7 +695,7 @@ def _apply_tokens(soup: BeautifulSoup, tokens: dict) -> None:
 
     Appends a ``<style>:root{ --name: value; }</style>`` block after the
     template's own styles, so ``var(--name)`` everywhere resolves to the
-    client's chosen value — buttons, headings, accents all recolor together
+    client's chosen value; buttons, headings, and accents all recolor together
     with no per-element overrides."""
     if not isinstance(tokens, dict):
         return
@@ -852,7 +852,7 @@ def apply_head_settings(html: str, head_settings: dict[str, Any] | None) -> str:
     Reuses the Site-Settings head-injection so blog pages (which are plain
     Django templates, not annotated templates) get the same ``<title>``,
     meta, OG/Twitter, GA snippet and custom head script behavior as the
-    main site — with per-page overrides layered in by the caller.
+    main site, with per-page overrides layered in by the caller.
     """
     if not html or not head_settings:
         return html
@@ -893,12 +893,12 @@ def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
 
 # Auto-annotation: every text-leaf element that the agency didn't annotate gets
 # a ``data-edit="auto.nN"`` id at render time, so it becomes editable/styleable
-# through the normal pipeline — the lp-cms "everything is editable" idea expressed
+# through the normal pipeline, expressing the lp-cms "everything is editable" idea
 # as our own annotations. Purely additive (only adds attributes); ids are assigned
 # in document order and applied on BOTH preview and public renders so they line up.
 _AUTO_TEXT_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote",
                    "figcaption", "td", "th", "dt", "dd", "caption", "cite", "address")
-# If a candidate contains one of these it's a container, not a text leaf — skip it
+# If a candidate contains one of these, it's a container, not a text leaf; skip it
 # so we annotate the innermost text element (mirrors lp-cms's leaf detection).
 _AUTO_BLOCK_CHILD = ("div", "ul", "ol", "li", "table", "thead", "tbody", "tfoot",
                      "tr", "figure", "form", "section", "article", "nav", "aside",
@@ -913,7 +913,7 @@ def _auto_annotate(soup) -> None:
         if el.has_attr("data-edit"):
             continue  # already annotated by the agency
         if el.find_parent(attrs={"data-edit": True}) is not None:
-            continue  # inside an existing field — outermost wins
+            continue  # inside an existing field; outermost wins
         if not el.get_text(strip=True):
             continue  # no visible text
         if el.find(_AUTO_BLOCK_CHILD):
@@ -1019,7 +1019,7 @@ def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict
             if embed_section == section_id:
                 merged[section_id][embed_field] = ""
     for section_id, fields in (content or {}).items():
-        # Meta keys (e.g. "_hidden") are NOT sections — they hold editor state
+        # Meta keys (e.g. "_hidden") are NOT sections; they hold editor state
         # like the list of hidden section/field ids. Copy them through verbatim;
         # merging them as `{section: {field: value}}` would crash on a list.
         if isinstance(section_id, str) and section_id.startswith("_"):

@@ -25,7 +25,7 @@ def _make_template(name="Bare", desc=""):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class AgencyAdminAccessTests(TestCase):
-    """Step 9 / case 1 — non-staff cannot reach agency dashboard URLs."""
+    """Step 9 / case 1: non-staff cannot reach agency dashboard URLs."""
 
     @classmethod
     def setUpTestData(cls):
@@ -77,10 +77,33 @@ class AgencyAdminAccessTests(TestCase):
         self.assertContains(response, 'role="menuitem"')
         self.assertContains(response, 'data-menu-position="fixed"')
 
+    def test_new_client_action_precedes_and_is_separate_from_navigation(self):
+        c = self._client()
+        c.force_login(self.staff)
+
+        response = c.get(reverse("dashboard:root"))
+        body = response.content.decode()
+
+        self.assertContains(response, 'class="sidebar-cta"', count=1)
+        self.assertContains(response, 'data-sidebar-label="New client"')
+        self.assertLess(
+            body.index('class="sidebar-brand"'),
+            body.index('class="sidebar-cta"'),
+        )
+        self.assertLess(
+            body.index('class="sidebar-cta"'),
+            body.index('<nav class="app-sidebar-nav"'),
+        )
+        nav = body[
+            body.index('<nav class="app-sidebar-nav"'):
+            body.index("</nav>", body.index('<nav class="app-sidebar-nav"'))
+        ]
+        self.assertNotIn('class="sidebar-cta"', nav)
+
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class AgencyHomeStatsTests(TestCase):
-    """Step 9 / case 2 — staff sees stat cards on home."""
+    """Step 9 / case 2: staff sees stat cards on home."""
 
     def test_home_renders_with_stats(self):
         staff = User.objects.create_user("agency", password="x", is_staff=True)
@@ -138,7 +161,7 @@ class TenantDetailPagesTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class NewClientFlowTests(TestCase):
-    """Step 9 / case 3 + 4 — new client flow + atomic rollback."""
+    """Step 9 / case 3 + 4: new client flow + atomic rollback."""
 
     @classmethod
     def setUpTestData(cls):
@@ -310,7 +333,7 @@ class NewClientFlowTests(TestCase):
             },
         )
         # The generic exception handler in tenant_create re-renders the form
-        # (400) rather than 500ing — see dashboard/views.py's `except Exception`.
+        # (400) rather than 500ing; see dashboard/views.py's `except Exception`.
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Tenant.objects.filter(subdomain="baddomainco").exists())
         self.assertFalse(
@@ -351,7 +374,7 @@ class NewClientFlowTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class CheckSubdomainEndpointTests(TestCase):
-    """Step 9 / case 5 — subdomain availability JSON endpoint."""
+    """Step 9 / case 5: subdomain availability JSON endpoint."""
 
     @classmethod
     def setUpTestData(cls):
@@ -391,7 +414,7 @@ class CheckSubdomainEndpointTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class ResetPasswordTests(TestCase):
-    """Step 9 / case 6 — reset password sets a new password and shows it once."""
+    """Step 9 / case 6: reset password sets a new password and shows it once."""
 
     @classmethod
     def setUpTestData(cls):
@@ -420,7 +443,7 @@ class ResetPasswordTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class MembershipManagementTests(TestCase):
-    """Step 9 / case 7 — add and remove members from a site."""
+    """Step 9 / case 7: add and remove members from a site."""
 
     @classmethod
     def setUpTestData(cls):
@@ -469,7 +492,7 @@ class MembershipManagementTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class DeleteSiteTests(TestCase):
-    """Step 9 / case 8 — delete site requires typing the subdomain."""
+    """Step 9 / case 8: delete site requires typing the subdomain."""
 
     @classmethod
     def setUpTestData(cls):
@@ -509,7 +532,7 @@ class DeleteSiteTests(TestCase):
 )
 class CustomDomainSectionInitialLoadTests(TestCase):
     """The custom-domain copy button must carry the target IP on the FIRST
-    page load — not only after a fetch-swap (add/verify/delete). The initial
+    page load, not only after a fetch-swap (add/verify/delete). The initial
     include inherits the tenant_detail view context, so the view must seed
     target_ip and dns_name just like _render_custom_domain_partial does."""
 

@@ -184,7 +184,7 @@ _RICHTEXT_TEMPLATE = (
 class RichtextSpanStyleTests(SimpleTestCase):
     """Selection-level styling is stored as a styled <span> inside the
     richtext field's own HTML value (not the whole-element _styles map), so a
-    client can recolor part of a heading — e.g. a two-colour header. This
+    client can recolor part of a heading, e.g. a two-colour header. This
     locks the contract that such a span survives sanitize + phrasing-host
     flatten + render with its inline style and text intact."""
 
@@ -211,7 +211,7 @@ class RichtextSpanStyleTests(SimpleTestCase):
         self.assertNotIn("!important", html)
 
     def test_browser_rgb_color_span_survives_render(self):
-        # execCommand('foreColor') emits rgb(), not hex — the value the editor
+        # execCommand('foreColor') emits rgb(), not hex, which is the value the editor
         # actually stores. It must survive the richtext sanitizer untouched.
         content = {"hero": {"title":
                             'Anxiety <span style="color: rgb(239, 68, 68)">isn\'t</span> who you are'}}
@@ -275,7 +275,7 @@ class TextFieldSelectionStyleTests(SimpleTestCase):
         self.assertIsNone(p.find("span"))
 
     def test_text_field_angle_bracket_not_treated_as_markup(self):
-        # "a < b" is not inline markup — must not be swallowed as a tag.
+        # "a < b" is not inline markup and must not be swallowed as a tag.
         content = {"hero": {"tagline": "a < b and c"}}
         html = render_site(_TEXT_TEMPLATE, content)
         p = BeautifulSoup(html, "lxml").find(attrs={"data-edit": "hero.tagline"})

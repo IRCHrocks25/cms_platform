@@ -47,11 +47,11 @@ def create_tenant_account(
 
     Seed the home template with exactly one of:
 
-    - ``template`` — library (or already-resolved) Template to clone
-    - ``html`` — raw HTML string; creates a tenant-owned template named after
+    - ``template``: library (or already-resolved) Template to clone
+    - ``html``: raw HTML string; creates a tenant-owned template named after
       the site (CMS-38). Unannotated HTML correctly yields an empty schema /
       ``raw`` editing mode via ``Template.save``
-    - ``new_template`` — kwargs for an inline Template (dashboard new-client
+    - ``new_template``: kwargs for an inline Template (dashboard new-client
       path); richer than ``html`` when a custom name/description is needed
 
     The generated password is returned to the caller and is never persisted
@@ -61,7 +61,7 @@ def create_tenant_account(
     MCP ``create_client_account`` passes False so chat-created sites stay draft.
 
     If ``custom_domain`` is supplied, a real (unverified) ``CustomDomain`` row
-    is created for it via ``core.services.custom_domains.add_custom_domain`` —
+    is created for it via ``core.services.custom_domains.add_custom_domain``,
     that's the table the middleware and route-syncer actually key off, so a
     domain passed here now does something (CMS-37). The domain is checked
     *before* any row is created so an invalid/taken domain raises

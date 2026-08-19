@@ -29,7 +29,7 @@ def is_configured() -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Images — validate at the door (identical rules to the old Cloudinary path)   #
+# Images: validate at the door (identical rules to the old Cloudinary path)   #
 # --------------------------------------------------------------------------- #
 
 

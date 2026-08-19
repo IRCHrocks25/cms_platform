@@ -1,6 +1,6 @@
 """Renderer: image-type fields must update modern responsive/lazy markup.
 
-The naive renderer set `src` and stopped — which silently failed on real-world
+The naive renderer set `src` and stopped, which silently failed on real-world
 HTML where the browser picks an `<img srcset>` candidate, or a lazy-load
 library (lazyload, lozad, etc.) overwrites `src` from `data-src`, or the
 `<img>` lives inside a `<picture>` whose `<source srcset>` siblings win.

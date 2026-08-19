@@ -3,7 +3,7 @@ Renderer-side richtext sanitizer for agency-annotated templates.
 
 This is the permissive sibling of ``core/services/sanitizer.py``. The
 blog sanitizer is built for untrusted contenteditable input (a small
-allowlist, no class/style/data-*, span/div/h1/h5/h6 all unwrapped) —
+allowlist, no class/style/data-*, span/div/h1/h5/h6 all unwrapped),
 applying it to agency-authored template HTML that uses utility classes
 and structural wrappers visibly destroys the design every render.
 
@@ -29,7 +29,7 @@ import re
 from bs4 import BeautifulSoup, Comment
 
 
-# Tags allowed to survive. Much wider than the blog sanitizer's list — the
+# Tags allowed to survive. Much wider than the blog sanitizer's list; the
 # template author controls every one of these, and the visual design
 # routinely uses structural wrappers (``<div>``, ``<section>``, ``<nav>``)
 # and the full heading scale (``<h1>`` … ``<h6>``).
@@ -57,7 +57,7 @@ ALLOWED_TAGS = frozenset({
 })
 
 # Tags removed together with everything inside them. These can execute
-# code, load external context, or capture form data — none of which a
+# code, load external context, or capture form data, none of which a
 # tenant richtext edit has any business doing.
 DANGEROUS_TAGS = frozenset({
     "script", "style", "iframe", "object", "embed", "form", "input",
@@ -95,7 +95,7 @@ ALLOWED_ATTRS = {
 UNIVERSAL_ATTRS = frozenset({
     "class", "id", "style", "title", "lang", "dir", "role",
     "hidden", "tabindex", "translate", "draggable",
-    # Editor wiring attributes — preserved end-to-end so re-annotation /
+    # Editor wiring attributes, preserved end-to-end so re-annotation /
     # re-render keeps the dashboard's field bindings intact.
     "data-section", "data-edit", "data-type", "data-label",
     "data-icon", "data-group", "data-tokens", "data-cms-ref",
@@ -105,7 +105,7 @@ UNIVERSAL_ATTRS = frozenset({
 _SAFE_HREF_SCHEMES = ("http://", "https://", "mailto:", "tel:")
 _SAFE_SRC_SCHEMES = ("http://", "https://", "data:image/")
 
-# ``style="..."`` patterns we refuse to keep — CSS-based XSS is a smaller
+# ``style="..."`` patterns we refuse to keep. CSS-based XSS is a smaller
 # surface than direct ``<script>`` but worth blocking. If the value contains
 # any of these markers we drop the entire ``style`` attribute rather than
 # trying to surgically rewrite CSS.

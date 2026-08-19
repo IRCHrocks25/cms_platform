@@ -59,7 +59,7 @@ _URL_ATTRS = (
     ("iframe", "src"),
 )
 
-# Paths that a static host treats as "the home page" — equivalent to "/".
+# Paths that a static host treats as "the home page," equivalent to "/".
 _INDEX_PATHS = ("/", "/index.html", "/index.htm")
 
 
@@ -91,7 +91,7 @@ def discover_sibling_html_urls(html: str, base_url: str) -> list[dict]:
     - Same hostname as base_url
     - Path ends with .html or .htm
     - Not the same page as base_url itself (skip the home loopback)
-    - Not in _INDEX_PATHS (skip /, /index.html, /index.htm — those ARE the home)
+    - Not in _INDEX_PATHS (skip /, /index.html, /index.htm; those ARE the home)
 
     Returns a list of dicts, deduped by URL, in document order:
 
@@ -134,7 +134,7 @@ def discover_sibling_html_urls(html: str, base_url: str) -> list[dict]:
             continue
         if _is_same_page(absolute, base_url):
             continue
-        # Drop fragment + query for the dedup key — same .html page with
+        # Drop fragment + query for the dedup key. The same .html page with
         # different anchors is still the same page.
         canonical = f"{a.scheme}://{a.netloc}{path}"
         if canonical in seen:
@@ -163,7 +163,7 @@ def rewrite_relative_urls(html: str, base_url: str) -> str:
     Special case for navigation: `<a>` links that point at the SAME page as
     base_url (e.g. a brand-logo "back to home" link, `href="./"`, `href="/"`,
     `href="./index.html"`) are set to `href="/"` instead of the absolute
-    source-origin URL — so when the CMS hosts the imported page at a new
+    source-origin URL, so when the CMS hosts the imported page at a new
     host, the home link stays on the CMS-hosted site instead of bouncing
     visitors back to the original origin.
     """
@@ -276,15 +276,15 @@ def fetch_url_html(
 #
 # We deal with this in three steps, all exposed below:
 #
-#   1. ``looks_like_spa_shell()`` — heuristic to flag a response as SPA-style
-#   2. ``render_url_html()``      — re-fetch through a headless browser so
+#   1. ``looks_like_spa_shell()``: heuristic to flag a response as SPA-style
+#   2. ``render_url_html()``: re-fetch through a headless browser so
 #                                   the JS runs and we capture the hydrated
 #                                   document. Requires the optional playwright
 #                                   dependency (see README); raises a clear
 #                                   error when unavailable so the operator can
 #                                   either paste manually or enable it on the
 #                                   server.
-#   3. ``inline_external_assets()`` — purely string-level cleanup that turns
+#   3. ``inline_external_assets()``: purely string-level cleanup that turns
 #                                   the captured DOM into something the CMS
 #                                   can render standalone: inlines external
 #                                   stylesheets, absolutizes image and other
@@ -313,7 +313,7 @@ def looks_like_spa_shell(html: str) -> bool:
         return False
     try:
         soup = BeautifulSoup(html, "html.parser")
-    except Exception:  # noqa: BLE001 — never let parser failure crash the fetch
+    except Exception:  # noqa: BLE001; never let parser failure crash the fetch
         return False
     for tag in soup.find_all(["script", "style", "noscript", "template"]):
         tag.decompose()
@@ -358,7 +358,7 @@ def render_url_html(
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
         from playwright._impl._errors import TimeoutError as PWTimeoutError  # type: ignore
-    except ImportError as exc:  # pragma: no cover — env-dependent
+    except ImportError as exc:  # pragma: no cover; env-dependent
         raise UrlFetchError(
             "Server-side JavaScript rendering isn't enabled on this deploy. "
             "Install the optional dependency: `pip install playwright` then "
@@ -403,7 +403,7 @@ def render_url_html(
                 browser.close()
     except UrlFetchError:
         raise
-    except Exception as exc:  # noqa: BLE001 — playwright wraps its own errors
+    except Exception as exc:  # noqa: BLE001; playwright wraps its own errors
         raise UrlFetchError(f"Browser render failed: {exc}") from exc
 
     return "<!DOCTYPE html>\n" + html

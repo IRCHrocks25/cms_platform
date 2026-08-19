@@ -42,7 +42,7 @@ class PartitionedCookieMiddleware:
 
     With Partitioned, the cookie is stored keyed on the *top-level* site
     (e.g. app.daltoleadsystem.com), allowed in that iframe context, and
-    isolated from other contexts — privacy-preserving and unblocking.
+    isolated from other contexts, which is privacy-preserving and unblocking.
 
     Only applied when IFRAME_EMBED is on so dev cookies stay un-partitioned.
 
@@ -51,7 +51,7 @@ class PartitionedCookieMiddleware:
     after Session/Csrf have written their cookies in their own
     ``process_response``. If you put it below those two, its response phase
     sees an empty ``response.cookies`` for sessionid/csrftoken and the
-    Partitioned attribute silently never gets attached — there is no error,
+    Partitioned attribute silently never gets attached. There is no error,
     just a Set-Cookie header that lacks Partitioned. We belt-and-brace this
     with a startup warning below.
     """
@@ -80,7 +80,7 @@ class PartitionedCookieMiddleware:
             if offender in mw and mw.index(offender) < self_idx:
                 logger.warning(
                     "PartitionedCookieMiddleware is positioned BELOW %s in "
-                    "MIDDLEWARE — its response phase will run before %s "
+                    "MIDDLEWARE; its response phase will run before %s "
                     "writes the cookie, so Partitioned will never appear "
                     "on Set-Cookie. Move PartitionedCookieMiddleware to "
                     "the top of MIDDLEWARE.", offender, offender,
@@ -124,7 +124,7 @@ class FrameAncestorsCspMiddleware:
     set, so XFrameOptionsMiddleware can stay in place.
 
     The list is configured via the ``GHL_FRAME_ANCESTORS`` env var
-    (comma-separated origins). Pass ``*`` to allow any parent — appropriate
+    (comma-separated origins). Pass ``*`` to allow any parent, which is appropriate
     once signed-context SSO is in place; risky while we still trust URL
     params on /embed/."""
 
@@ -202,7 +202,7 @@ class TenantResolverMiddleware:
 
         # Candidate base domains the host may sit under: the configured base,
         # any additional configured bases, plus the local-dev wildcard bases
-        # (localhost / lvh.me) — but the dev bases only in DEBUG, so production
+        # (localhost / lvh.me), but the dev bases only in DEBUG, so production
         # behavior is unchanged.
         bases = [
             b for b in (
@@ -218,7 +218,7 @@ class TenantResolverMiddleware:
                 if dev_base and dev_base not in bases:
                     bases.append(dev_base)
 
-        # Bare base domain (e.g. `localhost`, `yourdomain.com`) — agency host.
+        # Bare base domain (e.g. `localhost`, `yourdomain.com`): agency host.
         if host in bases:
             return None
 
@@ -228,7 +228,7 @@ class TenantResolverMiddleware:
                 continue
             sub_part = host[: -(len(base) + 1)]
             if sub_part and "." not in sub_part:
-                # Reserved subdomain — never fall through to custom-domain lookup.
+                # Reserved subdomain; never fall through to custom-domain lookup.
                 if sub_part in reserved:
                     return None
                 tenant = (

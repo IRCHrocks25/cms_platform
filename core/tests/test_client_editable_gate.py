@@ -1,4 +1,4 @@
-"""CMS-27 §4.3 / §5 — client editor + MCP refuse when not is_client_editable."""
+"""CMS-27 §4.3 / §5: client editor + MCP refuse when not is_client_editable."""
 
 from __future__ import annotations
 

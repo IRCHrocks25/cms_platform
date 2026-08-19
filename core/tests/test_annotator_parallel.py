@@ -597,7 +597,7 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
 
         def create(**kwargs):
             # Route by heading text. Parse refs from the CHUNK only (after the
-            # marker) — the message also embeds the few-shot example whose refs
+            # marker); the message also embeds the few-shot example whose refs
             # would otherwise be picked up.
             user = kwargs["messages"][1]["content"]
             chunk = user.split("=== HTML TO ANNOTATE (marked) ===", 1)[1]

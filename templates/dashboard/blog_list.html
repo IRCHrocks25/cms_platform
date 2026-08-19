@@ -75,7 +75,7 @@
                   {% endif %}
                 </td>
                 <td class="cell-muted" data-label="Published">
-                  {% if row.post.publish_date %}{{ row.post.publish_date|date:"M j, Y" }}{% else %}—{% endif %}
+                  {% if row.post.publish_date %}{{ row.post.publish_date|date:"M j, Y" }}{% else %}Never{% endif %}
                 </td>
                 <td data-label="Featured">
                   <form method="post" action="{{ row.urls.featured }}" class="inline-form">
@@ -133,7 +133,7 @@
           <a href="?status=all" class="btn btn-secondary">Show all</a>
         {% else %}
           <h3>No posts yet</h3>
-          <p>Write your first post — it'll show on your site's blog once published.</p>
+          <p>Write your first post. It'll show on your site's blog once published.</p>
           <a class="btn btn-primary" href="{{ blog_urls.create }}">
             <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             New post
@@ -209,7 +209,7 @@
       </div>
 
       <div>
-        <h3>Featured posts <span class="cell-muted font-normal">— drag or use the move controls</span></h3>
+        <h3>Featured posts <span class="cell-muted font-normal">(drag or use the move controls)</span></h3>
         {% if featured_rows %}
           <ul class="reorder-list" id="reorder-list" data-reorder-url="{{ blog_urls.reorder }}">
             {% for row in featured_rows %}

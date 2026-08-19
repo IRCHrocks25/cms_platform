@@ -5,7 +5,7 @@ from . import views
 app_name = "dashboard"
 
 urlpatterns = [
-    # Dispatcher — branches on request.tenant.
+    # Dispatcher branches on request.tenant.
     path("", views.dashboard_root, name="root"),
     # Backwards-compat: old reverses to dashboard:home land on the dispatcher.
     path("home/", views.dashboard_root, name="home"),
@@ -28,7 +28,7 @@ urlpatterns = [
     path("sites/check-subdomain/", views.check_subdomain, name="check_subdomain"),
     path("sites/<int:pk>/", views.tenant_detail, name="tenant_detail"),
     path("sites/<int:pk>/created/", views.site_created, name="site_created"),
-    # Back-compat alias — old bookmarks/redirects still resolve.
+    # Back-compat alias; old bookmarks/redirects still resolve.
     path("sites/<int:pk>/credentials/", views.site_credentials, name="site_credentials"),
     path("sites/<int:pk>/settings/", views.tenant_settings_update, name="tenant_settings_update"),
     path("sites/<int:pk>/template/", views.tenant_template_swap, name="tenant_template_swap"),

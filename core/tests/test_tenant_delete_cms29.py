@@ -1,4 +1,4 @@
-"""CMS-29 — deleting a tenant must not collide on uniq_library_template_slug.
+"""CMS-29: deleting a tenant must not collide on uniq_library_template_slug.
 
 create_client_account / create_tenant_account clone a library template into
 the new tenant with the same slug (legal: uniqueness is per-owner). On delete,

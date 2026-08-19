@@ -1,4 +1,4 @@
-"""CMS-40 — platform /privacy/ and /terms/ are host-scoped to the agency host.
+"""CMS-40: platform /privacy/ and /terms/ are host-scoped to the agency host.
 
 On a tenant subdomain or verified custom domain those paths must fall through
 to the tenant Page renderer so clients can publish real privacy/terms pages.
@@ -25,7 +25,7 @@ _PAGE_HTML = (
 
 def _published_page(tenant, *, slug, title, marker):
     tpl = Template.objects.create(
-        name=f"{tenant.name} — {title}",
+        name=f"{tenant.name}: {title}",
         html_source=_PAGE_HTML.replace("PAGE_MARKER", marker),
     )
     return Page.objects.create(
@@ -102,7 +102,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         r = Client().get("/privacy/", HTTP_HOST="acme.sites.katek.app")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "ACME_PRIVACY")
-        self.assertNotContains(r, "Privacy Policy — sites.katek.app")
+        self.assertNotContains(r, "Privacy Policy: sites.katek.app")
 
     def test_tenant_terms_page_on_subdomain(self):
         _published_page(
@@ -111,7 +111,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         r = Client().get("/terms/", HTTP_HOST="acme.sites.katek.app")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "ACME_TERMS")
-        self.assertNotContains(r, "Terms of Service — sites.katek.app")
+        self.assertNotContains(r, "Terms of Service: sites.katek.app")
 
     def test_head_for_tenant_legal_pages_matches_normal_page(self):
         for slug, title, marker in (
@@ -143,7 +143,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
 
     def test_tenant_privacy_via_x_forwarded_host(self):
         """Middleware prefers X-Forwarded-Host for custom-domain lookup when a
-        proxy rewrites Host — the legal-page guard must agree."""
+        proxy rewrites Host, so the legal-page guard must agree."""
         _published_page(
             self.tenant, slug="privacy", title="Privacy", marker="FWD_PRIVACY"
         )
@@ -161,7 +161,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         self.assertContains(r, "FWD_PRIVACY")
 
     def test_suffixed_privacy_policy_still_works(self):
-        # Existing sites used privacy-policy to dodge the collision — do not
+        # Existing sites used privacy-policy to dodge the collision. Do not
         # migrate them; both slugs must keep working.
         _published_page(
             self.tenant,

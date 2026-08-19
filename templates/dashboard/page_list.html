@@ -23,7 +23,7 @@
           {% endif %}
           these are extra pages like About or Services, each at its own URL.
           {% if not can_manage_pages %}
-            Pages are set up by your agency — you can edit and publish them here.
+            Pages are set up by your agency. You can edit and publish them here.
           {% endif %}
         </p>
       </div>
@@ -35,8 +35,14 @@
 
     {% if can_manage_pages %}
     <div class="card content-block content-block-spaced">
-      <h3 class="content-block-title">New page</h3>
-      <form method="post" action="{{ nav_urls.new }}" class="stack-5">
+      <div class="content-block-action-head">
+        <h3 class="content-block-title">New page</h3>
+        <button type="submit" form="page-create-form" class="btn btn-primary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+          Add page
+        </button>
+      </div>
+      <form id="page-create-form" method="post" action="{{ nav_urls.new }}" class="stack-5">
         {% csrf_token %}
         <div class="row page-create-row">
           <div class="field field-min-200">
@@ -50,21 +56,22 @@
         </div>
         <p class="field-help m-0">
           Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
-          Paste the page's HTML below (annotate it with AI for the editable fields) — each page gets its own template.
+          Paste the page's HTML below (annotate it with AI for the editable fields). Each page gets its own template.
         </p>
         {% include "dashboard/_html_source_editor.html" with html_value="" %}
-        <div class="row-end source-form-actions">
-          <button type="submit" class="btn btn-primary">
-            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
-            Add page
-          </button>
-        </div>
       </form>
     </div>
 
     {% if scope == "agency" %}
     <div class="card content-block content-block-spaced">
-      <h3 class="content-block-title">Import sibling pages from a URL</h3>
+      <div class="content-block-action-head">
+        <h3 class="content-block-title">Import sibling pages from a URL</h3>
+        <button type="button" id="import-siblings-btn" class="btn btn-primary"
+                data-url="{% url 'dashboard:page_import_siblings' tenant.pk %}">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m17 10-5 5-5-5"/><path d="M5 21h14"/></svg>
+          Find and import pages
+        </button>
+      </div>
       <p class="field-help content-block-help">
         Paste the source home URL (e.g. <code>https://susan-rabbyv2.pages.dev/</code>).
         We'll fetch the page, find every same-origin <code>.html</code> link on it
@@ -75,11 +82,6 @@
       <div class="row page-import-row">
         <input type="url" id="import-siblings-url" class="input flex-1 min-w-280"
                placeholder="https://yourclient.example.com/" />
-        <button type="button" id="import-siblings-btn" class="btn btn-primary"
-                data-url="{% url 'dashboard:page_import_siblings' tenant.pk %}">
-          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m17 10-5 5-5-5"/><path d="M5 21h14"/></svg>
-          Find and import pages
-        </button>
       </div>
       <div id="import-siblings-status" class="async-status import-status" role="status" aria-live="polite" hidden></div>
     </div>
@@ -204,14 +206,14 @@
             var result = document.createElement("div");
             if (created.length) {
               appendResultList(result, "Imported " + created.length + " page" + (created.length === 1 ? "" : "s") + ":", created, function (c) {
-                return "/" + c.slug + "/ — " + c.title + " (AI annotation is running in the background)";
+                return "/" + c.slug + "/: " + c.title + " (AI annotation is running in the background)";
               });
             }
             if (skipped.length) {
               var skippedGroup = document.createElement("div");
               skippedGroup.className = "import-result-group";
               appendResultList(skippedGroup, "Skipped:", skipped, function (s) {
-                return s.slug + " — " + s.reason;
+                return s.slug + ": " + s.reason;
               });
               result.appendChild(skippedGroup);
             }
@@ -364,9 +366,9 @@
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
         {% if can_manage_pages %}
-          <p>Add one above — give it a URL slug like <code>about</code> or <code>services</code> and paste its HTML.</p>
+          <p>Add one above. Give it a URL slug like <code>about</code> or <code>services</code> and paste its HTML.</p>
         {% else %}
-          <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency — they'll set it up for you.</p>
+          <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency; they'll set it up for you.</p>
         {% endif %}
       </div>
     {% endif %}

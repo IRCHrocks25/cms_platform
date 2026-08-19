@@ -24,15 +24,15 @@ class Command(BaseCommand):
         target_dir = _dynamic_dir()
         if not target_dir:
             self.stdout.write(
-                "TRAEFIK_DYNAMIC_DIR is not set — nothing to write (no-op)."
+                "TRAEFIK_DYNAMIC_DIR is not set; nothing to write (no-op)."
             )
             return
         # Runs in the syncer's `while true` loop. Never raise: on first deploy the
         # DB may not be migrated yet (web owns migrations), so the CustomDomain
-        # query can fail transiently — log and exit 0 so the loop retries cleanly.
+        # query can fail transiently. Log and exit 0 so the loop retries cleanly.
         try:
             ok = sync_custom_domain_routes()
-        except Exception as exc:  # noqa: BLE001 — loop must survive any error
+        except Exception as exc:  # noqa: BLE001; loop must survive any error
             self.stderr.write(f"Route sync errored (will retry): {exc!r}")
             return
         if ok:

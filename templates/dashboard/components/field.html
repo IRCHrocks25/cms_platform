@@ -1,4 +1,4 @@
-{# field.html — renders a single editable field by type #}
+{# field.html renders a single editable field by type. #}
 <div class="field" data-field-id="{{ field.id }}" data-field-type="{{ field.type }}">
   <label class="field-label" for="f-{{ field.id }}">{{ field.label }}</label>
 
@@ -14,7 +14,7 @@
          id="f-{{ field.id }}"
          data-bind="{{ field.id }}"
          contenteditable="true"></div>
-    <span class="field-hint cms-richtext-hint">Select text to format — bold, italic, or add a link.</span>
+    <span class="field-hint cms-richtext-hint">Select text to format: bold, italic, or add a link.</span>
 
   {% elif field.type == 'image' %}
     <label class="cms-field-image" for="f-{{ field.id }}">
@@ -76,7 +76,7 @@
                 title="Open this link in a new tab">test ↗</button>
       </div>
       <span class="field-status err cms-link-warn" data-link-warn hidden>
-        This doesn't look like a working link — it'll still save.
+        This doesn't look like a working link. It'll still save.
       </span>
     </div>
 

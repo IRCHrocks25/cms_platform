@@ -3,7 +3,7 @@ Blog rendering helpers: queryset scoping, per-site blog settings, and
 injecting the featured-posts strip into a rendered homepage.
 
 Blog index/detail pages are plain Django templates (one of the built-in
-styles) rendered server-side — they are NOT run through the annotated-HTML
+styles) rendered server-side. They are NOT run through the annotated-HTML
 parser. The only blog surface that touches the homepage render is the strip,
 injected here.
 """
@@ -185,7 +185,7 @@ def _home_from_blog_base(blog_base: str) -> str:
 
 
 # Body content of the homepage is everything marked with `data-section`,
-# except the navbar and footer — those are the chrome we keep.
+# except the navbar and footer, which are the chrome we keep.
 def _find_chrome(soup, body):
     nav = soup.find(attrs={"data-section": "nav"})
     if nav is None:
@@ -240,7 +240,7 @@ def _css_var_value(css: str, name: str) -> str:
 
 
 def _detect_masthead_bg(shell_html: str, hero_el) -> str:
-    """The client's hero background — the dark/colored backdrop the navbar was
+    """The client's hero background, the dark/colored backdrop the navbar was
     designed to sit over. Reproducing it behind the nav on blog pages keeps the
     nav's (unchanged) light/dark text readable, exactly as on the homepage.
     Returns a CSS color (var()s resolved from the stylesheet) or ''.
@@ -281,7 +281,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     """Render ``inner_html`` (a blog content fragment) inside the client's
     actual site chrome: same ``<head>`` (global CSS, fonts, brand tokens),
     navbar and footer. The homepage's own ``data-section`` content blocks are
-    removed and the blog content takes their place — single source of truth
+    removed and the blog content takes their place, preserving a single source of truth
     for the layout, no per-page fork. Falls back to a minimal standalone shell
     if the template has no recognizable ``<body>``.
 
@@ -308,7 +308,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
 
     # The client navbar is often transparent with light text designed to sit
     # over the (now-removed) hero. Capture the hero's background BEFORE we strip
-    # it, so we can recreate that backdrop behind the navbar on the blog page —
+    # it, so we can recreate that backdrop behind the navbar on the blog page;
     # otherwise the nav text is invisible on the light blog background.
     hero = None
     for section in soup.find_all(attrs={"data-section": True}):
@@ -320,7 +320,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
 
     head = soup.find("head")
 
-    # Strip the homepage's content sections — but first RESCUE any site
+    # Strip the homepage's content sections, but first RESCUE any site
     # <script>/<style>/<link> living inside them, so the chrome's JS/CSS is
     # still present on blog pages (scripts → end of body, styles/links → head).
     # The chrome behaves identically to the homepage regardless of where the
@@ -339,7 +339,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     ]
 
     # UNANNOTATED homepage blocks (logo tickers, divider rules, …) that sit
-    # between the content sections are content too — left in place they pile
+    # between the content sections are content too. Left in place, they pile
     # up under the navbar on blog pages (the nav is often transparent/fixed,
     # designed to sit over the now-removed hero). Sweep the top-level span
     # from the first content section down to the footer and drop everything
@@ -436,7 +436,7 @@ def _rewrite_chrome_anchors(soup, blog_root, home_url: str) -> None:
     Repoint them at the homepage (``/#about`` / ``/site/<sub>/#about``) so they
     navigate + scroll. Left untouched: bare ``#`` (JS handlers), absolute/full
     URLs, ``mailto:``/``tel:``, and any link inside the blog content
-    (``.cms-blog``) — and the homepage itself, which never calls this wrapper.
+    (``.cms-blog``), and the homepage itself, which never calls this wrapper.
     """
     prefix = (home_url or "/").rstrip("/")
     for a in soup.find_all("a", href=True):

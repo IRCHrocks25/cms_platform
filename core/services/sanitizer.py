@@ -7,7 +7,7 @@ not on the allowlist before the body is ever rendered on the public site,
 defending against stored XSS (``<script>``, ``onclick=``, ``javascript:``
 URLs, etc.).
 
-Built on BeautifulSoup (already a project dependency) — no new packages.
+Built on BeautifulSoup (already a project dependency), with no new packages.
 Parsed with the built-in ``html.parser`` so a fragment is treated as a
 fragment (lxml would wrap it in ``<html><body>``).
 

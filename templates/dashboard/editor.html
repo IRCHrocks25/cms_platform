@@ -79,7 +79,7 @@
     <div class="editor-readonly-notice" role="status">
       <strong>Editing isn’t available yet</strong>
       <div>
-        This site isn’t set up for editing yet — contact your agency.
+        This site isn’t set up for editing yet. Contact your agency.
       </div>
     </div>
   {% endif %}
@@ -137,7 +137,7 @@
         restyle just that span (stored in the field's richtext HTML).
       {% endcomment %}
       {% comment %}
-        Floating text-style bubble — pops up below the highlighted text on the
+        Floating text-style bubble. It pops up below the highlighted text on the
         preview (positioned by editor.js). Hidden until a selection exists.
       {% endcomment %}
       <div class="cms-seltext-panel" id="cms-seltext-panel" role="toolbar" aria-label="Text styling">
@@ -167,7 +167,7 @@
             </button>
           {% endif %}
           {% if theme_tokens or brand_section %}
-            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design — colors & fonts">
+            <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design: colors & fonts">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
             </button>
           {% endif %}
@@ -208,7 +208,7 @@
         <div class="editor-tab-panel" data-panel="nav" hidden>
           <div class="brand-intro">
             <h2>Navigation</h2>
-            <p>Your site's header and footer — menu links, logo, and footer content. Changes preview live on the right.</p>
+            <p>Your site's header and footer: menu links, logo, and footer content. Changes preview live on the right.</p>
           </div>
 
           {% if header_sections and footer_sections %}
@@ -256,7 +256,7 @@
       <div class="editor-tab-panel" data-panel="brand" hidden>
         <div class="brand-intro">
           <h2>Design</h2>
-          <p>Site-wide colors and fonts. These apply across every section — individual headings and text can still be styled on their own from the Content tab.</p>
+          <p>Site-wide colors and fonts. These apply across every section; individual headings and text can still be styled on their own from the Content tab.</p>
         </div>
         <div class="editor-form-section" data-section-id="_global">
           <div class="editor-form-section-head"><h2>Colors &amp; fonts</h2></div>
@@ -276,7 +276,7 @@
         {% if theme_tokens %}
           <div class="editor-form-section" data-section-id="_tokens">
             <div class="editor-form-section-head"><h2>Theme colors</h2></div>
-            <p class="field-hint mb-2">These recolor your whole site — buttons, headings and accents update together.</p>
+            <p class="field-hint mb-2">These recolor your whole site: buttons, headings and accents update together.</p>
             <div class="stack-5">
               {% for tk in theme_tokens %}
                 <div class="field"><span class="field-label">{{ tk.label }}</span>
@@ -408,7 +408,7 @@
       </div>
       <div class="modal-body">
         <p class="field-hint modal-intro" id="gallery-hint">
-          Click an image for details. Default page images can be opened, copied, or downloaded — only your uploads can be renamed or deleted.
+          Click an image for details. Default page images can be opened, copied, or downloaded; only your uploads can be renamed or deleted.
         </p>
         <div class="gallery-layout">
           <div class="gallery-grid" id="gallery-grid"></div>
