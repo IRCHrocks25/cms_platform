@@ -87,10 +87,10 @@ operator's say-so, because a displaced value cannot be attributed.
 with its markup stripped the way the old parser stripped it. No client types a headline
 with the space missing between two spans.
 
-### Measured on Kieran's real data
+### Measured on Kieran's real data (scratch database)
 
 Run against a scratch database seeded with the live template HTML, the live stored content
-(340 fields), and a reconstructed pre-fix schema.
+(340 fields), and a reconstructed pre-fix schema. Production figures are in the next section.
 
 | step | result |
 |---|---|
@@ -98,21 +98,54 @@ Run against a scratch database seeded with the live template HTML, the live stor
 | `prune_content_defaults --drop-flattened --clear-generated --apply` | 340 → 6 stored fields |
 | render vs. the design | 100 damaged fields → 4 |
 
-The six survivors need a human, and three are still damage:
+The six survivors needed a human. What actually happened to them is recorded below.
 
-- `method.eyebrow` / `method.title` hold each other's copy, and `transformation.eyebrow`
-  holds the transformation headline. **Displacement hit semantic ids too**, not only
-  generated ones, so no automated rule reaches them.
-- `consultation.cta_button` is a `link` field storing the text `Book Your Free 30-Minute
-  Consultation` instead of a URL. This is the malformed CTA href the 2026-08-25 report
-  flagged.
-- `hero.subtitle` is flattened but with a space the flattening rule would not produce, so
-  it may be a real edit.
-- `footer.cta_button` holds a different, valid booking URL. Genuine edit; keep it.
+## What ran in production, 2026-08-27
 
-The live page is also published from an older template revision than the one stored (it is
-missing `transformation` area 5 and four `programmes` detail bullets), so a re-push and
-re-publish are needed after the repair.
+All three steps ran against the live site after PR #45 deployed. Result: **100 damaged fields
+out of 351 down to 0**, verified by diffing the live response against the stored template.
+
+| step | production result |
+|---|---|
+| deploy compose `sites` | manual; production is `autoDeploy: false` by design |
+| `rederive_template_schemas --site kieran-haughey --apply` | 8 defaults regained their accent spans |
+| `prune_content_defaults --drop-flattened --apply` | `is_default` count 171 to 257; accent span live on `hero.title` |
+| `prune_content_defaults --clear-generated --apply` | 78 displaced positional ids returned to the template |
+
+Five fields survived the automated repair and were resolved by hand:
+
+- `method.eyebrow`, `method.title`, `transformation.eyebrow` held each other's copy. Displacement
+  reached *semantic* ids too, not only positional ones, so no automated rule attributes them.
+  Cleared to their template defaults.
+- `hero.subtitle` was flattened to a single run. Rendering both variants at 1440 and 390 settled
+  it: the flat version orphans "Let's" onto the previous line at both widths, while the design's
+  two `display:block` spans break at the sentence boundary. Restored to the design.
+- `footer.cta_button` holds a different, valid booking URL. A genuine edit; kept.
+
+Two further live defects were found and fixed while verifying:
+
+- `consultation.cta_button` was a `link` field holding the label text `Book Your Free 30-Minute
+  Consultation`, so the CTA resolved to a 404 on the site's own domain. Pointed at the 20-minute
+  taster booking, matching its label and the section copy.
+- `programmes.title` was misannotated: the element sits in the `experiencing` section but carried
+  a `programmes.` prefix, so the parser dropped it from the schema while the renderer still
+  applied its stale value. It rendered a spaceless duplicate of the programmes headline. Renamed
+  to `experiencing.quote`, label corrected to "Client quote".
+
+### Running management commands on this host
+
+There is no SSH path to the Dokploy box from the dev machine, and Dokploy exposes no exec
+endpoint. Use its scheduled-task API: `schedule.create` with `scheduleType: compose`,
+`composeId` of the production compose, `serviceName: web`, and `enabled: false` so cron can
+never fire it, then `schedule.runManually`, then `schedule.delete`. Schedule runs leave no log
+readable through the API, so verify the effect through the Katek Sites MCP tools or the live
+page rather than expecting stdout. The API key is in the workspace `.mcp.json` under
+`dokploy-katek`, not in `.env`.
+
+### Follow-ups filed
+
+CMS-51 (stable field ids, `needs-spec`), CMS-52 (ten remaining section/prefix mismatches),
+CMS-53 (22 fields nesting another editable field).
 
 ## Publish gate (open decision)
 
