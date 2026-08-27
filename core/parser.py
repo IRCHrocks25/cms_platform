@@ -32,6 +32,28 @@ from core.ghl_embed import VALID_GHL_EMBED_KINDS, parse_ghl_embed_value
 VALID_FIELD_TYPES = {
     "text", "richtext", "image", "color", "link", "video", "ghl-embed"
 }
+
+
+def effective_field_type(el, declared: str) -> str:
+    """Resolve the type a field really behaves as, given its element.
+
+    A ``text`` field whose element carries child markup is treated as
+    ``richtext``. The text write path is ``el.string = value``, which deletes
+    every child node. On a mixed-style heading (accent ``<span>``, ``<em>``,
+    inline ``<a>``, ``display:block`` line-break spans) that flattens the
+    agency's design on the first render, with nobody having edited anything.
+
+    The parser and the renderer must never disagree about this, so both resolve
+    the declared type through here rather than reading ``data-type`` directly.
+    ``core.services.annotator`` also rewrites the attribute at annotation time,
+    which is what fixes the editor control; this is the runtime backstop for
+    HTML already in the database.
+    """
+    if declared == "text" and el.find(True) is not None:
+        return "richtext"
+    return declared
+
+
 TOKEN_PATTERN = re.compile(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);")
 
 
@@ -146,7 +168,12 @@ def _extract_default(el, ftype: str) -> str:
         return match.group(1).strip() if match else ""
     if ftype == "richtext":
         return el.decode_contents().strip()
-    return el.get_text(strip=True)
+    # get_text(strip=True) strips each text node and joins with nothing, so
+    # "Navigate menopause. <span>Naturally</span>" came back without the space
+    # between them, and the renderer's no-op check compares against
+    # el.get_text(), which keeps it. They disagreed, so every render took the
+    # destructive branch. Same whitespace semantics on both sides now.
+    return el.get_text().strip()
 
 
 def build_schema(html: str) -> dict[str, Any]:
@@ -199,6 +226,7 @@ def build_schema(html: str) -> dict[str, Any]:
             ftype = field_el.get("data-type", "text").strip()
             if ftype not in VALID_FIELD_TYPES:
                 ftype = "text"
+            ftype = effective_field_type(field_el, ftype)
 
             default = _extract_default(field_el, ftype)
 

@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
+from core.parser import effective_field_type
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -488,7 +489,10 @@ def _apply_field(el, value: str, ftype: str) -> None:
         _insert_sanitized_html(el, value_stripped)
         return
     # text type
-    if el.get_text() == value:
+    # Stripped on both sides so this agrees with parser._extract_default. When
+    # they disagreed, an unedited field looked edited and fell through to the
+    # write below.
+    if el.get_text().strip() == (value or "").strip():
         return
     # A plain text field that now carries inline markup (a selection-styled
     # span) renders as HTML, like richtext; otherwise it's literal text.
@@ -966,7 +970,11 @@ def render_site(
             continue
         if field not in section_data:
             continue
-        _apply_field(el, section_data[field], ftype)
+        # Same resolution the parser used to extract the default, so a
+        # child-bearing "text" field is never written through el.string.
+        # Applied after the ghl-embed branch above, which keys off the
+        # declared type.
+        _apply_field(el, section_data[field], effective_field_type(el, ftype))
 
     if needs_ghl_form_script:
         _inject_ghl_form_script(soup)
@@ -992,6 +1000,74 @@ def render_site(
             body.append(node)
 
     return str(soup)
+
+
+def _field_types(schema: dict[str, Any]) -> dict[str, str]:
+    types: dict[str, str] = {}
+    for section in schema.get("sections") or []:
+        for f in section.get("fields") or []:
+            fid = f.get("id")
+            if fid:
+                types[fid] = f.get("type") or "text"
+    return types
+
+
+def _equals_default(value: Any, default: Any, ftype: str) -> bool:
+    if value == default:
+        return True
+    if not isinstance(value, str) or not isinstance(default, str):
+        return False
+    if ftype == "richtext":
+        # BeautifulSoup is not byte-idempotent (attribute quoting, entity
+        # encoding), so an untouched fragment can round-trip to different
+        # bytes. Canonicalize before deciding somebody edited it.
+        return canonicalize_fragment(value.strip()) == canonicalize_fragment(
+            default.strip()
+        )
+    return value.strip() == default.strip()
+
+
+def strip_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
+    """Drop every field whose value still equals the template default.
+
+    The near-inverse of ``merge_with_defaults``: ``merge(strip(x))`` equals
+    ``merge(x)`` up to the same normalization the renderer already applies when
+    deciding a field is unedited: surrounding whitespace on a text field,
+    canonical form on a richtext fragment. It is not byte-exact, and a caller
+    that needs the stored bytes back verbatim should not route through here. The editor form is pre-filled from
+    the merged content and POSTs all of it back, so without this, one save
+    freezes a copy of every default into the tenant row. Those copies then win
+    over the template forever, which is how a re-annotation that renumbers
+    generated ``p_N`` ids silently displaced a whole site's copy.
+
+    Unknown sections and unknown fields are passed through untouched: content
+    for something the current template no longer declares is the client's, and
+    a bad template save must not be able to delete it. Meta namespaces
+    (``_styles``, ``_hidden``, ``_tokens``, ``_global``) are editor state, not
+    fields, and are copied verbatim.
+    """
+    defaults = schema.get("defaults", {}) or {}
+    types = _field_types(schema)
+    out: dict[str, Any] = {}
+    for section_id, fields in (content or {}).items():
+        if isinstance(section_id, str) and section_id.startswith("_"):
+            out[section_id] = fields
+            continue
+        section_defaults = defaults.get(section_id)
+        if not isinstance(fields, dict) or not isinstance(section_defaults, dict):
+            out[section_id] = fields
+            continue
+        kept = {
+            key: value
+            for key, value in fields.items()
+            if key not in section_defaults
+            or not _equals_default(
+                value, section_defaults[key], types.get(f"{section_id}.{key}", "text")
+            )
+        }
+        if kept:
+            out[section_id] = kept
+    return out
 
 
 def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:

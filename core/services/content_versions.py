@@ -15,6 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import ContentVersion, Tenant
+from core.renderer import strip_defaults
 
 
 SOURCE_DASHBOARD = "dashboard"
@@ -66,6 +67,12 @@ def save_tenant_content(
     """
     if source not in {SOURCE_DASHBOARD, SOURCE_MCP}:
         raise ValueError(f"unknown content version source: {source!r}")
+
+    # Persist authored overrides only. The editor posts back every field it was
+    # given, and merge_with_defaults gave it all of them.
+    schema = getattr(tenant.template, "schema", None) if tenant.template_id else None
+    if isinstance(schema, dict):
+        content = strip_defaults(schema, content)
 
     with transaction.atomic():
         snapshot_now = True
@@ -122,7 +129,13 @@ def restore_tenant_content(
             saved_by=user if getattr(user, "pk", None) else None,
             source=SOURCE_DASHBOARD,
         )
-        tenant.content = proposed
+        # Snapshots taken before sparse content are full copies of the
+        # defaults. Restoring one verbatim put every default back, and if the
+        # template had moved on since, re-created the displacement a prune had
+        # just cleared. Strip on the way in, same rule as a save. `schema` is
+        # the one built above from the live template HTML, which is exactly
+        # what these values must be compared against.
+        tenant.content = strip_defaults(schema, proposed)
         tenant.save(update_fields=["content", "updated_at"])
         _trim_versions(tenant, source=SOURCE_DASHBOARD, keep=DASHBOARD_KEEP)
         _trim_versions(tenant, source=SOURCE_MCP, keep=MCP_KEEP)

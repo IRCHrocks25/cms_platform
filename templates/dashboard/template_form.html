@@ -80,7 +80,25 @@
               Content is never deleted. Confirm to proceed anyway.
             </p>
             <label class="check-row text-sm">
-              <input type="checkbox" name="allow_field_loss" value="1">
+              <input type="checkbox" name="allow_field_loss" value="1"
+                     {% if allow_field_loss %}checked{% endif %}>
+              I understand; save anyway
+            </label>
+          </div>
+        {% endif %}
+
+        {% if field_drift %}
+          <div class="card-tight warn-card" role="alert">
+            <strong>This save would move fields onto different elements.</strong>
+            <p class="text-sm field-loss-copy">
+              Moved fields: {{ field_drift.drifted_fields|join:", " }}.
+              A published site has edited copy stored against them, and it
+              would land in the wrong place. Renumbering usually means a block
+              was inserted; give the new block its own id instead.
+            </p>
+            <label class="check-row text-sm">
+              <input type="checkbox" name="allow_field_drift" value="1"
+                     {% if allow_field_drift %}checked{% endif %}>
               I understand; save anyway
             </label>
           </div>

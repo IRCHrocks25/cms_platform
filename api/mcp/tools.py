@@ -10,6 +10,7 @@ from django.db import transaction
 
 from core.models import CustomDomain, Page, RESERVED_PAGE_SLUGS, Template, Tenant
 from core.parser import build_schema
+from core.renderer import strip_defaults
 from core.services import content_versions as cv
 from core.services import custom_domains as custom_domains_svc
 from core.services import ghl_embed_slots, ghl_forms
@@ -20,6 +21,7 @@ from core.services.accounts import (
 )
 from core.services.templates import (
     ConcurrentWriteError,
+    FieldDriftError,
     FieldLossError,
     save_template_version,
 )
@@ -354,15 +356,23 @@ def _public_site_url(subdomain: str) -> str:
     return f"https://{subdomain}.{base}/"
 
 
-def _content_still_template_defaults(tenant: Tenant) -> bool:
-    """True when stored content equals the template's schema defaults.
+#: Meta namespaces that change what a visitor sees: per-element styling, hidden
+#: sections, brand tokens, global typography. Editing only these is a real
+#: customization — comparable products treat a design change as a change — so
+#: the publish gate must not call such a site untouched.
+_VISIBLE_META_KEYS = ("_styles", "_hidden", "_tokens", "_global")
 
-    Fresh ``create_client_account`` sites seed ``tenant.content`` from
-    defaults, so every field is *present* in storage (``is_default`` is
-    False). Comparing the blobs catches the "never edited" case the
-    publish guard is meant for.
+
+def _copy_still_template_defaults(tenant: Tenant) -> bool:
+    """True when no editable *copy* differs from the template.
+
+    Content is stored sparse — only values that differ from the template
+    default (``renderer.strip_defaults``) — so this is "nothing left once the
+    defaults are stripped". Running the strip here rather than trusting the
+    stored shape also covers rows written before sparse content shipped, which
+    still carry a full copy of the defaults.
     """
-    defaults = (tenant.template.schema or {}).get("defaults") or {}
+    schema = tenant.template.schema or {}
     content = tenant.content or {}
 
     def _public(value: Any) -> Any:
@@ -374,12 +384,26 @@ def _content_still_template_defaults(tenant: Tenant) -> bool:
             if not str(key).startswith("_")
         }
 
-    public_defaults = _public(defaults)
-    public_content = _public(content)
-    if not public_defaults:
-        # No editable defaults to compare — treat empty content as untouched.
-        return public_content == {} or public_content == public_defaults
-    return public_content == public_defaults
+    authored = strip_defaults(schema, _public(content))
+    return not any(bool(fields) for fields in authored.values())
+
+
+def _has_visible_meta(tenant: Tenant) -> bool:
+    content = tenant.content or {}
+    return any(bool(content.get(key)) for key in _VISIBLE_META_KEYS)
+
+
+def _content_still_template_defaults(tenant: Tenant) -> bool:
+    """True when nothing about this site has been customized at all.
+
+    Copy *and* design. A site whose colors, fonts, brand tokens, or visible
+    sections were changed is customized even if every word is still the
+    template's — see ``docs/research/2026-08-27-cms-content-damage-fixes.md``
+    for the survey this follows. The narrower "the copy is still boilerplate"
+    signal is ``_copy_still_template_defaults``, which publish reports as a
+    warning rather than a refusal.
+    """
+    return _copy_still_template_defaults(tenant) and not _has_visible_meta(tenant)
 
 
 def publish_site(
@@ -417,13 +441,20 @@ def publish_site(
         tenant.is_published = True
         tenant.save(update_fields=["is_published", "updated_at"])
 
-    return tool_success(
-        {
-            "url": _public_site_url(tenant.subdomain),
-            "published": True,
-            "subdomain": tenant.subdomain,
-        }
-    )
+    payload = {
+        "url": _public_site_url(tenant.subdomain),
+        "published": True,
+        "subdomain": tenant.subdomain,
+    }
+    # Design changed, copy did not. Worth saying — restyling does not remove
+    # another company's name, placeholder claims, or unlicensed sample images —
+    # but not worth blocking a deliberately restyled site over.
+    if _copy_still_template_defaults(tenant):
+        payload["warning"] = (
+            "Published, but every editable copy field is still the template's. "
+            "Check the wording before sharing this URL."
+        )
+    return tool_success(payload)
 
 
 def publish_page(
@@ -718,6 +749,7 @@ def _push_html_onto_template(
     allow_field_loss: bool,
     if_match: Optional[str],
     label: str,
+    allow_field_drift: bool = False,
 ) -> tuple[Optional[dict], Optional[Any]]:
     """Apply if_match + save_template_version. Returns (error_result, SaveTemplateResult).
 
@@ -732,12 +764,13 @@ def _push_html_onto_template(
             html,
             user=user,
             allow_field_loss=bool(allow_field_loss),
+            allow_field_drift=bool(allow_field_drift),
             label=label,
             expect_html_etag=if_match,
         )
     except ConcurrentWriteError as exc:
         return tool_conflict(str(exc)), None
-    except FieldLossError as exc:
+    except (FieldLossError, FieldDriftError) as exc:
         return tool_error(str(exc)), None
     except ValueError as exc:
         return tool_error(str(exc)), None
@@ -752,6 +785,7 @@ def push_page(
     page: Optional[str] = None,
     title: str = "",
     allow_field_loss: bool = False,
+    allow_field_drift: bool = False,
     if_match: Optional[str] = None,
     template_id: Optional[int] = None,
 ) -> dict[str, Any]:
@@ -761,6 +795,8 @@ def push_page(
     - New templates are tenant-owned and ``editing_mode=raw``.
     - Re-push goes through ``save_template_version`` (appends TemplateVersion).
     - Field loss on published content requires ``allow_field_loss=true``.
+    - Re-pointing a surviving field id at a different element requires
+      ``allow_field_drift=true`` when a published site has edits stored on it.
     - ``if_match`` (html etag) guards concurrent writes; orthogonal to field loss.
     """
     scope = _require_scope(auth, site)
@@ -808,6 +844,7 @@ def push_page(
             html,
             user=auth.user,
             allow_field_loss=allow_field_loss,
+            allow_field_drift=allow_field_drift,
             if_match=if_match,
             label=label,
         )
@@ -842,6 +879,7 @@ def push_page(
                     html,
                     user=auth.user,
                     allow_field_loss=allow_field_loss,
+                    allow_field_drift=allow_field_drift,
                     if_match=if_match,
                     label=label,
                 )
@@ -861,6 +899,7 @@ def push_page(
                     html,
                     user=auth.user,
                     allow_field_loss=allow_field_loss,
+                    allow_field_drift=allow_field_drift,
                     if_match=None,  # new row; no concurrent peer yet
                     label=label,
                 )
@@ -909,6 +948,7 @@ def push_page(
         html,
         user=auth.user,
         allow_field_loss=allow_field_loss,
+        allow_field_drift=allow_field_drift,
         if_match=if_match,
         label=label,
     )
@@ -1709,6 +1749,14 @@ TOOLS_LIST: list[dict[str, Any]] = [
                         "Confirm dropping fields that published content still uses"
                     ),
                 },
+                "allow_field_drift": {
+                    "type": "boolean",
+                    "description": (
+                        "Confirm re-pointing surviving field ids at different "
+                        "elements (renumbered generated ids), which moves edited "
+                        "copy a published site holds"
+                    ),
+                },
                 "if_match": {
                     "type": "string",
                     "description": "Current html etag; required to avoid clobbering",
@@ -1955,6 +2003,8 @@ def call_tool(
         args.pop("html")
     if "allow_field_loss" in args and args["allow_field_loss"] is None:
         args.pop("allow_field_loss")
+    if "allow_field_drift" in args and args["allow_field_drift"] is None:
+        args.pop("allow_field_drift")
     if "version" in args and args["version"] is None:
         args.pop("version")
     if "force" in args and args["force"] is None:

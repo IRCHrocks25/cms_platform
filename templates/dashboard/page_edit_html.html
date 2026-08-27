@@ -33,6 +33,38 @@
       <form id="page-html-source-form" data-source-edit-form method="post" action="{{ save_url }}" class="stack-5">
         {% csrf_token %}
         {% include "dashboard/_html_source_editor.html" with html_value=html_source %}
+        {% if field_loss %}
+          <div class="card-tight warn-card" role="alert">
+            <strong>This save would drop fields used on a published site.</strong>
+            <p class="text-sm field-loss-copy">
+              Lost fields: {{ field_loss.lost_fields|join:", " }}.
+              Content is never deleted; confirm to proceed anyway.
+            </p>
+            <label class="check-row text-sm">
+              <input type="checkbox" name="allow_field_loss" value="1"
+                     {% if allow_field_loss %}checked{% endif %}>
+              I understand; save anyway
+            </label>
+          </div>
+        {% endif %}
+        {% if field_drift %}
+          <div class="card-tight warn-card" role="alert">
+            <strong>This save would move fields onto different elements.</strong>
+            <p class="text-sm field-loss-copy">
+              Moved fields: {{ field_drift.drifted_fields|join:", " }}.
+              Edited copy stored against them would land in the wrong place.
+            </p>
+            <label class="check-row text-sm">
+              <input type="checkbox" name="allow_field_drift" value="1"
+                     {% if allow_field_drift %}checked{% endif %}>
+              I understand; save anyway
+            </label>
+          </div>
+        {% endif %}
+        <div class="row-end">
+          <a href="{{ back_url }}" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary">Save HTML</button>
+        </div>
       </form>
     </div>
   </div>
