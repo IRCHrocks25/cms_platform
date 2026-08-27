@@ -38,7 +38,10 @@ class AccountServiceTests(TestCase):
         )
 
         self.assertEqual(tenant.owner, owner)
-        self.assertEqual(tenant.content, self.template.schema["defaults"])
+        # Content starts empty, not as a copy of the defaults. A stored copy
+        # would win over the template forever. See
+        # core.tests.test_sparse_content_overrides.
+        self.assertEqual(tenant.content, {})
         self.assertTrue(tenant.is_published)
         self.assertTrue(owner.check_password(password))
         self.assertFalse(owner.is_staff)

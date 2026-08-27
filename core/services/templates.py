@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
@@ -91,11 +92,26 @@ class ConcurrentWriteError(Exception):
 
 
 class FieldLossError(Exception):
-    """Published site(s) would lose fields; caller must confirm."""
+    """Published site(s) would lose fields; caller must confirm.
 
-    def __init__(self, lost_fields: set[str], affected: list[dict[str, Any]]):
+    Carries ``drifted_fields`` / ``drift_affected`` too when the same candidate
+    also trips the drift guard, so one round-trip can show the operator both
+    problems. Reporting them one at a time deadlocked the form: each response
+    forgot the confirmation the previous one had collected.
+    """
+
+    def __init__(
+        self,
+        lost_fields: set[str],
+        affected: list[dict[str, Any]],
+        *,
+        drifted_fields: Optional[set[str]] = None,
+        drift_affected: Optional[list[dict[str, Any]]] = None,
+    ):
         self.lost_fields = set(lost_fields)
         self.affected = affected
+        self.drifted_fields = set(drifted_fields or ())
+        self.drift_affected = drift_affected or []
         fields = ", ".join(sorted(self.lost_fields))
         sites = ", ".join(
             a.get("label", "?") for a in affected
@@ -107,12 +123,44 @@ class FieldLossError(Exception):
         )
 
 
+class FieldDriftError(Exception):
+    """An existing field id now owns a different element; caller must confirm.
+
+    Mirrors ``FieldLossError``: carries the loss findings too when both guards
+    fire on the same candidate.
+    """
+
+    def __init__(
+        self,
+        drifted_fields: set[str],
+        affected: list[dict[str, Any]],
+        *,
+        lost_fields: Optional[set[str]] = None,
+        loss_affected: Optional[list[dict[str, Any]]] = None,
+    ):
+        self.drifted_fields = set(drifted_fields)
+        self.affected = affected
+        self.drift_affected = affected
+        self.lost_fields = set(lost_fields or ())
+        self.loss_affected = loss_affected or []
+        fields = ", ".join(sorted(self.drifted_fields))
+        sites = ", ".join(a.get("label", "?") for a in affected) or "(none)"
+        super().__init__(
+            f"Saving would move fields [{fields}] onto different elements, and "
+            f"published site(s) {sites} have edited copy stored against them. "
+            f"The edits would land in the wrong place. Retry with "
+            f"allow_field_drift=True to proceed."
+        )
+
+
 @dataclass
 class SaveTemplateResult:
     template: Template
     version: TemplateVersion
     lost_fields: set[str] = field(default_factory=set)
     affected: list[dict[str, Any]] = field(default_factory=list)
+    drifted_fields: set[str] = field(default_factory=set)
+    drift_affected: list[dict[str, Any]] = field(default_factory=list)
     #: True when the submitted HTML already matched what is stored AND archived,
     #: so no TemplateVersion was appended. Callers must not report an update.
     unchanged: bool = False
@@ -205,15 +253,124 @@ def _sites_using_template(template: Template) -> Iterable[tuple[str, Any, dict, 
         )
 
 
-def _affected_published(template: Template, lost: set[str]) -> list[dict[str, Any]]:
+def _section_defaults(schema: Optional[dict]) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    for section_id, fields in ((schema or {}).get("defaults") or {}).items():
+        if isinstance(fields, dict):
+            out[section_id] = fields
+    return out
+
+
+#: Ids the annotator generates positionally (``p_1``, ``li_3``, ``h3_2``). They
+#: name a slot, not a thing, so inserting a block above one silently hands it a
+#: different element. Semantic ids the operator wrote do not move that way.
+_GENERATED_ID_RE = re.compile(r"^[a-z][a-z0-9]*_\d+$")
+
+#: How many independent "this id now holds what that id used to hold" matches
+#: it takes before a renumbering is more likely than a coincidence. One is not
+#: enough: rewording a paragraph into a neighbour's old words is a normal edit,
+#: and treating it as drift blocked legitimate saves.
+_SHIFT_CORROBORATION = 2
+
+
+def _generated_ids(section_defaults: dict[str, str]) -> set[str]:
+    return {key for key in section_defaults if _GENERATED_ID_RE.match(key)}
+
+
+def _drifted_ids(old_schema: Optional[dict], new_schema: Optional[dict]) -> set[str]:
+    """Generated field ids that may now own a different element.
+
+    Two signals, because neither alone is sound:
+
+    * **The section gained generated ids.** A block was inserted and every
+      ``p_N`` after it shifted down. This catches ``p_1``, repointed at the
+      new block, holding text that matches nothing it held before, which is why
+      comparing defaults missed it.
+    * **A shift is visible in the text**, corroborated at least
+      ``_SHIFT_CORROBORATION`` times: several ids each now hold what a
+      *different* id used to. This catches a renumbering that left the count
+      alone. The threshold is what keeps an ordinary reword from tripping it.
+
+    Positional fingerprints cannot do better than this: ``p_2`` is still the
+    second paragraph after an insertion, so its position is unchanged while its
+    content is not. The real cure is stable, content-derived ids from the
+    annotator; until then this is a guard, not a proof.
+    """
+    old_defaults = _section_defaults(old_schema)
+    new_defaults = _section_defaults(new_schema)
+    drifted: set[str] = set()
+
+    for section_id, old_fields in old_defaults.items():
+        new_fields = new_defaults.get(section_id)
+        if not new_fields:
+            continue
+        old_generated = _generated_ids(old_fields)
+        new_generated = _generated_ids(new_fields)
+        shared = old_generated & new_generated
+        if not shared:
+            continue
+
+        if len(new_generated) > len(old_generated):
+            drifted |= {f"{section_id}.{key}" for key in shared}
+            continue
+
+        # What each value used to be called, so we can spot it under a new id.
+        owner_before: dict[str, str] = {}
+        for key, value in old_fields.items():
+            if isinstance(value, str) and value.strip():
+                owner_before.setdefault(value.strip(), key)
+        moved = set()
+        for key in shared:
+            new_value = new_fields[key]
+            if not isinstance(new_value, str) or new_value == old_fields[key]:
+                continue
+            previous_owner = owner_before.get(new_value.strip())
+            if previous_owner is not None and previous_owner != key:
+                moved.add(key)
+        if len(moved) >= _SHIFT_CORROBORATION:
+            drifted |= {f"{section_id}.{key}" for key in shared}
+
+    return drifted
+
+
+def _affected_published(
+    template: Template,
+    fields: set[str],
+    *,
+    presence_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Published sites holding content for any of ``fields``.
+
+    ``presence_only`` counts a stored empty string as content. For field *loss*
+    an empty value is nothing to lose, but for *drift* a deliberate blanking is
+    a real edit; letting it through blanks whichever element the id now owns.
+    """
     affected: list[dict[str, Any]] = []
     for label, _row, content, published in _sites_using_template(template):
         if not published:
             continue
-        held = [fid for fid in lost if _value_nonempty(_content_value(content, fid))]
+        if presence_only:
+            held = [
+                fid
+                for fid in fields
+                if _content_value(content, fid) is not None
+                or _has_stored_key(content, fid)
+            ]
+        else:
+            held = [
+                fid for fid in fields if _value_nonempty(_content_value(content, fid))
+            ]
         if held:
             affected.append({"label": label, "fields": held})
     return affected
+
+
+def _has_stored_key(content: dict, dotted: str) -> bool:
+    if not isinstance(content, dict) or "." not in (dotted or ""):
+        return False
+    section, key = dotted.split(".", 1)
+    nested = content.get(section)
+    return isinstance(nested, dict) and key in nested
 
 
 def _html_etag(html: str) -> str:
@@ -237,6 +394,7 @@ def save_template_version(
     *,
     user,
     allow_field_loss: bool = False,
+    allow_field_drift: bool = False,
     label: str = "",
     expect_html_etag: Optional[str] = None,
 ) -> SaveTemplateResult:
@@ -260,13 +418,35 @@ def save_template_version(
         new_schema = build_schema(html_source)
         lost = old_fields - _dotted_field_ids(new_schema)
 
-        affected: list[dict[str, Any]] = []
-        if lost:
-            affected = _affected_published(locked, lost)
-            if affected and not allow_field_loss:
-                # Raised inside atomic(): propagation rolls the block back, and
-                # nothing has been written at this point either way.
-                raise FieldLossError(lost, affected)
+        # Both guards are evaluated before either is raised, and each error
+        # carries the other's findings, so one refusal shows the operator every
+        # confirmation the save needs. Raising the first one alone made the
+        # form alternate between two warnings forever.
+        affected = _affected_published(locked, lost) if lost else []
+
+        # Ids that survive but change owner. The loss guard is blind to these:
+        # nothing was removed, and they are what displaced a whole site's copy
+        # once already. Only worth refusing where a published site actually
+        # stores edits against a drifted id; unedited copy follows the template
+        # now (see renderer.strip_defaults).
+        drifted = _drifted_ids(locked.schema, new_schema)
+        drift_affected = (
+            _affected_published(locked, drifted, presence_only=True) if drifted else []
+        )
+
+        loss_unconfirmed = bool(affected) and not allow_field_loss
+        drift_unconfirmed = bool(drift_affected) and not allow_field_drift
+        if loss_unconfirmed:
+            # Raised inside atomic(): propagation rolls the block back, and
+            # nothing has been written at this point either way.
+            raise FieldLossError(
+                lost,
+                affected,
+                drifted_fields=drifted if drift_unconfirmed else set(),
+                drift_affected=drift_affected if drift_unconfirmed else [],
+            )
+        if drift_unconfirmed:
+            raise FieldDriftError(drifted, drift_affected)
 
         latest = locked.versions.order_by("-number").first()
         # Only a no-op when the latest version genuinely archives the bytes that
@@ -276,6 +456,13 @@ def save_template_version(
             latest is not None
             and latest.html_source == locked.html_source == html_source
         ):
+            # No new version, but the stored schema can still be stale. Parser
+            # fixes change what the same HTML derives to, and rendering merges
+            # against the *stored* schema. Re-derive before returning, or an
+            # operator re-pasting identical HTML gets "unchanged" and no repair.
+            if locked.schema != new_schema:
+                locked.schema = new_schema
+                locked.save(update_fields=["schema", "updated_at"])
             _sync(template, locked)
             return SaveTemplateResult(
                 template=template,
@@ -302,6 +489,8 @@ def save_template_version(
         version=version,
         lost_fields=lost,
         affected=affected,
+        drifted_fields=drifted,
+        drift_affected=drift_affected,
     )
 
 

@@ -498,6 +498,26 @@ def _has_backfill_skip_ancestor(element, section) -> bool:
             return True
         ancestor = ancestor.parent
     return False
+def _upgrade_child_bearing_text_fields(soup) -> int:
+    """Retype every ``data-type="text"`` field that wraps child markup.
+
+    ``el.string = value`` deletes child nodes, so a text-typed heading holding
+    an accent ``<span>`` loses its design the first time it renders. The parser
+    and renderer coerce this at runtime too (``parser.effective_field_type``),
+    but writing it into the HTML is what makes the dashboard show a rich-text
+    control instead of a single-line input that cannot express the markup.
+
+    Returns the number of fields changed, for logging.
+    """
+    upgraded = 0
+    for el in soup.find_all(attrs={"data-edit": True}):
+        if (el.get("data-type") or "text").strip() != "text":
+            continue
+        if el.find(True) is None:
+            continue
+        el["data-type"] = "richtext"
+        upgraded += 1
+    return upgraded
 
 
 def _backfill_missed_text_fields(soup) -> int:
@@ -1085,6 +1105,17 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     text_backfilled = _backfill_missed_text_fields(soup)
     image_backfilled = _backfill_missed_image_fields(soup)
     backfilled = text_backfilled + image_backfilled
+
+    # The backfill only types fields the model skipped. The model itself is
+    # told an <h2> is "text", so a mixed-style heading it *did* annotate still
+    # arrives as text and would be flattened on render. Fix the attribute for
+    # every annotated field, model-assigned included.
+    upgraded = _upgrade_child_bearing_text_fields(soup)
+    if upgraded:
+        logger.info(
+            "Annotator: upgraded %d text field(s) with child markup to richtext.",
+            upgraded,
+        )
 
     # Restore data URIs first, then style/script blocks. Order matters: if a
     # restored <style> block happened to contain a marker substring it'd be

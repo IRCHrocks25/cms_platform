@@ -28,7 +28,7 @@ from core.models import (
     Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
 )
 from core.permissions import agency_operator_required, agency_admin_required, tenant_member_required
-from core.renderer import render_site, merge_with_defaults
+from core.renderer import render_site, merge_with_defaults, strip_defaults
 from core.parser import build_schema
 from core.services import blog_render
 from core.services import custom_domains
@@ -304,6 +304,12 @@ def template_detail(request, pk):
             "on",
             "yes",
         )
+        allow_field_drift = request.POST.get("allow_field_drift") in (
+            "1",
+            "true",
+            "on",
+            "yes",
+        )
         try:
             # One transaction so a single operator submit cannot half-commit:
             # the HTML/version write and the metadata write land together or
@@ -315,12 +321,17 @@ def template_detail(request, pk):
                     html_source,
                     user=request.user,
                     allow_field_loss=allow_field_loss,
+                    allow_field_drift=allow_field_drift,
                 )
                 template.save(
                     update_fields=["name", "description", "editing_mode", "updated_at"]
                 )
-        except template_svc.FieldLossError as exc:
+        except (template_svc.FieldLossError, template_svc.FieldDriftError) as exc:
             messages.error(request, str(exc))
+            # Either error can carry both findings, so render whichever the
+            # save is still waiting on rather than one at a time.
+            has_loss = bool(getattr(exc, "lost_fields", None))
+            has_drift = bool(getattr(exc, "drifted_fields", None))
             tenants_using = list(
                 template.tenants.only("id", "name", "subdomain").order_by("name")
             )
@@ -330,7 +341,12 @@ def template_detail(request, pk):
                 {
                     "template": template,
                     "tenants_using": tenants_using,
-                    "field_loss": exc,
+                    "field_loss": exc if has_loss else None,
+                    "field_drift": exc if has_drift else None,
+                    # Keep a confirmation the operator already gave, so a
+                    # second warning doesn't silently discard the first.
+                    "allow_field_loss": allow_field_loss,
+                    "allow_field_drift": allow_field_drift,
                     "form_data": {
                         "name": template.name,
                         "description": template.description,
@@ -2236,14 +2252,21 @@ def page_edit_html(request, pk, page_pk):
             allow_field_loss = request.POST.get("allow_field_loss") in (
                 "1", "true", "on", "yes",
             )
+            allow_field_drift = request.POST.get("allow_field_drift") in (
+                "1", "true", "on", "yes",
+            )
             try:
                 result = template_svc.save_template_version(
                     page.template,
                     new_html,
                     user=request.user,
                     allow_field_loss=allow_field_loss,
+                    allow_field_drift=allow_field_drift,
                 )
-            except template_svc.FieldLossError as exc:
+            except (
+                template_svc.FieldLossError,
+                template_svc.FieldDriftError,
+            ) as exc:
                 messages.error(request, str(exc))
                 return render(
                     request,
@@ -2252,7 +2275,12 @@ def page_edit_html(request, pk, page_pk):
                         "tenant": tenant,
                         "page": page,
                         "html_source": new_html,
-                        "field_loss": exc,
+                        "field_loss": exc if getattr(exc, "lost_fields", None) else None,
+                        "field_drift": (
+                            exc if getattr(exc, "drifted_fields", None) else None
+                        ),
+                        "allow_field_loss": allow_field_loss,
+                        "allow_field_drift": allow_field_drift,
                         "save_url": reverse(
                             "dashboard:page_edit_html", args=[tenant.pk, page.pk]
                         ),
@@ -2684,6 +2712,11 @@ def _save_content(request, editable):
             source=cv.SOURCE_DASHBOARD,
         )
     else:
+        # Same rule as the home page (see content_versions.save_tenant_content):
+        # store authored overrides, let the template own the rest.
+        page_schema = getattr(editable.template, "schema", None)
+        if isinstance(page_schema, dict):
+            content = strip_defaults(page_schema, content)
         editable.content = content
         editable.save(update_fields=["content", "updated_at"])
 

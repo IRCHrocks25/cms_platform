@@ -124,7 +124,11 @@ def create_tenant_account(
             custom_domain=custom_domain,
             template=template,
             owner=user,
-            content=template.schema.get("defaults", {}) or {},
+            # Empty, not a copy of the defaults. merge_with_defaults() fills
+            # every unedited field from the template at read time; a stored
+            # copy would instead pin this site to the values the template held
+            # on the day it was created, and keep overriding it forever.
+            content={},
             is_published=is_published,
         )
         TenantMembership.objects.create(
@@ -159,9 +163,6 @@ def create_tenant_account(
             # Library → clone into the new tenant; cross-tenant is refused.
             assign_template(tenant, template, user=user)
             tenant.refresh_from_db()
-            # Defaults came from the library row; re-seed from the clone.
-            tenant.content = tenant.template.schema.get("defaults", {}) or {}
-            tenant.save(update_fields=["content", "updated_at"])
 
     return tenant, user, password
 
