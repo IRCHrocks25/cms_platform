@@ -495,32 +495,29 @@ class MigrateCommandTests(TestCase):
 
 
 class EnsureBlockEditorTests(TestCase):
-    def test_upgrades_classic_and_keeps_copy(self):
+    def test_leaves_classic_designed_html_intact(self):
         from django.contrib.auth.models import User
 
-        owner = User.objects.create_user("own", password="x")
-        template = Template.objects.create(
-            name="Classic",
-            html_source=(
-                "<section data-section='hero' data-label='Hero'>"
-                "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
-            ),
+        source = (
+            "<section data-section='hero' data-label='Hero'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
         )
+        owner = User.objects.create_user("own", password="x")
+        template = Template.objects.create(name="Classic", html_source=source)
         tenant = Tenant.objects.create(
             name="Acme", subdomain="acme", template=template, owner=owner,
             content={"hero": {"title": "Kept"}},
         )
         blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        shell = tenant.template
-        self.assertTrue(shell.is_block_shell)
-        self.assertEqual(tenant.content["regions"]["main"][0]["fields"]["title"], "Kept")
-        self.assertEqual(tenant.content["_classic"]["hero"]["title"], "Kept")
-        self.assertGreaterEqual(shell.allowed_block_types.count(), 20)
-        html = blocks.render_content(shell, tenant.content)
+        self.assertFalse(tenant.template.is_block_shell)
+        self.assertEqual(tenant.template_id, template.pk)
+        self.assertEqual(tenant.template.html_source, source)
+        self.assertEqual(tenant.content, {"hero": {"title": "Kept"}})
+        html = blocks.render_content(tenant.template, tenant.content)
         self.assertIn("Kept", html)
 
-    def test_clones_shared_library_template(self):
+    def test_does_not_mutate_shared_library_classic(self):
         from django.contrib.auth.models import User
 
         a = User.objects.create_user("a", password="x")
@@ -544,17 +541,18 @@ class EnsureBlockEditorTests(TestCase):
         t1.refresh_from_db()
         t2.refresh_from_db()
         library.refresh_from_db()
-        self.assertTrue(t1.template.is_block_shell)
-        self.assertNotEqual(t1.template_id, library.pk)
+        self.assertEqual(t1.template_id, library.pk)
         self.assertEqual(t2.template_id, library.pk)
         self.assertFalse(library.is_block_shell)
+        self.assertEqual(t1.content, {"hero": {"title": "One"}})
         self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
-    def test_designed_page_keeps_words_after_upgrade(self):
-        """Classic annotated pages must still render their copy after the
-        block-editor upgrade. The Header chrome rewrite used to empty the
-        body into ``data-region="main"`` and then wipe footer/header slots
-        at render time — leaving a blank preview with fields still in Layers.
+    def test_designed_page_stays_full_html(self):
+        """Opening the editor must not hollow a designed landing page.
+
+        Auto-upgrade used to extract body sections into BlockTypes and leave
+        ``data-region="main"`` empty, so the agency textarea and the preview
+        lost the hero, clients strip, and everything between header and footer.
         """
         from django.contrib.auth.models import User
 
@@ -597,15 +595,17 @@ class EnsureBlockEditorTests(TestCase):
         )
         blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        shell = tenant.template
-        self.assertTrue(shell.is_block_shell)
-        self.assertNotIn("site-header-inner", shell.html_source)
-        self.assertIn("Start the course", shell.html_source)
-        self.assertIn("office@burrus.com", shell.html_source)
-        faq = BlockType.objects.get(key="faq")
-        self.assertIn("Questions we hear a lot", faq.html_source)
+        html_source = tenant.template.html_source
+        self.assertFalse(tenant.template.is_block_shell)
+        self.assertNotIn('data-region="main"', html_source)
+        self.assertNotIn("site-header-inner", html_source)
+        self.assertIn("Welcome to the course", html_source)
+        self.assertIn("Daniel Burrus", html_source)
+        self.assertIn("Questions we hear a lot", html_source)
+        self.assertIn("Start the course", html_source)
+        self.assertIn("office@burrus.com", html_source)
 
-        html = blocks.render_content(shell, tenant.content, preview=True)
+        html = blocks.render_content(tenant.template, tenant.content, preview=True)
         self.assertIn("Welcome to the course", html)
         self.assertIn("Daniel Burrus", html)
         self.assertIn("Questions we hear a lot", html)

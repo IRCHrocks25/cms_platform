@@ -141,7 +141,7 @@ class ClientPageManagementTests(TestCase):
         self.assertEqual(main[0]["fields"]["title"], "Src hero")
         self.assertNotEqual(main[0]["id"], "blk_src")  # fresh id
 
-    def test_client_on_classic_template_is_upgraded_and_can_create(self):
+    def test_client_on_classic_template_cannot_create(self):
         c = Client(HTTP_HOST="beta.localhost")
         beta_member = get_user_model().objects.create_user("bob", password="x")
         TenantMembership.objects.create(tenant=self.classic_tenant, user=beta_member)
@@ -150,8 +150,8 @@ class ClientPageManagementTests(TestCase):
                       {"title": "X", "slug": "x"})
         self.assertEqual(resp.status_code, 302)
         self.classic_tenant.refresh_from_db()
-        self.assertTrue(self.classic_tenant.template.is_block_shell)
-        self.assertTrue(self.classic_tenant.pages.filter(slug="x").exists())
+        self.assertFalse(self.classic_tenant.template.is_block_shell)
+        self.assertFalse(self.classic_tenant.pages.filter(slug="x").exists())
 
     def test_client_cannot_paste_html(self):
         # A non-staff client's html_source is ignored — they get a shared-shell
@@ -318,22 +318,16 @@ class ClientPageManagementTests(TestCase):
             },
         }
     )
-    def test_classic_site_editor_upgrades_to_block_chrome(self):
+    def test_classic_site_editor_stays_classic(self):
         c = Client(HTTP_HOST="beta.localhost")
         c.force_login(self.staff)
         resp = c.get(reverse("dashboard:root"))
         self.assertEqual(resp.status_code, 200)
         self.classic_tenant.refresh_from_db()
-        self.assertTrue(self.classic_tenant.template.is_block_shell)
-        self.assertContains(resp, "cms-header-panel")
-        self.assertContains(resp, "is-block-mode")
-        self.assertContains(resp, "editor-tools-menu")
-        self.assertContains(resp, "cms-header-panel")
-        self.assertContains(resp, "data-header-layout")
-        self.assertContains(resp, "data-header-logo-gallery")
-        self.assertContains(resp, "data-header-logo-upload")
-        self.assertContains(resp, "data-header-logo-size")
-        self.assertContains(resp, "data-header-show-name")
+        self.assertFalse(self.classic_tenant.template.is_block_shell)
+        self.assertNotContains(resp, "is-block-mode")
+        self.assertNotContains(resp, "cms-header-panel")
+        self.assertContains(resp, "Sections")
 
     @override_settings(
         STORAGES={

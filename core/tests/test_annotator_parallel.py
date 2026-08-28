@@ -697,3 +697,66 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         self.assertEqual(markers, 6)
         self.assertEqual(raw_fields, 11)
         self.assertEqual(_parity_field_count(schema), markers)
+
+
+class DesignedPageAnnotationTests(TestCase):
+    @override_settings(
+        OPENAI_API_KEY="sk-test",
+        ANNOTATE_CHUNK_TARGET_CHARS=80_000,
+        ANNOTATE_MAX_WORKERS=1,
+    )
+    def test_sparse_model_still_keeps_designed_page_intact(self):
+        """A landing page must come back as the same page plus data-* attrs.
+
+        The model can skip wrappers; landmark + field backfill still owns every
+        band. The output must never become an empty ``data-region="main"`` shell.
+        """
+        html = (
+            "<!DOCTYPE html><html><body>"
+            '<header class="nav" id="nav"><a href="#top">Home</a></header>'
+            '<section class="hero" id="top">'
+            '<video class="hero-video" src="https://cdn.example.com/hero.mp4"></video>'
+            "<h1>You're already brilliant</h1>"
+            "</section>"
+            '<section class="clients" id="clients"><p>Clients include</p></section>'
+            '<section id="problem"><h2>Busy is not a strategy</h2></section>'
+            '<footer class="foot"><p>Burrus Research</p></footer>'
+            "</body></html>"
+        )
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _fake_completion(
+                        '{"sections":[],"fields":[]}'
+                    )
+                )
+            )
+        )
+
+        with patch(
+            "core.services.annotator._make_openai_client",
+            return_value=fake_client,
+        ):
+            result = annotate_html_result(html)
+
+        self.assertNotIn("data-region", result.html)
+        self.assertNotIn("site-header-inner", result.html)
+        self.assertIn("https://cdn.example.com/hero.mp4", result.html)
+        self.assertIn("You're already brilliant", result.html)
+        self.assertIn("Clients include", result.html)
+        self.assertIn("Busy is not a strategy", result.html)
+        soup = BeautifulSoup(result.html, "lxml")
+        self.assertTrue(soup.header.get("data-section"))
+        self.assertTrue(soup.find(id="top").get("data-section"))
+        self.assertTrue(soup.find(id="clients").get("data-section"))
+        self.assertTrue(soup.find(id="problem").get("data-section"))
+        self.assertTrue(soup.footer.get("data-section"))
+        video = soup.find("video")
+        self.assertEqual(video.get("data-type"), "video")
+        schema = build_schema(result.html)
+        section_ids = [
+            section["id"]
+            for section in schema.get("sections", [])
+            if section.get("id") != "brand"
+        ]
+        self.assertGreaterEqual(len(section_ids), 4)

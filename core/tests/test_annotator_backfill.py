@@ -13,8 +13,12 @@ from bs4 import BeautifulSoup
 from django.test import TestCase
 
 from core.services.annotator import (
+    AnnotatorError,
+    _assert_annotation_preserved_structure,
+    _backfill_landmark_sections,
     _backfill_missed_image_fields,
     _backfill_missed_text_fields,
+    _backfill_missed_video_fields,
 )
 
 
@@ -338,3 +342,107 @@ class BackfillCatchesUnmarkedContentImagesTests(TestCase):
         )
         for src in ("pixel.gif", "small.png", "logo.png", "icon.png"):
             self.assertIsNone(s.find("img", src=src).get("data-edit"))
+
+
+class LandmarkSectionBackfillTests(TestCase):
+    def test_marks_unmarked_header_sections_footer_and_menu(self):
+        s = _soup(
+            "<body>"
+            '<header class="nav" id="nav"><a href="#top">Home</a></header>'
+            '<div class="menu" id="menu"><a href="#faq">FAQ</a></div>'
+            '<section class="hero" id="top"><h1>Welcome</h1></section>'
+            '<section id="faq"><h2>Before you start</h2></section>'
+            '<footer class="foot"><p>Copyright</p></footer>'
+            "</body>"
+        )
+
+        added = _backfill_landmark_sections(s)
+
+        self.assertEqual(added, 5)
+        self.assertEqual(s.header.get("data-section"), "nav")
+        self.assertEqual(s.header.get("data-group"), "Header")
+        self.assertEqual(s.find(id="menu").get("data-section"), "menu")
+        self.assertEqual(s.find(id="top").get("data-section"), "top")
+        self.assertEqual(s.find(id="faq").get("data-section"), "faq")
+        self.assertEqual(s.footer.get("data-section"), "footer")
+        self.assertEqual(s.footer.get("data-group"), "Footer")
+
+    def test_does_not_mark_nav_nested_inside_header(self):
+        s = _soup(
+            '<header class="nav"><nav class="nav-links"><a href="#a">A</a></nav></header>'
+            "<section id='hero'><h1>Hi</h1></section>"
+        )
+
+        added = _backfill_landmark_sections(s)
+
+        self.assertEqual(added, 2)
+        self.assertTrue(s.header.get("data-section"))
+        self.assertIsNone(s.nav.get("data-section"))
+
+    def test_skips_already_marked_sections(self):
+        s = _soup(
+            '<section data-section="hero" data-label="Hero"><h1>Hi</h1></section>'
+            "<footer><p>Bye</p></footer>"
+        )
+
+        added = _backfill_landmark_sections(s)
+
+        self.assertEqual(added, 1)
+        self.assertEqual(s.section.get("data-section"), "hero")
+        self.assertEqual(s.footer.get("data-section"), "footer")
+
+
+class VideoBackfillTests(TestCase):
+    def test_marks_unmarked_section_video(self):
+        s = _soup(
+            '<section data-section="hero">'
+            '<video class="hero-video" src="film.mp4"></video>'
+            "<h1>Title</h1>"
+            "</section>"
+        )
+
+        added = _backfill_missed_video_fields(s)
+
+        self.assertEqual(added, 1)
+        video = s.find("video")
+        self.assertEqual(video.get("data-edit"), "hero.video")
+        self.assertEqual(video.get("data-type"), "video")
+
+    def test_skips_video_without_src(self):
+        s = _soup('<section data-section="hero"><video></video></section>')
+
+        self.assertEqual(_backfill_missed_video_fields(s), 0)
+
+
+class StructurePreservationTests(TestCase):
+    def test_rejects_empty_main_region_rewrite(self):
+        raw = (
+            "<html><body>"
+            "<header></header><section></section><section></section>"
+            "<footer></footer></body></html>"
+        )
+        hollow = (
+            "<html><body>"
+            '<header></header><div data-region="main"></div>'
+            "<footer></footer></body></html>"
+        )
+        with self.assertRaises(AnnotatorError):
+            _assert_annotation_preserved_structure(raw, hollow)
+
+    def test_rejects_dropped_landmarks(self):
+        raw = (
+            "<html><body>"
+            "<header></header><section></section><section></section>"
+            "<section></section><footer></footer></body></html>"
+        )
+        hollow = "<html><body><header></header><footer></footer></body></html>"
+        with self.assertRaises(AnnotatorError):
+            _assert_annotation_preserved_structure(raw, hollow)
+
+    def test_accepts_same_landmarks(self):
+        html = (
+            "<html><body>"
+            "<header></header><section></section><footer></footer>"
+            "</body></html>"
+        )
+        _assert_annotation_preserved_structure(html, html)

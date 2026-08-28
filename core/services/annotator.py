@@ -75,14 +75,18 @@ Output JSON shape (and nothing else: no markdown, no prose):
     {"ref": <int>, "id": "<snake_id>", "label": "<friendly name>", "icon": "<lucide hint>", "group": "Header|Home|Sections|Footer"}
   ],
   "fields": [
-    {"ref": <int>, "edit": "<section_id>.<field_snake_id>", "type": "text|richtext|image|color|link", "label": "<friendly name>"}
+    {"ref": <int>, "edit": "<section_id>.<field_snake_id>", "type": "text|richtext|image|color|link|video", "label": "<friendly name>"}
   ]
 }
 
 Rules:
-1. sections: one per meaningful top-level content block (hero, nav, about, features,
-   pricing, gallery, testimonials, contact, footer, etc.). `ref` is the
-   data-cms-ref of that block's WRAPPER element. `id` is unique, snake_case.
+1. sections: one per existing top-level content block. Prefer the element that
+   already is that block: every `<section>`, `<header>`, `<footer>`, and
+   sibling overlay (mobile `.menu`, `.modal`) must be listed on THAT wrapper's
+   ref — never on a child, and never invent a new wrapper. `id` is unique,
+   snake_case. Do not skip a section because it is long, decorative, or a
+   logo strip. If the page has 12 `<section>` tags, return 12 sections plus
+   header/footer/overlays.
 2. fields: every element a non-technical client would want to edit. `ref` is that
    element's data-cms-ref. `edit` is "<section_id>.<field>" and the section_id MUST
    be one you declared in "sections", and the field's element MUST be inside that
@@ -94,6 +98,7 @@ Rules:
    - link     -> <a> elements whose href is the editable thing (nav links, PDF links).
                  Use `text` for CTA button labels where the visible text is edited.
    - color    -> elements whose inline background-color/color is meaningful to edit
+   - video    -> `<video>` elements (binds to src), including hero background films
 4. Images: be generous on CONTENT, strict on CHROME.
    INCLUDE every <img> whose role on the page is a real photograph or
    illustration the client would want to swap:
@@ -143,7 +148,9 @@ Rules:
    own direct text is empty, icon-only SVGs). A wrapper whose CHILDREN hold
    visible text is NOT decorative. Annotate the children. Brand-color CSS
    variables are handled automatically; ignore them.
-9. ids/field ids: lowercase snake_case, [a-z0-9_] only."""
+9. ids/field ids: lowercase snake_case, [a-z0-9_] only.
+10. You only choose refs. Never invent `data-region`, `site-header-*` chrome,
+    or empty placeholders. The page structure must stay exactly as given."""
 
 
 _EXAMPLE = (
@@ -207,6 +214,9 @@ _CSS_PIXEL_DIMENSION_RE = re.compile(
 )
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 _SEMANTIC_SPLIT_BOUNDARIES = {"section", "article"}
+_LANDMARK_TAGS = frozenset({"section", "header", "footer", "article"})
+_OVERLAY_TOKENS = frozenset({"menu", "modal"})
+_SHELL_MARKERS = ("data-region", "site-header-inner", "site-footer-row")
 
 
 def _strip_blocks(html: str) -> tuple[str, list[str]]:
@@ -706,6 +716,206 @@ def _backfill_missed_image_fields(soup) -> int:
     return added
 
 
+def _existing_section_ids(soup) -> set[str]:
+    return {
+        (tag.get("data-section") or "").strip()
+        for tag in soup.find_all(attrs={"data-section": True})
+        if (tag.get("data-section") or "").strip()
+    }
+
+
+def _unique_section_id(proposed: str, used: set[str]) -> str:
+    slug = _slug(proposed) or "section"
+    if slug == "brand":
+        slug = "section"
+    candidate = slug
+    suffix = 2
+    while candidate in used:
+        candidate = f"{slug}_{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _section_label_from_element(element) -> str:
+    for selector in (".eyebrow", "h1", "h2", "h3", "[aria-label]"):
+        node = element.select_one(selector)
+        if node is None:
+            continue
+        text = (
+            (node.get("aria-label") or "").strip()
+            if selector == "[aria-label]"
+            else node.get_text(" ", strip=True)
+        )
+        if text:
+            return text[:80]
+    aria = (element.get("aria-label") or "").strip()
+    if aria:
+        return aria[:80]
+    element_id = (element.get("id") or "").strip()
+    if element_id:
+        return element_id.replace("-", " ").replace("_", " ").title()[:80]
+    if element.name == "header":
+        return "Header"
+    if element.name == "footer":
+        return "Footer"
+    tokens = _markup_tokens(element)
+    for hint in ("hero", "menu", "modal", "nav", "clients"):
+        if hint in tokens:
+            return hint.replace("_", " ").title()
+    return element.name.title()
+
+
+def _section_group_from_element(element) -> str:
+    tokens = _markup_tokens(element)
+    if element.name == "header" or tokens & {"nav", "menu", "header"}:
+        return "Header"
+    if element.name == "footer" or tokens & {"foot", "footer"}:
+        return "Footer"
+    return "Home"
+
+
+def _is_overlay_landmark(element) -> bool:
+    return element.name == "div" and bool(_markup_tokens(element) & _OVERLAY_TOKENS)
+
+
+def _is_direct_body_child(element, body) -> bool:
+    parent = element.parent
+    return parent is body or getattr(parent, "name", None) in (
+        "body",
+        "html",
+        "[document]",
+    )
+
+
+def _backfill_landmark_sections(soup) -> int:
+    """Mark unmarked page landmarks so field backfill has an owning section.
+
+    The model sometimes annotates fields but misses the wrapper, or skips a
+    whole band (logo strip, overlay menu). Without a ``data-section`` on the
+    existing ``<section>`` / ``<header>`` / ``<footer>``, later backfill cannot
+    attach fields and the parser drops the band. This never invents wrappers.
+    """
+    body = soup.body or soup
+    used = _existing_section_ids(soup)
+    added = 0
+    for element in list(body.find_all(True)):
+        if element.get("data-section"):
+            continue
+        is_landmark = element.name in _LANDMARK_TAGS
+        is_overlay = _is_overlay_landmark(element)
+        if not is_landmark and not is_overlay:
+            continue
+        if element.find_parent(_LANDMARK_TAGS) is not None:
+            continue
+        if is_overlay and not _is_direct_body_child(element, body):
+            continue
+
+        proposed = (element.get("id") or "").strip()
+        if not proposed:
+            tokens = _markup_tokens(element)
+            for hint in (
+                "hero", "nav", "header", "footer", "menu", "modal", "clients",
+            ):
+                if hint in tokens:
+                    proposed = hint
+                    break
+        if not proposed:
+            proposed = _section_label_from_element(element)
+
+        section_id = _unique_section_id(proposed, used)
+        element["data-section"] = section_id
+        element["data-label"] = _section_label_from_element(element)[:120]
+        element["data-group"] = _section_group_from_element(element)
+        if not element.get("data-icon"):
+            element["data-icon"] = {
+                "header": "menu",
+                "footer": "footprints",
+            }.get(element.name, "square")
+        added += 1
+    return added
+
+
+def _video_src(video) -> str:
+    src = (video.get("src") or "").strip()
+    if src:
+        return src
+    source = video.find("source")
+    if source is not None:
+        return (source.get("src") or "").strip()
+    return ""
+
+
+def _backfill_missed_video_fields(soup) -> int:
+    """Promote unmarked ``<video>`` tags inside sections (hero films, etc.)."""
+    added = 0
+    for sec in soup.find_all(attrs={"data-section": True}):
+        sec_id = (sec.get("data-section") or "").strip()
+        if not sec_id or sec_id == "brand":
+            continue
+
+        existing_field_ids: set[str] = set()
+        for element in sec.find_all(attrs={"data-edit": True}):
+            if element.find_parent(attrs={"data-section": True}) is not sec:
+                continue
+            edit = element.get("data-edit", "")
+            if "." in edit:
+                existing_field_ids.add(edit.split(".", 1)[1])
+
+        video_number = 1
+        for video in sec.find_all("video"):
+            if video.find_parent(attrs={"data-section": True}) is not sec:
+                continue
+            if video.get("data-edit") or not _video_src(video):
+                continue
+            field_id = "video" if video_number == 1 else f"video_{video_number}"
+            while field_id in existing_field_ids:
+                video_number += 1
+                field_id = f"video_{video_number}"
+            existing_field_ids.add(field_id)
+            video["data-edit"] = f"{sec_id}.{field_id}"
+            video["data-type"] = "video"
+            video["data-label"] = (
+                "Background video" if video_number == 1 else f"Video {video_number}"
+            )
+            video_number += 1
+            added += 1
+    return added
+
+
+def _top_level_content_blocks(html: str) -> int:
+    """Count body-level landmarks the annotator must not drop."""
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.body
+    if body is None:
+        return 0
+    count = 0
+    for child in body.children:
+        if not getattr(child, "name", None):
+            continue
+        if child.name in _LANDMARK_TAGS or _is_overlay_landmark(child):
+            count += 1
+    return count
+
+
+def _assert_annotation_preserved_structure(raw_html: str, annotated: str) -> None:
+    """Refuse output that turned a designed page into a block-editor shell."""
+    for marker in _SHELL_MARKERS:
+        if marker not in raw_html and marker in annotated:
+            raise AnnotatorError(
+                "AI annotation rewrote the page into a block-editor shell. "
+                "No changes were applied. Please try again or annotate the HTML manually."
+            )
+    before = _top_level_content_blocks(raw_html)
+    after = _top_level_content_blocks(annotated)
+    if before >= 3 and after < before:
+        raise AnnotatorError(
+            "AI annotation dropped page sections "
+            f"(input had {before} content blocks, output has {after}). "
+            "No changes were applied. Please try again or annotate the HTML manually."
+        )
+
+
 # Hard ceiling on the full stripped HTML before it is divided into model-bound
 # chunks. This limits total call count, cost, and wall-clock time. Each request
 # sees only one chunk, so a larger model context does not justify raising it.
@@ -1099,12 +1309,15 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
 
     applied = _apply_annotations(ref_map, data)
     promoted, salvaged = _recover_grouped_orphan_fields(soup, data)
+    landmarks = _backfill_landmark_sections(soup)
     reconciled, dropped = _reconcile_annotated_fields(soup)
     logger.info(
         "Annotator: promoted %d section wrapper(s), salvaged %d orphan field(s); "
-        "reconciled %d field prefix(es); dropped %d orphan field(s).",
+        "backfilled %d landmark section(s); reconciled %d field prefix(es); "
+        "dropped %d orphan field(s).",
         promoted,
         salvaged,
+        landmarks,
         reconciled,
         dropped,
     )
@@ -1119,7 +1332,8 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     # item in a repeating card group, or text nested deep in wrappers.
     text_backfilled = _backfill_missed_text_fields(soup)
     image_backfilled = _backfill_missed_image_fields(soup)
-    backfilled = text_backfilled + image_backfilled
+    video_backfilled = _backfill_missed_video_fields(soup)
+    backfilled = text_backfilled + image_backfilled + video_backfilled
 
     # The backfill only types fields the model skipped. The model itself is
     # told an <h2> is "text", so a mixed-style heading it *did* annotate still
@@ -1137,6 +1351,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     # safer to handle data URIs while they're still scoped to body markup only.
     restored_uris = _restore_data_uris(str(soup), data_uris)
     annotated = _restore_blocks(restored_uris, blocks)
+    _assert_annotation_preserved_structure(raw_html, annotated)
 
     schema = build_schema(annotated)
     sections = [s for s in schema.get("sections", []) if s.get("id") != "brand"]

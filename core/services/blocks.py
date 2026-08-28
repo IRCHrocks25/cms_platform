@@ -1197,28 +1197,17 @@ def _clone_shared_template(template, tenant, user=None):
 
 
 def ensure_block_editor(editable, *, user=None):
-    """Give a classic site the block editor the first time someone opens it.
+    """Attach the builder palette only on templates that are already shells.
 
-    Existing copy is converted in place (dual-written to ``_classic``). A
-    shared/library template is cloned onto this tenant first so other sites
-    keep their locked HTML until they open the editor themselves.
+    Designed (classic) pages stay as full annotated HTML. Auto-converting them
+    emptied the body into ``data-region="main"`` and rewrote the header/footer
+    into chrome slots, which is what made a pasted landing page look like a
+    hollow shell after "annotation." Use ``migrate_template_to_blocks`` when a
+    site should actually become a block editor.
     """
-    from core.models import Page, Tenant
-
     template = getattr(editable, "template", None)
     if template is None or not (template.html_source or "").strip():
         return template
-
-    tenant = editable if isinstance(editable, Tenant) else editable.tenant
-    if not template.is_block_shell:
-        template = _clone_shared_template(template, tenant, user)
-        if isinstance(editable, Tenant) and editable.template_id != template.pk:
-            editable.template = template
-        if isinstance(editable, Page) and editable.template_id != template.pk:
-            editable.template = template
-            editable.save(update_fields=["template"])
-        apply_classic_upgrade(template)
-        template.refresh_from_db()
-    else:
+    if template.is_block_shell:
         attach_builder_primitives(template)
     return template
