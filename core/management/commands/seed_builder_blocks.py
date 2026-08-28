@@ -424,6 +424,20 @@ BUILDER_BLOCKS.update({
 })
 
 
+def _is_migrated_section_html(html: str, key: str) -> bool:
+    """True when this row is a converted page section, not our primitive.
+
+    ``faq`` / ``video`` / ``gallery`` collide with designed-page section ids.
+    Overwriting those rows would replace a full annotated section with a
+    4-question starter block.
+    """
+    if not html:
+        return False
+    if f'data-block="{key}"' in html or f"data-block='{key}'" in html:
+        return False
+    return f'data-section="{key}"' in html or f"data-section='{key}'" in html
+
+
 def seed_block_types():
     """Create/refresh the primitive builder blocks (idempotent).
 
@@ -436,6 +450,9 @@ def seed_block_types():
         bt, was_created = BlockType.objects.get_or_create(
             key=key, defaults={"html_source": html}
         )
+        if not was_created and _is_migrated_section_html(bt.html_source or "", key):
+            block_types.append(bt)
+            continue
         bt.html_source = html
         bt.is_active = True
         # label/icon/category are re-derived from the HTML in save().

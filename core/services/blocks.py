@@ -256,9 +256,57 @@ def ensure_header(content: dict) -> dict:
     return header
 
 
+def _header_meta_is_customized(meta: dict | None) -> bool:
+    """True when the client actually configured the Header panel."""
+    if not meta:
+        return False
+    if meta.get("menu") or meta.get("logo"):
+        return True
+    btn = meta.get("button") or {}
+    if btn.get("on") and btn.get("label"):
+        return True
+    if meta.get("show_name") is False:
+        return True
+    if meta.get("layout") in ("packed", "centered"):
+        return True
+    return False
+
+
+def _header_has_designed_markup(soup) -> bool:
+    """True when the header still carries agency-designed chrome (logo, burger)."""
+    header = soup.find("header")
+    if header is None:
+        return False
+    if header.find(class_="burger") or header.find(class_="nav-cta"):
+        return True
+    if header.find(class_="nav-links") or header.find(class_="brand"):
+        return True
+    extra = header.find(class_="site-header-brand-extra")
+    if extra is not None and extra.find(["img", "a", "button", "nav"]):
+        return True
+    return False
+
+
+def should_paint_header(soup, header_meta=None) -> bool:
+    """Whether ``apply_header_chrome`` should replace the header contents.
+
+    Blank builder shells get the unified Header panel paint. Designed agency
+    pages keep their own navbar unless the client has actually configured
+    ``_header``. Headers we never chrome-ified are left alone.
+    """
+    meta = header_meta if isinstance(header_meta, dict) else normalize_header(header_meta)
+    if _header_meta_is_customized(meta):
+        return True
+    if soup.find(class_="site-header-inner") is None:
+        return False
+    return not _header_has_designed_markup(soup)
+
+
 def apply_header_chrome(soup, header_meta=None, *, preview: bool = False) -> None:
     """Paint the navbar from ``_header`` (menu list + optional button)."""
     meta = normalize_header(header_meta)
+    if not should_paint_header(soup, meta):
+        return
     nav = None
     header = soup.find("header")
     if header is not None:
@@ -1054,7 +1102,11 @@ def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]
 
 
 def attach_builder_primitives(template) -> None:
-    """Allowlist the shared primitive catalog on a shell (idempotent)."""
+    """Allowlist the shared primitive catalog on a shell (idempotent).
+
+    Does not rewrite the template HTML. Designed agency pages keep their own
+    header/footer; blank builder shells already ship with chrome slots.
+    """
     if template is None or not template.is_block_shell:
         return
     from core.management.commands.seed_builder_blocks import seed_block_types
@@ -1062,10 +1114,6 @@ def attach_builder_primitives(template) -> None:
     block_types, _created, _updated = seed_block_types()
     if block_types:
         template.allowed_block_types.add(*block_types)
-    new_html = upgrade_shell_chrome_slots(template.html_source or "")
-    if new_html != (template.html_source or ""):
-        template.html_source = new_html
-        template.save()
 
 
 def apply_classic_upgrade(template, *, region: str = "main") -> None:
@@ -1120,7 +1168,7 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
             bt.save()
             block_types.append(bt)
 
-        template.html_source = upgrade_shell_chrome_slots(shell_html)
+        template.html_source = shell_html
         template.save()
         if block_types:
             template.allowed_block_types.add(*block_types)

@@ -550,6 +550,126 @@ class EnsureBlockEditorTests(TestCase):
         self.assertFalse(library.is_block_shell)
         self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
+    def test_designed_page_keeps_words_after_upgrade(self):
+        """Classic annotated pages must still render their copy after the
+        block-editor upgrade. The Header chrome rewrite used to empty the
+        body into ``data-region="main"`` and then wipe footer/header slots
+        at render time — leaving a blank preview with fields still in Layers.
+        """
+        from django.contrib.auth.models import User
+
+        designed = """
+        <!DOCTYPE html><html><head><style>
+        .rv{opacity:0} .rv.in{opacity:1}
+        </style></head><body>
+        <header class="nav" data-section="header_navigation" data-group="Header"
+                data-label="Header Navigation">
+          <a class="brand" href="#top">
+            <img alt="Logo" src="https://cdn.example.com/logo.png"/>
+          </a>
+          <a class="btn nav-cta" href="#start">Start the course</a>
+          <button class="burger" type="button"><span></span></button>
+        </header>
+        <section class="hero rv" data-section="hero" data-label="Hero" data-group="Home">
+          <h1 data-edit="hero.title" data-type="text">Welcome to the course</h1>
+        </section>
+        <section class="sec rv" data-section="instructor" data-label="Instructor">
+          <p data-edit="instructor.eyebrow" data-type="text">Daniel Burrus</p>
+        </section>
+        <section class="sec" data-section="faq" data-label="FAQ">
+          <h2 data-edit="faq.heading" data-type="text">Questions we hear a lot</h2>
+        </section>
+        <footer class="foot" data-section="footer" data-group="Footer" data-label="Footer">
+          <a data-edit="footer.email_link" data-type="link"
+             href="mailto:office@burrus.com">office@burrus.com</a>
+        </footer>
+        </body></html>
+        """
+        owner = User.objects.create_user("dan", password="x")
+        template = Template.objects.create(name="Burrus", html_source=designed)
+        tenant = Tenant.objects.create(
+            name="Course", subdomain="course", template=template, owner=owner,
+            content={
+                "hero": {"title": "Welcome to the course"},
+                "instructor": {"eyebrow": "Daniel Burrus"},
+                "faq": {"heading": "Questions we hear a lot"},
+            },
+        )
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        shell = tenant.template
+        self.assertTrue(shell.is_block_shell)
+        self.assertNotIn("site-header-inner", shell.html_source)
+        self.assertIn("Start the course", shell.html_source)
+        self.assertIn("office@burrus.com", shell.html_source)
+        faq = BlockType.objects.get(key="faq")
+        self.assertIn("Questions we hear a lot", faq.html_source)
+
+        html = blocks.render_content(shell, tenant.content, preview=True)
+        self.assertIn("Welcome to the course", html)
+        self.assertIn("Daniel Burrus", html)
+        self.assertIn("Questions we hear a lot", html)
+        self.assertIn("office@burrus.com", html)
+        self.assertIn("cdn.example.com/logo.png", html)
+        self.assertIn("data-cms-preview-reveal", html)
+
+    def test_already_wrapped_shell_does_not_wipe_footer(self):
+        """A template already rewritten by the old chrome upgrader still has
+        the designed footer sitting inside ``footer-center``. Render must not
+        clear that slot when there are no footer block instances."""
+        from django.contrib.auth.models import User
+
+        hero_frag = (
+            '<section class="hero rv" data-section="hero" data-label="Hero">'
+            '<h1 data-edit="hero.title" data-type="text">Welcome to the course</h1>'
+            "</section>"
+        )
+        BlockType.objects.create(key="hero", html_source=hero_frag, label="Hero")
+        owner = User.objects.create_user("wrap", password="x")
+        wrapped = """
+        <html><head><style>.rv{opacity:0}</style></head><body>
+        <header class="nav" data-section="header_navigation" data-group="Header">
+          <div class="site-header-inner">
+            <div class="site-header-brand">
+              <div class="site-header-brand-extra" data-region="header-left">
+                <a class="brand" href="#top">
+                  <img alt="Logo" src="https://cdn.example.com/logo.png"/>
+                </a>
+                <a class="btn nav-cta" href="#start">Start the course</a>
+              </div>
+            </div>
+            <nav class="site-nav">
+              <div class="site-nav-links" data-region="header-center"></div>
+            </nav>
+            <div class="site-header-actions" data-region="header-right"></div>
+          </div>
+        </header>
+        <div data-region="main"></div>
+        <footer class="foot" data-section="footer" data-group="Footer">
+          <div class="site-footer-row">
+            <div data-region="footer-left"></div>
+            <div data-region="footer-center">
+              <a href="mailto:office@burrus.com">office@burrus.com</a>
+            </div>
+            <div data-region="footer-right"></div>
+          </div>
+        </footer>
+        </body></html>
+        """
+        template = Template.objects.create(name="Wrapped", html_source=wrapped)
+        template.allowed_block_types.add(BlockType.objects.get(key="hero"))
+        tenant = Tenant.objects.create(
+            name="W", subdomain="wrapped", template=template, owner=owner,
+            content={"regions": {"main": [
+                {"id": "hero", "type": "hero", "fields": {"title": "Welcome to the course"}},
+            ]}},
+        )
+        html = blocks.render_content(template, tenant.content, preview=True)
+        self.assertIn("Welcome to the course", html)
+        self.assertIn("office@burrus.com", html)
+        self.assertIn("cdn.example.com/logo.png", html)
+        self.assertIn("Start the course", html)
+
 
 ROW2 = (
     '<div data-block="row-2" data-label="2 Column" data-category="Rows" '

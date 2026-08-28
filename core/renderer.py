@@ -2244,12 +2244,33 @@ def render_site(
         _inject_site_settings(soup, site_settings)
 
     if preview:
+        _inject_preview_reveal_css(soup)
         body = soup.find("body") or soup
         bridge = BeautifulSoup(PREVIEW_BRIDGE_SCRIPT, "lxml")
         for node in list(bridge.body.children if bridge.body else bridge.children):
             body.append(node)
 
     return str(soup)
+
+
+_PREVIEW_REVEAL_CSS = (
+    ".rv,.reveal,[class*=\"reveal-\"]{opacity:1!important;transform:none!important;"
+    "visibility:visible!important;}"
+)
+
+
+def _inject_preview_reveal_css(soup) -> None:
+    """Show scroll-reveal copy in the editor even when page JS never adds `.in`.
+
+    Agency pages often hide ``.rv`` at opacity 0 until IntersectionObserver
+    runs. Preview scripts can throw (missing modal nodes after a block split)
+    or simply not fire, which leaves a blank white canvas over real content.
+    """
+    if soup.find("style", attrs={"data-cms-preview-reveal": True}):
+        return
+    tag = soup.new_tag("style", attrs={"data-cms-preview-reveal": "1"})
+    tag.string = _PREVIEW_REVEAL_CSS
+    (soup.find("head") or soup).append(tag)
 
 
 def _field_types(schema: dict[str, Any]) -> dict[str, str]:
@@ -2557,6 +2578,7 @@ def render_page_from_blocks(
         apply_header_chrome,
         _apply_header_name,
         normalize_header,
+        should_paint_header,
     )
 
     regions = alias_chrome_regions(content.get("regions") or {})
@@ -2572,20 +2594,25 @@ def render_page_from_blocks(
     flat_content = merge_with_defaults(shell_schema, chrome_content)
 
     soup = BeautifulSoup(shell_html, "lxml")
+    paint_header = should_paint_header(soup, header_meta)
     region_slots = soup.find_all(attrs={"data-region": True})
     for region_el in region_slots:
         name = (region_el.get("data-region") or "main").strip() or "main"
-        region_el.clear()
+        instances = regions.get(name) or []
         if name in _HEADER_SLOTS:
+            if paint_header:
+                region_el.clear()
             continue
-        for instance in regions.get(name) or []:
-            wrapper = _assemble_instance(
-                instance, catalog, flat_content, depth=0,
-                max_depth=MAX_BLOCK_DEPTH, preview=preview,
-            )
-            if wrapper is None:
-                continue
-            region_el.append(wrapper)
+        if instances:
+            region_el.clear()
+            for instance in instances:
+                wrapper = _assemble_instance(
+                    instance, catalog, flat_content, depth=0,
+                    max_depth=MAX_BLOCK_DEPTH, preview=preview,
+                )
+                if wrapper is None:
+                    continue
+                region_el.append(wrapper)
         if preview and not region_el.contents:
             dest = name
             existing = (region_el.get("style") or "").rstrip(";")
@@ -2603,7 +2630,8 @@ def render_page_from_blocks(
         elif preview and name.startswith("footer"):
             region_el.append(BeautifulSoup(_empty_slot_button(name), "html.parser"))
 
-    apply_header_chrome(soup, header_meta, preview=preview)
+    if paint_header:
+        apply_header_chrome(soup, header_meta, preview=preview)
 
     # Opt-in menus outside the header still get published pages. The header
     # navbar is painted from ``_header`` above; don't refill those markers.
