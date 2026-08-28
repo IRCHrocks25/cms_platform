@@ -1040,12 +1040,13 @@ def _is_overlay_chrome(node) -> bool:
     return bool(_node_tokens(node) & _OVERLAY_TOKENS)
 
 
-def _is_body_block(node) -> bool:
-    """True for a top-level body child that should become an insertable block.
+def _is_root_block(node) -> bool:
+    """True for a designed band that should become an insertable block.
 
-    Nested ``data-section`` nodes (e.g. a testimonial slide inside Proof) stay
-    inside their parent. Unannotated scaffolding (modals, mobile menus) and
-    header/footer chrome stay in the shell.
+    "Top-level" means not nested inside another ``data-section``. Real agency
+    pages wrap those bands in ``<main>`` / a page wrapper — they are still
+    root blocks. Nested slides stay inside their parent. Header/footer and
+    overlay chrome (``.menu`` / ``.modal``) stay in the shell.
     """
     if not isinstance(node, Tag):
         return False
@@ -1053,58 +1054,66 @@ def _is_body_block(node) -> bool:
         return False
     if _is_chrome(node) or _is_overlay_chrome(node):
         return False
-    return bool((node.get("data-section") or "").strip())
+    if not (node.get("data-section") or "").strip():
+        return False
+    ancestor = node.parent
+    while ancestor is not None:
+        if isinstance(ancestor, Tag) and (ancestor.get("data-section") or "").strip():
+            return False
+        ancestor = ancestor.parent
+    return True
 
 
 def split_shell_and_blocks(html: str, *, region: str = "main") -> tuple[str, list[tuple[str, str]]]:
     """Split a classic annotated page into (shell_html, [(key, fragment_html)]).
 
-    Only *top-level* body children with ``data-section`` become blocks.
-    Header/footer stay in the shell. The span from the first body block to
-    the last — including divider comments and whitespace between them — is
-    replaced by a single ``<div data-region="...">``. Nested sections stay
-    inside their parent fragment.
+    Root ``data-section`` bands become blocks even when they sit inside
+    ``<main>`` (or any other wrapper). Header/footer stay in the shell. The
+    span from the first root block to the last — in the parent that holds
+    most of them — is replaced by a single ``<div data-region="...">``.
+    Nested sections stay inside their parent fragment.
     """
     soup = BeautifulSoup(html or "", "lxml")
-    host = soup.body
-    if host is None:
-        sections = [
-            s for s in soup.find_all(attrs={"data-section": True})
-            if not _is_chrome(s) and not _is_overlay_chrome(s)
-        ]
-        fragments = []
-        if not sections:
-            return _ensure_region_layout_css(str(soup)), fragments
-        slot = soup.new_tag("div")
-        slot["data-region"] = region
-        sections[0].insert_before(slot)
-        for section_el in sections:
-            key = (section_el.get("data-section") or "").strip()
-            if key:
-                fragments.append((key, str(section_el)))
-            section_el.extract()
-        return _ensure_region_layout_css(str(soup)), fragments
-
-    children = list(host.children)
-    block_indices = [i for i, node in enumerate(children) if _is_body_block(node)]
+    host = soup.body or soup
+    roots = [n for n in host.find_all(True) if _is_root_block(n)]
     fragments: list[tuple[str, str]] = []
-    if not block_indices:
+    if not roots:
         slot = soup.new_tag("div")
         slot["data-region"] = region
         host.append(slot)
         return _ensure_region_layout_css(str(soup)), fragments
 
-    first_i, last_i = block_indices[0], block_indices[-1]
-    slot = soup.new_tag("div")
-    slot["data-region"] = region
-    children[first_i].insert_before(slot)
-    for i in range(first_i, last_i + 1):
-        node = children[i]
-        if _is_body_block(node):
-            key = (node.get("data-section") or "").strip()
-            if key:
-                fragments.append((key, str(node)))
-        node.decompose()
+    parent_counts: dict[int, int] = {}
+    for node in roots:
+        parent_counts[id(node.parent)] = parent_counts.get(id(node.parent), 0) + 1
+    primary = max(roots, key=lambda n: parent_counts[id(n.parent)]).parent
+    frag_map = {
+        id(n): ((n.get("data-section") or "").strip(), str(n)) for n in roots
+    }
+
+    for node in roots:
+        if node.parent is not primary:
+            node.extract()
+
+    primary_ids = {id(n) for n in roots if n.parent is primary}
+    children = list(primary.children)
+    indices = [i for i, n in enumerate(children) if id(n) in primary_ids]
+    if indices:
+        first_i, last_i = indices[0], indices[-1]
+        slot = soup.new_tag("div")
+        slot["data-region"] = region
+        children[first_i].insert_before(slot)
+        for i in range(first_i, last_i + 1):
+            children[i].decompose()
+    else:
+        slot = soup.new_tag("div")
+        slot["data-region"] = region
+        host.append(slot)
+
+    for node in roots:
+        key, frag = frag_map[id(node)]
+        if key:
+            fragments.append((key, frag))
     return _ensure_region_layout_css(str(soup)), fragments
 
 
@@ -1373,15 +1382,26 @@ def ensure_block_editor(editable, *, user=None):
         if isinstance(editable, Page) and editable.template_id != template.pk:
             editable.template = template
             editable.save(update_fields=["template"])
-        ok, snippet = classic_upgrade_is_safe(template)
-        if not ok:
+        _shell, fragments = split_shell_and_blocks(template.html_source)
+        if not fragments:
             logger.warning(
                 "ensure_block_editor: skipped convert for template=%s; "
-                "classic vs block render differs (%s)",
+                "no body sections to convert",
+                template.pk,
+            )
+            return template
+        ok, snippet = classic_upgrade_is_safe(template)
+        if not ok:
+            # Real annotated pages (sections inside <main>, extra chrome) often
+            # miss a byte-identical paint check. Still convert — the agency
+            # just annotated this site to get the block editor, not a locked
+            # classic form.
+            logger.warning(
+                "ensure_block_editor: converting template=%s despite paint "
+                "diff (%s)",
                 template.pk,
                 snippet[:500],
             )
-            return template
         apply_classic_upgrade(template)
         template.refresh_from_db()
     else:

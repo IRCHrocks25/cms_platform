@@ -241,8 +241,8 @@
       return details.length ? " Integrity checks: " + details.join(", ") + "." : "";
     }
     function convertGateSummary(body) {
-      if (body.blocks_ready === true) return " Ready for blocks.";
-      if (body.blocks_ready === false) return " Classic only — Add section stays off until layout matches.";
+      if (body.blocks_ready === true) return " Ready for the block editor.";
+      if (body.blocks_ready === false) return " Block editor will still turn on.";
       return "";
     }
     function fillCompareResult(annotatedHtml, sections, body) {

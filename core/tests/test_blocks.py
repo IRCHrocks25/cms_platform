@@ -634,7 +634,7 @@ class EnsureBlockEditorTests(TestCase):
         self.assertFalse(library.is_block_shell)
         self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
-    def test_skips_convert_when_classic_and_block_renders_differ(self):
+    def test_converts_even_when_classic_and_block_renders_differ(self):
         from unittest.mock import patch
 
         from django.contrib.auth.models import User
@@ -657,8 +657,42 @@ class EnsureBlockEditorTests(TestCase):
         ):
             blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        self.assertFalse(tenant.template.is_block_shell)
-        self.assertNotIn("regions", tenant.content or {})
+        self.assertTrue(tenant.template.is_block_shell)
+        self.assertIn("regions", tenant.content or {})
+
+    def test_sections_inside_main_become_blocks(self):
+        from django.contrib.auth.models import User
+
+        html = (
+            "<!doctype html><html><body>"
+            "<header data-section='nav' data-group='Header'>Nav</header>"
+            "<main>"
+            "<section data-section='hero' data-label='Hero' data-group='Home'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            "<section data-section='how' data-label='How It Works' data-group='Home'>"
+            "<p data-edit='how.body' data-type='text'>Steps</p></section>"
+            "</main>"
+            "<footer data-section='footer' data-group='Footer'>Foot</footer>"
+            "</body></html>"
+        )
+        shell, fragments = blocks.split_shell_and_blocks(html)
+        self.assertEqual([key for key, _ in fragments], ["hero", "how"])
+        self.assertIn('data-region="main"', shell)
+        self.assertIn("<main>", shell)
+        self.assertIn("data-group=", shell)
+        self.assertNotIn('data-section="hero"', shell)
+        owner = User.objects.create_user("mainwrap", password="x")
+        template = Template.objects.create(name="MainWrap", html_source=html)
+        tenant = Tenant.objects.create(
+            name="MainWrap", subdomain="mainwrap", template=template, owner=owner,
+        )
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        self.assertTrue(tenant.template.is_block_shell)
+        self.assertEqual(
+            [i["type"] for i in tenant.content["regions"]["main"]],
+            ["hero", "how"],
+        )
 
     def test_problem_fixture_converts_when_parity_matches(self):
         from django.contrib.auth.models import User

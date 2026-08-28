@@ -307,8 +307,8 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.salvaged_fields", source)
         self.assertIn("body.unmarked_text_count", source)
         self.assertIn("body.blocks_ready", source)
-        self.assertIn("Ready for blocks", source)
-        self.assertIn("Classic only", source)
+        self.assertIn("Ready for the block editor", source)
+        self.assertIn("Block editor will still turn on", source)
         self.assertIn("var hasIntegrityWarning", source)
 
     def test_new_site_annotation_ui_has_the_same_terminal_failure_contract(self):
@@ -329,7 +329,7 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.salvaged_fields", source)
         self.assertIn("body.unmarked_text_count", source)
         self.assertIn("body.blocks_ready", source)
-        self.assertIn("Ready for blocks", source)
+        self.assertIn("Ready for the block editor", source)
         self.assertIn("var hasIntegrityWarning", source)
         self.assertIn(
             "Applying this result will produce a template with no editable fields.",
