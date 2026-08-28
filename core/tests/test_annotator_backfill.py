@@ -15,10 +15,14 @@ from django.test import TestCase
 from core.services.annotator import (
     AnnotatorError,
     _assert_annotation_preserved_structure,
+    _assert_content_sections_have_fields,
     _backfill_landmark_sections,
     _backfill_missed_image_fields,
     _backfill_missed_text_fields,
     _backfill_missed_video_fields,
+    _drop_nested_wrapper_fields,
+    _unmarked_text_count,
+    _upgrade_child_bearing_text_fields,
 )
 
 
@@ -163,15 +167,84 @@ class BackfillCatchesUnmarkedBodyTextTests(TestCase):
         self.assertEqual(s.find("figcaption").get("data-type"), "richtext")
         self.assertEqual(s.find_all("li")[0].get("data-type"), "text")
 
-    def test_data_label_is_derived_from_text(self):
+    def test_designed_quote_marks_leaves_not_the_blockquote(self):
+        """A framed quote is structure. Annotating the wrapper would let a
+        later write wipe the <p> and <cite> and flatten the design."""
+        s = _soup(
+            "<section data-section='problem'>"
+            "<blockquote class='quote'>"
+            "<p>“Being busy didn't help them.”</p>"
+            "<cite>Daniel Burrus</cite>"
+            "</blockquote>"
+            "</section>"
+        )
+        added = _backfill_missed_text_fields(s)
+        self.assertEqual(added, 2)
+        self.assertIsNone(s.find("blockquote").get("data-edit"))
+        self.assertEqual(s.find("blockquote")["class"], ["quote"])
+        self.assertEqual(s.find("p").get("data-type"), "richtext")
+        self.assertEqual(s.find("cite").get("data-type"), "text")
+        self.assertIn("Daniel Burrus", s.find("cite").get_text())
+
+    def test_drops_model_field_on_a_wrapper_that_has_child_fields(self):
+        s = _soup(
+            "<section data-section='problem'>"
+            "<blockquote class='quote' data-edit='problem.blockquote_1' "
+            "data-type='richtext'>"
+            "<p data-edit='problem.quote' data-type='richtext'>Quote</p>"
+            "<cite data-edit='problem.author' data-type='text'>Dan</cite>"
+            "</blockquote>"
+            "</section>"
+        )
+        self.assertEqual(_drop_nested_wrapper_fields(s), 1)
+        self.assertIsNone(s.find("blockquote").get("data-edit"))
+        self.assertEqual(s.find("blockquote")["class"], ["quote"])
+        self.assertEqual(s.find("p")["data-edit"], "problem.quote")
+        self.assertEqual(s.find("cite")["data-edit"], "problem.author")
+
+    def test_data_label_uses_role_not_truncated_copy(self):
         s = _soup(
             "<section data-section='hero'>"
             "<h2>Welcome to our site</h2>"
+            "<p class='body-t'>The top five executives at General Motors were busy.</p>"
             "</section>"
         )
         _backfill_missed_text_fields(s)
-        label = s.find("h2").get("data-label", "")
-        self.assertIn("Welcome", label)
+        self.assertEqual(s.find("h2").get("data-label"), "Section headline")
+        self.assertEqual(s.find("p").get("data-label"), "Body copy")
+
+    def test_standalone_eyebrow_span_is_marked_inline_hl_is_not(self):
+        s = _soup(
+            "<section data-section='problem'>"
+            "<span class='eyebrow'>The Problem</span>"
+            "<h2>Busy isn't a strategy. <span class='hl'>It's a symptom.</span></h2>"
+            "</section>"
+        )
+        added = _backfill_missed_text_fields(s)
+        self.assertEqual(added, 2)
+        eyebrow = s.find("span", class_="eyebrow")
+        self.assertEqual(eyebrow.get("data-edit"), "problem.span_1")
+        self.assertEqual(eyebrow.get("data-label"), "Eyebrow")
+        self.assertIsNone(s.find("span", class_="hl").get("data-edit"))
+        self.assertEqual(s.find("h2").get("data-type"), "richtext")
+
+    def test_content_section_with_copy_and_no_fields_fails_audit(self):
+        s = _soup(
+            "<section data-section='problem' data-group='Sections'>"
+            "<div class='split'>Busy isn't a strategy.</div>"
+            "</section>"
+        )
+        self.assertGreater(_unmarked_text_count(s), 0)
+        with self.assertRaises(AnnotatorError):
+            _assert_content_sections_have_fields(s)
+
+    def test_chrome_header_without_fields_does_not_fail_audit(self):
+        s = _soup(
+            "<header data-section='header' data-group='Header'>"
+            "<nav><a href='#top'>Home</a></nav>"
+            "</header>"
+        )
+        _assert_content_sections_have_fields(s)
 
     def test_heading_with_inline_children_gets_richtext_type(self):
         """If we mark an <h2> with inner <span> / <strong> / <em> as plain
@@ -278,6 +351,22 @@ class BackfillCatchesUnmarkedContentImagesTests(TestCase):
         self.assertEqual(images[1].get("data-edit"), "outer.image_2")
         self.assertEqual(images[2].get("data-edit"), "inner.image_1")
 
+    def test_marquee_logo_strip_images_are_skipped(self):
+        s = _soup(
+            "<section class='clients' data-section='clients'>"
+            "<p>Clients include</p>"
+            "<div class='marquee'><img src='ge.png' alt='GE'></div>"
+            "<div aria-hidden='true'><img src='ge.png' alt='GE'></div>"
+            "</section>"
+            "<section data-section='problem'>"
+            "<img src='portrait.jpg' alt='Daniel Burrus'>"
+            "</section>"
+        )
+        added = _backfill_missed_image_fields(s)
+        self.assertEqual(added, 1)
+        self.assertIsNone(s.find("div", class_="marquee").find("img").get("data-edit"))
+        self.assertEqual(s.find("section", attrs={"data-section": "problem"}).find("img").get("data-type"), "image")
+
     def test_nav_footer_and_shared_chrome_ancestors_are_skipped(self):
         s = _soup(
             "<section data-section='nav'><img src='brand.jpg'></section>"
@@ -345,7 +434,7 @@ class BackfillCatchesUnmarkedContentImagesTests(TestCase):
 
 
 class LandmarkSectionBackfillTests(TestCase):
-    def test_marks_unmarked_header_sections_footer_and_menu(self):
+    def test_marks_unmarked_header_sections_and_footer_not_menu(self):
         s = _soup(
             "<body>"
             '<header class="nav" id="nav"><a href="#top">Home</a></header>'
@@ -358,10 +447,10 @@ class LandmarkSectionBackfillTests(TestCase):
 
         added = _backfill_landmark_sections(s)
 
-        self.assertEqual(added, 5)
+        self.assertEqual(added, 4)
         self.assertEqual(s.header.get("data-section"), "nav")
         self.assertEqual(s.header.get("data-group"), "Header")
-        self.assertEqual(s.find(id="menu").get("data-section"), "menu")
+        self.assertIsNone(s.find(id="menu").get("data-section"))
         self.assertEqual(s.find(id="top").get("data-section"), "top")
         self.assertEqual(s.find(id="faq").get("data-section"), "faq")
         self.assertEqual(s.footer.get("data-section"), "footer")
@@ -446,3 +535,61 @@ class StructurePreservationTests(TestCase):
             "</body></html>"
         )
         _assert_annotation_preserved_structure(html, html)
+
+
+PROBLEM_FIXTURE = """
+<section class="sec sec-alt" id="problem" data-section="problem"
+         data-label="The Problem" data-group="Sections">
+  <div class="split split-r">
+    <div>
+      <p class="eyebrow">The Problem</p>
+      <h2 class="h-sec">
+        Busy isn't a strategy. <span class="hl">It's a symptom.</span>
+      </h2>
+      <p class="body-t">
+        The top five executives at General Motors were busy.
+      </p>
+      <p class="body-t">
+        And reacting, by definition, is what you do after something happened.
+      </p>
+      <blockquote class="quote">
+        <p>Being busy didn't help them.</p>
+        <cite>Daniel Burrus</cite>
+      </blockquote>
+    </div>
+    <figure class="portrait">
+      <div class="portrait-in">
+        <img alt="" src="https://cdn.example.com/problem.jpg"/>
+      </div>
+    </figure>
+  </div>
+</section>
+"""
+
+
+class DesignedProblemBackfillTests(TestCase):
+    def test_problem_band_marks_leaves_not_wrappers(self):
+        s = _soup(PROBLEM_FIXTURE)
+        text_added = _backfill_missed_text_fields(s)
+        image_added = _backfill_missed_image_fields(s)
+        _drop_nested_wrapper_fields(s)
+        _upgrade_child_bearing_text_fields(s)
+
+        self.assertGreaterEqual(text_added, 6)
+        self.assertEqual(image_added, 1)
+        self.assertEqual(s.find("p", class_="eyebrow").get("data-label"), "Eyebrow")
+        title = s.find("h2")
+        self.assertEqual(title.get("data-type"), "richtext")
+        self.assertEqual(title.get("data-label"), "Section headline")
+        self.assertIsNone(s.find("span", class_="hl").get("data-edit"))
+        bodies = s.find_all("p", class_="body-t")
+        self.assertEqual(len(bodies), 2)
+        self.assertTrue(all(p.get("data-edit") for p in bodies))
+        self.assertIsNone(s.find("blockquote").get("data-edit"))
+        self.assertIsNone(s.find("div", class_="split").get("data-edit"))
+        self.assertEqual(s.find("blockquote").find("p").get("data-type"), "richtext")
+        self.assertEqual(s.find("cite").get("data-type"), "text")
+        self.assertEqual(s.find("cite").get("data-label"), "Quote author")
+        self.assertEqual(s.find("img").get("data-type"), "image")
+        self.assertEqual(_unmarked_text_count(s), 0)
+        _assert_content_sections_have_fields(s)

@@ -430,6 +430,7 @@ def build_block_schema(html: str) -> dict[str, Any]:
         ftype = field_el.get("data-type", "text").strip()
         if ftype not in VALID_FIELD_TYPES:
             ftype = "text"
+        ftype = effective_field_type(field_el, ftype)
 
         default = _extract_default(field_el, ftype)
 

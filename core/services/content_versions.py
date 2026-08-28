@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import ContentVersion, Page, Tenant
-from core.renderer import strip_defaults
+from core.renderer import drop_blank_instance_fields, strip_defaults
 
 
 SOURCE_DASHBOARD = "dashboard"
@@ -106,6 +106,9 @@ def save_editable_content(
     schema = getattr(editable.template, "schema", None) if getattr(editable, "template_id", None) else None
     if isinstance(schema, dict):
         content = strip_defaults(schema, content)
+    # Contenteditable leftovers (`<br>`, empty strings) must not persist as
+    # overrides — they wipe designed body copy on the next preview apply.
+    drop_blank_instance_fields(content)
 
     with transaction.atomic():
         snapshot_now = True

@@ -53,6 +53,7 @@ class AnnotationResult:
     backfilled_fields: int
     promoted_sections: int = 0
     salvaged_fields: int = 0
+    unmarked_text_count: int = 0
     model: str = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -80,13 +81,17 @@ Output JSON shape (and nothing else: no markdown, no prose):
 }
 
 Rules:
-1. sections: one per existing top-level content block. Prefer the element that
-   already is that block: every `<section>`, `<header>`, `<footer>`, and
-   sibling overlay (mobile `.menu`, `.modal`) must be listed on THAT wrapper's
-   ref — never on a child, and never invent a new wrapper. `id` is unique,
-   snake_case. Do not skip a section because it is long, decorative, or a
-   logo strip. If the page has 12 `<section>` tags, return 12 sections plus
-   header/footer/overlays.
+1. sections: one per existing top-level content band. Prefer the element that
+   already is that band: every `<section>`, `<header>`, and `<footer>` is
+   listed on THAT wrapper's ref — never on a child, and never invent a new
+   wrapper. `id` is unique, snake_case. Do not skip a band because it is long,
+   decorative, or a logo strip. If the page has 12 `<section>` tags, return
+   those 12 plus header/footer.
+   Do NOT mark overlays as sections: mobile `.menu` drawers, `.modal`
+   dialogs, toast/cookie bars. They stay unmarked so conversion leaves them
+   in the designed shell. Nested cards/slides inside a band are fields of
+   that band (or a nested section inside it), not extra top-level sections.
+   Header uses group "Header"; footer uses group "Footer".
 2. fields: every element a non-technical client would want to edit. `ref` is that
    element's data-cms-ref. `edit` is "<section_id>.<field>" and the section_id MUST
    be one you declared in "sections", and the field's element MUST be inside that
@@ -140,6 +145,10 @@ Rules:
    sentence -> richtext on the <p>. An <h2> -> text on the <h2>.
    Don't lump multiple paragraphs into one richtext on a <div> wrapper;
    mark each <p> separately so the client edits them as distinct fields.
+   Never mark a parent that already contains those children: a <blockquote>
+   wrapping <p> + <cite> is two fields (quote body, author), not one field
+   on the blockquote. Leave decorative wrappers (frames, splits, figures)
+   unmarked so their classes and CSS keep working.
    "Short" or "small" or "repeated-looking" copy is NOT a reason to skip.
 6. Repeating items (e.g. three feature cards): give each distinct field ids
    (feature_1_title, feature_2_title, ...). Do not collapse them.
@@ -193,9 +202,54 @@ _DATA_URI_RE = re.compile(
 _BACKFILL_RICHTEXT_TAGS = {"p", "blockquote", "figcaption", "summary", "dd"}
 _BACKFILL_TEXT_TAGS = {
     "h1", "h2", "h3", "h4", "h5", "h6",
-    "li", "dt", "caption", "legend",
+    "li", "dt", "caption", "legend", "cite",
 }
 _BACKFILL_ALL_TAGS = _BACKFILL_RICHTEXT_TAGS | _BACKFILL_TEXT_TAGS
+_STANDALONE_COPY_TAGS = ("span", "strong", "em")
+_STANDALONE_COPY_ROLES = {
+    "eyebrow", "kicker", "badge", "overline", "stat", "stat-value", "stat-label",
+}
+_LAYOUT_PARENTS = {
+    "div", "section", "header", "footer", "article", "aside", "figure", "main",
+}
+
+# Prefer a role/tag name in the properties panel over the first 40 characters
+# of body copy ("The top five executives…").
+_ROLE_LABELS = {
+    "eyebrow": "Eyebrow",
+    "kicker": "Kicker",
+    "badge": "Badge",
+    "overline": "Overline",
+    "h-sec": "Section headline",
+    "body": "Body copy",
+    "body-t": "Body copy",
+    "quote": "Quote",
+    "cite": "Quote author",
+    "portrait": "Portrait",
+}
+_TAG_LABELS = {
+    "h1": "Headline",
+    "h2": "Section headline",
+    "h3": "Subheading",
+    "h4": "Subheading",
+    "h5": "Subheading",
+    "h6": "Subheading",
+    "p": "Paragraph",
+    "cite": "Quote author",
+    "blockquote": "Quote",
+    "figcaption": "Caption",
+    "li": "List item",
+    "dt": "Term",
+    "dd": "Description",
+    "caption": "Caption",
+    "legend": "Legend",
+    "summary": "Summary",
+    "span": "Text",
+    "strong": "Text",
+    "em": "Text",
+}
+_CHROME_SECTION_IDS = {"nav", "footer", "brand", "header"}
+_CHROME_SECTION_GROUPS = {"header", "footer", "global"}
 
 # Chrome ancestors: text inside these belongs to the link / button / form
 # rules the model handles, not the body-text safety net.
@@ -207,6 +261,7 @@ _IMAGE_CHROME_TAGS = {"nav", "footer"}
 _IMAGE_CHROME_TOKENS = {
     "nav", "navigation", "footer", "logo", "icon", "social",
     "payment", "badge", "spacer", "tracking", "pixel",
+    "marquee", "clients", "mq", "logo-bar", "logo-cell",
 }
 _CSS_PIXEL_DIMENSION_RE = re.compile(
     r"(?:^|;)\s*(width|height)\s*:\s*(\d+(?:\.\d+)?)px\b",
@@ -309,6 +364,8 @@ def _apply_annotations(ref_map: dict, data: dict) -> int:
             continue
         section_id = _slug(sec.get("id"))
         if not section_id:
+            continue
+        if _is_overlay_landmark(tag):
             continue
         tag["data-section"] = section_id
         if sec.get("label"):
@@ -530,6 +587,180 @@ def _upgrade_child_bearing_text_fields(soup) -> int:
     return upgraded
 
 
+def _drop_nested_wrapper_fields(soup) -> int:
+    """Remove text/richtext markers on parents that already have field children.
+
+    The model sometimes annotates both a ``<blockquote>`` and the ``<p>`` /
+    ``<cite>`` inside it. Applying the outer field replaces those children and
+    flattens the designed quote. Keep the tightest fields; leave the wrapper
+    as unmarked structure so its classes still style the block.
+    """
+    dropped = 0
+    for element in list(soup.find_all(attrs={"data-edit": True})):
+        declared = (element.get("data-type") or "text").strip() or "text"
+        if declared not in {"text", "richtext"}:
+            continue
+        if element.find(attrs={"data-edit": True}) is None:
+            continue
+        for attr in ("data-edit", "data-type", "data-label"):
+            element.attrs.pop(attr, None)
+        dropped += 1
+    return dropped
+
+
+def _field_label_for(element, text: str) -> str:
+    """Role/tag label for a backfilled field; fall back to truncated copy."""
+    tokens = _markup_tokens(element)
+    for token, label in _ROLE_LABELS.items():
+        if token in tokens:
+            return label
+    tag_label = _TAG_LABELS.get(element.name)
+    if tag_label:
+        return tag_label
+    label = (text or "").strip()[:40]
+    if len((text or "").strip()) > 40:
+        label += "…"
+    return label or "Text"
+
+
+def _owned_field_ids(section) -> set[str]:
+    existing: set[str] = set()
+    for el in section.find_all(attrs={"data-edit": True}):
+        if el.find_parent(attrs={"data-section": True}) is not section:
+            continue
+        edit = el.get("data-edit", "")
+        if "." in edit:
+            existing.add(edit.split(".", 1)[1])
+    return existing
+
+
+def _next_field_id(tag: str, existing: set[str], counters: dict[str, int]) -> str:
+    counters[tag] = counters.get(tag, 0) + 1
+    n = counters[tag]
+    field_id = f"{tag}_{n}"
+    while field_id in existing:
+        n += 1
+        field_id = f"{tag}_{n}"
+    existing.add(field_id)
+    counters[tag] = n
+    return field_id
+
+
+def _is_standalone_copy_span(element, section) -> bool:
+    """True for a kicker/eyebrow-style span, not an inline accent inside a field."""
+    if element.name not in _STANDALONE_COPY_TAGS:
+        return False
+    if element.get("data-edit") or element.find_parent(attrs={"data-edit": True}):
+        return False
+    if element.find_parent(attrs={"data-section": True}) is not section:
+        return False
+    if _has_backfill_skip_ancestor(element, section):
+        return False
+    if element.find(_BACKFILL_ALL_TAGS):
+        return False
+    for parent in element.parents:
+        if parent is section:
+            break
+        if getattr(parent, "name", None) in _BACKFILL_ALL_TAGS:
+            return False
+        if parent.get("data-edit"):
+            return False
+    text = element.get_text(strip=True)
+    if not text or len(text) <= 1:
+        return False
+    tokens = _markup_tokens(element)
+    if tokens & _IMAGE_CHROME_TOKENS:
+        return False
+    if tokens & _STANDALONE_COPY_ROLES:
+        return True
+    parent = element.parent
+    if parent is None or getattr(parent, "name", None) not in _LAYOUT_PARENTS:
+        return False
+    if parent.find(_BACKFILL_ALL_TAGS):
+        return False
+    siblings = [
+        child
+        for child in parent.find_all(_STANDALONE_COPY_TAGS, recursive=False)
+        if child.get_text(strip=True)
+    ]
+    return len(siblings) == 1 and siblings[0] is element
+
+
+def _is_chrome_section(section) -> bool:
+    group = (section.get("data-group") or "").lower()
+    sid = (section.get("data-section") or "").strip()
+    return group in _CHROME_SECTION_GROUPS or sid in _CHROME_SECTION_IDS
+
+
+def _owned_fields(section) -> list:
+    fields = []
+    if section.get("data-edit"):
+        fields.append(section)
+    for el in section.find_all(attrs={"data-edit": True}):
+        if el.find_parent(attrs={"data-section": True}) is section:
+            fields.append(el)
+    return fields
+
+
+def _nearest_section(element):
+    if element.get("data-section"):
+        return element
+    return element.find_parent(attrs={"data-section": True})
+
+
+def _section_has_visible_copy(section) -> bool:
+    for node in section.find_all(string=True):
+        if not str(node).strip():
+            continue
+        parent = getattr(node, "parent", None)
+        if parent is None or parent.name in {"script", "style", "noscript"}:
+            continue
+        if _nearest_section(parent) is not section:
+            continue
+        if _has_backfill_skip_ancestor(parent, section):
+            continue
+        return True
+    return False
+
+
+def _unmarked_text_count(soup) -> int:
+    """Visible text nodes inside sections that are not yet a field or chrome."""
+    count = 0
+    for section in soup.find_all(attrs={"data-section": True}):
+        if (section.get("data-section") or "").strip() == "brand":
+            continue
+        for node in section.find_all(string=True):
+            if not str(node).strip():
+                continue
+            parent = getattr(node, "parent", None)
+            if parent is None or parent.name in {"script", "style", "noscript"}:
+                continue
+            if _nearest_section(parent) is not section:
+                continue
+            if parent.get("data-edit") or parent.find_parent(attrs={"data-edit": True}):
+                continue
+            if _has_backfill_skip_ancestor(parent, section):
+                continue
+            count += 1
+    return count
+
+
+def _assert_content_sections_have_fields(soup) -> None:
+    """Refuse a content band that still has copy and zero editable fields."""
+    for section in soup.find_all(attrs={"data-section": True}):
+        if _is_chrome_section(section):
+            continue
+        if not _section_has_visible_copy(section):
+            continue
+        if _owned_fields(section):
+            continue
+        raise AnnotatorError(
+            "AI annotation left a content section with visible copy but no "
+            "editable fields. No changes were applied. Please try again or "
+            "annotate the HTML manually."
+        )
+
+
 def _backfill_missed_text_fields(soup) -> int:
     """Walk each data-section and promote text-bearing tags the model
     skipped (the model is conservative on real pages; this is the safety
@@ -541,19 +772,7 @@ def _backfill_missed_text_fields(soup) -> int:
         if not sec_id or sec_id == "brand":
             continue
 
-        # Track existing field IDs so synthetic IDs don't collide with
-        # whatever the model already chose (e.g. model used "p_1", we
-        # must skip to "p_2" rather than overwrite).
-        existing_field_ids: set[str] = set()
-        for el in sec.find_all(attrs={"data-edit": True}):
-            # Nearest-section ownership keeps nested blocks independent. The
-            # outer scan must not reserve IDs from or annotate an inner block.
-            if el.find_parent(attrs={"data-section": True}) is not sec:
-                continue
-            edit = el.get("data-edit", "")
-            if "." in edit:
-                existing_field_ids.add(edit.split(".", 1)[1])
-
+        existing_field_ids = _owned_field_ids(sec)
         tag_counters: dict[str, int] = {}
 
         for el in sec.find_all(_BACKFILL_ALL_TAGS):
@@ -564,18 +783,16 @@ def _backfill_missed_text_fields(soup) -> int:
 
             if _has_backfill_skip_ancestor(el, sec):
                 continue
+            # A blockquote wrapping <p>+<cite> is structure, not a field.
+            # Annotate the leaves so a later write cannot wipe the children.
+            if el.find(_BACKFILL_ALL_TAGS):
+                continue
 
             text = el.get_text(strip=True)
             if not text:
                 continue
 
-            tag_counters[el.name] = tag_counters.get(el.name, 0) + 1
-            n = tag_counters[el.name]
-            field_id = f"{el.name}_{n}"
-            while field_id in existing_field_ids:
-                n += 1
-                field_id = f"{el.name}_{n}"
-            existing_field_ids.add(field_id)
+            field_id = _next_field_id(el.name, existing_field_ids, tag_counters)
 
             # Pick richtext when the tag contains inline children (a <span
             # class='accent'>, an <em>, an inline <a>); text-type rendering
@@ -589,10 +806,18 @@ def _backfill_missed_text_fields(soup) -> int:
                 ftype = "text"
             el["data-edit"] = f"{sec_id}.{field_id}"
             el["data-type"] = ftype
-            label = text[:40].strip()
-            if len(text) > 40:
-                label += "…"
-            el["data-label"] = label
+            el["data-label"] = _field_label_for(el, text)
+            added += 1
+
+        for el in sec.find_all(_STANDALONE_COPY_TAGS):
+            if not _is_standalone_copy_span(el, sec):
+                continue
+            text = el.get_text(strip=True)
+            field_id = _next_field_id(el.name, existing_field_ids, tag_counters)
+            has_child_tags = el.find(True) is not None
+            el["data-edit"] = f"{sec_id}.{field_id}"
+            el["data-type"] = "richtext" if has_child_tags else "text"
+            el["data-label"] = _field_label_for(el, text)
             added += 1
     return added
 
@@ -640,6 +865,8 @@ def _image_is_obvious_chrome(image, section) -> bool:
     current = image
     while current is not None:
         if getattr(current, "name", None) in _IMAGE_CHROME_TAGS:
+            return True
+        if str(current.get("aria-hidden", "")).strip().lower() == "true":
             return True
         if _markup_tokens(current) & _IMAGE_CHROME_TOKENS:
             return True
@@ -792,9 +1019,10 @@ def _backfill_landmark_sections(soup) -> int:
     """Mark unmarked page landmarks so field backfill has an owning section.
 
     The model sometimes annotates fields but misses the wrapper, or skips a
-    whole band (logo strip, overlay menu). Without a ``data-section`` on the
-    existing ``<section>`` / ``<header>`` / ``<footer>``, later backfill cannot
-    attach fields and the parser drops the band. This never invents wrappers.
+    whole band (logo strip). Without a ``data-section`` on the existing
+    ``<section>`` / ``<header>`` / ``<footer>``, later backfill cannot attach
+    fields and the parser drops the band. This never invents wrappers and
+    never marks overlays (``.menu``, ``.modal``) — those stay in the shell.
     """
     body = soup.body or soup
     used = _existing_section_ids(soup)
@@ -802,13 +1030,12 @@ def _backfill_landmark_sections(soup) -> int:
     for element in list(body.find_all(True)):
         if element.get("data-section"):
             continue
+        if _is_overlay_landmark(element):
+            continue
         is_landmark = element.name in _LANDMARK_TAGS
-        is_overlay = _is_overlay_landmark(element)
-        if not is_landmark and not is_overlay:
+        if not is_landmark:
             continue
         if element.find_parent(_LANDMARK_TAGS) is not None:
-            continue
-        if is_overlay and not _is_direct_body_child(element, body):
             continue
 
         proposed = (element.get("id") or "").strip()
@@ -1339,12 +1566,22 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     # told an <h2> is "text", so a mixed-style heading it *did* annotate still
     # arrives as text and would be flattened on render. Fix the attribute for
     # every annotated field, model-assigned included.
+    nested_dropped = _drop_nested_wrapper_fields(soup)
+    if nested_dropped:
+        logger.info(
+            "Annotator: dropped %d wrapper field(s) that contained other fields.",
+            nested_dropped,
+        )
+
     upgraded = _upgrade_child_bearing_text_fields(soup)
     if upgraded:
         logger.info(
             "Annotator: upgraded %d text field(s) with child markup to richtext.",
             upgraded,
         )
+
+    unmarked_text = _unmarked_text_count(soup)
+    _assert_content_sections_have_fields(soup)
 
     # Restore data URIs first, then style/script blocks. Order matters: if a
     # restored <style> block happened to contain a marker substring it'd be
@@ -1406,6 +1643,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
         backfilled_fields=backfilled,
         promoted_sections=promoted,
         salvaged_fields=salvaged,
+        unmarked_text_count=unmarked_text,
         model=settings.OPENAI_ANNOTATE_MODEL,
         **token_usage,
     )

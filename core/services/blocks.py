@@ -15,11 +15,14 @@ This module is the seam between the data model (``BlockType`` +
 """
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 from typing import Any, Iterable
 
-from bs4 import BeautifulSoup
+logger = logging.getLogger(__name__)
+
+from bs4 import BeautifulSoup, Comment, Tag
 
 
 # Abuse / performance caps (team decision §12 of the plan).
@@ -658,6 +661,24 @@ def _ensure_navbar_css(html: str) -> str:
     return html + f"\n<style>{extra}</style>"
 
 
+# A designed page's CSS often uses `body > section` / `.page > .sec`. The
+# block-editor slot is an extra wrapper; `display:contents` keeps that CSS
+# matching the original box tree once instances are filled in. Empty preview
+# slots keep a real box so the dashed "+" placeholder still lays out.
+_REGION_LAYOUT_CSS = (
+    "[data-region=main]:not([data-empty-region]){display:contents}"
+)
+
+
+def _ensure_region_layout_css(html: str) -> str:
+    compact = html.replace(" ", "")
+    if "[data-region=main]:not([data-empty-region])" in compact:
+        return html
+    if "</style>" in html:
+        return html.replace("</style>", _REGION_LAYOUT_CSS + "\n</style>", 1)
+    return html + f"\n<style>{_REGION_LAYOUT_CSS}</style>"
+
+
 def _rebuild_header_navbar(soup, header) -> bool:
     """Turn dump-column / bare headers into logo | menu | button chrome."""
     if header.find(class_="site-header-inner"):
@@ -1005,31 +1026,86 @@ def _is_chrome(section_el) -> bool:
     return group in CHROME_GROUPS or sid in CHROME_IDS
 
 
+_SHELL_TAGS = frozenset({"header", "footer", "script", "style", "noscript"})
+_OVERLAY_TOKENS = frozenset({"menu", "modal"})
+
+
+def _node_tokens(node) -> set[str]:
+    raw = " ".join(node.get("class") or [])
+    raw += " " + (node.get("id") or "")
+    return set(re.findall(r"[a-z0-9]+", raw.lower()))
+
+
+def _is_overlay_chrome(node) -> bool:
+    return bool(_node_tokens(node) & _OVERLAY_TOKENS)
+
+
+def _is_body_block(node) -> bool:
+    """True for a top-level body child that should become an insertable block.
+
+    Nested ``data-section`` nodes (e.g. a testimonial slide inside Proof) stay
+    inside their parent. Unannotated scaffolding (modals, mobile menus) and
+    header/footer chrome stay in the shell.
+    """
+    if not isinstance(node, Tag):
+        return False
+    if node.name in _SHELL_TAGS:
+        return False
+    if _is_chrome(node) or _is_overlay_chrome(node):
+        return False
+    return bool((node.get("data-section") or "").strip())
+
+
 def split_shell_and_blocks(html: str, *, region: str = "main") -> tuple[str, list[tuple[str, str]]]:
     """Split a classic annotated page into (shell_html, [(key, fragment_html)]).
 
-    Chrome sections (header/footer/brand) stay in the shell. The contiguous run
-    of body sections is replaced by a single ``<div data-region="...">`` slot
-    at the position of the first body section; each removed section is returned
-    as a block fragment (its ``data-section`` id becomes the block key).
+    Only *top-level* body children with ``data-section`` become blocks.
+    Header/footer stay in the shell. The span from the first body block to
+    the last — including divider comments and whitespace between them — is
+    replaced by a single ``<div data-region="...">``. Nested sections stay
+    inside their parent fragment.
     """
     soup = BeautifulSoup(html or "", "lxml")
-    sections = soup.find_all(attrs={"data-section": True})
-    body = [s for s in sections if not _is_chrome(s)]
-    fragments: list[tuple[str, str]] = []
-    if not body:
-        return str(soup), fragments
+    host = soup.body
+    if host is None:
+        sections = [
+            s for s in soup.find_all(attrs={"data-section": True})
+            if not _is_chrome(s) and not _is_overlay_chrome(s)
+        ]
+        fragments = []
+        if not sections:
+            return _ensure_region_layout_css(str(soup)), fragments
+        slot = soup.new_tag("div")
+        slot["data-region"] = region
+        sections[0].insert_before(slot)
+        for section_el in sections:
+            key = (section_el.get("data-section") or "").strip()
+            if key:
+                fragments.append((key, str(section_el)))
+            section_el.extract()
+        return _ensure_region_layout_css(str(soup)), fragments
 
+    children = list(host.children)
+    block_indices = [i for i, node in enumerate(children) if _is_body_block(node)]
+    fragments: list[tuple[str, str]] = []
+    if not block_indices:
+        slot = soup.new_tag("div")
+        slot["data-region"] = region
+        host.append(slot)
+        return _ensure_region_layout_css(str(soup)), fragments
+
+    first_i, last_i = block_indices[0], block_indices[-1]
     slot = soup.new_tag("div")
     slot["data-region"] = region
-    body[0].insert_before(slot)
-    for section_el in body:
-        key = (section_el.get("data-section") or "").strip()
-        if not key:
-            continue
-        fragments.append((key, str(section_el)))
-        section_el.extract()
-    return str(soup), fragments
+    children[first_i].insert_before(slot)
+    for i in range(first_i, last_i + 1):
+        node = children[i]
+        if _is_body_block(node):
+            key = (node.get("data-section") or "").strip()
+            if key:
+                fragments.append((key, str(node)))
+        node.decompose()
+    return _ensure_region_layout_css(str(soup)), fragments
 
 
 def convert_content_to_regions(
@@ -1045,17 +1121,24 @@ def convert_content_to_regions(
     rewrite). Chrome sections and ``_``-prefixed meta are copied verbatim.
     """
     content = content or {}
+    # A previous convert attempt may have left ``regions`` / ``_classic`` on a
+    # still-classic template. Rebuild instances from the current section keys
+    # (and from ``_classic`` field values when that backup has any).
+    source = content
+    backup = content.get("_classic")
+    if isinstance(backup, dict) and backup:
+        source = backup
     body_keys = set(ordered_block_keys)
     new_content: dict[str, Any] = {}
     instances = []
     for key in ordered_block_keys:
         instances.append(
-            {"id": key, "type": key, "fields": dict(content.get(key) or {})}
+            {"id": key, "type": key, "fields": dict(source.get(key) or {})}
         )
     new_content["regions"] = {region: instances}
-    for section_id, value in content.items():
-        if section_id in body_keys:
-            continue  # moved into regions above
+    for section_id, value in source.items():
+        if section_id in body_keys or section_id in ("regions", "_classic"):
+            continue  # rebuilt above, or leftover from a prior convert
         new_content[section_id] = value
     return new_content
 
@@ -1071,6 +1154,8 @@ def normalize_for_diff(html: str) -> str:
     soup = BeautifulSoup(html or "", "lxml")
     for region_el in soup.find_all(attrs={"data-region": True}):
         region_el.unwrap()
+    for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+        comment.extract()
     for el in soup.find_all(True):
         for attr in _DIFF_STRIP_ATTRS:
             if el.has_attr(attr):
@@ -1080,8 +1165,71 @@ def normalize_for_diff(html: str) -> str:
     # it is not visually meaningful for these block-level sections and would
     # otherwise mask an otherwise byte-identical render.
     out = str(soup)
+    out = out.replace(_REGION_LAYOUT_CSS, "")
     out = re.sub(r">\s+<", "><", out)
+    out = re.sub(r"\s+", " ", out).strip()
+    # The region shim is conversion-only CSS; it must not fail the paint gate.
+    out = out.replace(_REGION_LAYOUT_CSS.replace(" ", ""), "")
     return re.sub(r"\s+", " ", out).strip()
+
+
+def _first_diff_snippet(left: str, right: str, radius: int = 120) -> str:
+    if left == right:
+        return ""
+    limit = min(len(left), len(right))
+    index = 0
+    while index < limit and left[index] == right[index]:
+        index += 1
+    start = max(0, index - radius)
+    return (
+        f"at {index}: classic=...{left[start:index + radius]}... "
+        f"block=...{right[start:index + radius]}..."
+    )
+
+
+def preview_classic_upgrade(
+    html: str,
+    content: dict | None = None,
+    *,
+    region: str = "main",
+) -> tuple[bool, str]:
+    """Dry-run classic vs block render. Return ``(matches, diff_snippet)``."""
+    from core.parser import build_schema
+    from core.renderer import merge_with_defaults, render_page_from_blocks, render_site
+
+    content = content or {}
+    shell_html, fragments = split_shell_and_blocks(html, region=region)
+    if not fragments:
+        return False, "no body sections to convert"
+    schema = build_schema(html)
+    classic = render_site(html, merge_with_defaults(schema, content))
+    block_keys = [k for k, _ in fragments]
+    catalog = _catalog_from_fragments(fragments)
+    new_content = convert_content_to_regions(content, block_keys, region=region)
+    block_out = render_page_from_blocks(shell_html, new_content, catalog)
+    left = normalize_for_diff(classic)
+    right = normalize_for_diff(block_out)
+    if left == right:
+        return True, ""
+    return False, _first_diff_snippet(left, right)
+
+
+def classic_upgrade_is_safe(template, *, region: str = "main") -> tuple[bool, str]:
+    """Whether every page on ``template`` still matches after a dry-run convert."""
+    from core.models import Page, Tenant
+
+    html = template.html_source or ""
+    editables: list = list(Tenant.objects.filter(template=template))
+    editables += list(Page.objects.filter(template=template))
+    if not editables:
+        return preview_classic_upgrade(html, {}, region=region)
+    for editable in editables:
+        ok, snippet = preview_classic_upgrade(
+            html, editable.content or {}, region=region
+        )
+        if not ok:
+            return False, snippet
+    return True, ""
 
 
 def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]:
@@ -1140,9 +1288,15 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
         slot = soup.new_tag("div")
         slot["data-region"] = region
         host.append(slot)
-        shell_html = str(soup)
+        shell_html = _ensure_region_layout_css(str(soup))
 
-    block_keys = [k for k, _ in fragments]
+    from core.management.commands.seed_builder_blocks import BUILDER_BLOCKS
+
+    resolved: list[tuple[str, str]] = []
+    for key, frag in fragments:
+        bt_key = f"{key}_section" if key in BUILDER_BLOCKS else key
+        resolved.append((bt_key, frag))
+    block_keys = [k for k, _ in resolved]
     editables = list(Tenant.objects.filter(template=template))
     editables += list(Page.objects.filter(template=template))
     conversions = [
@@ -1152,7 +1306,7 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
 
     with transaction.atomic():
         block_types = []
-        for key, frag in fragments:
+        for key, frag in resolved:
             schema = build_block_schema(frag)
             bt, _ = BlockType.objects.get_or_create(
                 key=key,
@@ -1197,17 +1351,39 @@ def _clone_shared_template(template, tenant, user=None):
 
 
 def ensure_block_editor(editable, *, user=None):
-    """Attach the builder palette only on templates that are already shells.
+    """Give a classic site the block editor the first time someone opens it.
 
-    Designed (classic) pages stay as full annotated HTML. Auto-converting them
-    emptied the body into ``data-region="main"`` and rewrote the header/footer
-    into chrome slots, which is what made a pasted landing page look like a
-    hollow shell after "annotation." Use ``migrate_template_to_blocks`` when a
-    site should actually become a block editor.
+    Body sections become insertable blocks (so Add section / Quick Add appear)
+    and existing copy is dual-written to ``_classic``. Header/footer stay in
+    the designed HTML — chrome slots are not rewritten here. A shared/library
+    template is cloned onto this tenant first so other sites keep their locked
+    HTML until they open the editor themselves.
     """
+    from core.models import Page, Tenant
+
     template = getattr(editable, "template", None)
     if template is None or not (template.html_source or "").strip():
         return template
-    if template.is_block_shell:
+
+    tenant = editable if isinstance(editable, Tenant) else editable.tenant
+    if not template.is_block_shell:
+        template = _clone_shared_template(template, tenant, user)
+        if isinstance(editable, Tenant) and editable.template_id != template.pk:
+            editable.template = template
+        if isinstance(editable, Page) and editable.template_id != template.pk:
+            editable.template = template
+            editable.save(update_fields=["template"])
+        ok, snippet = classic_upgrade_is_safe(template)
+        if not ok:
+            logger.warning(
+                "ensure_block_editor: skipped convert for template=%s; "
+                "classic vs block render differs (%s)",
+                template.pk,
+                snippet[:500],
+            )
+            return template
+        apply_classic_upgrade(template)
+        template.refresh_from_db()
+    else:
         attach_builder_primitives(template)
     return template

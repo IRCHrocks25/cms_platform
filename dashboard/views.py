@@ -28,7 +28,12 @@ from core.models import (
     Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
 )
 from core.permissions import agency_operator_required, agency_admin_required, tenant_member_required
-from core.renderer import render_site, merge_with_defaults, strip_defaults
+from core.renderer import (
+    drop_blank_instance_fields,
+    merge_with_defaults,
+    render_site,
+    strip_defaults,
+)
 from core.parser import build_schema
 from core.services import blog_render
 from core.services import custom_domains
@@ -719,6 +724,9 @@ def _run_annotation_job(job_id, raw_html):
         annotation = annotate_html_result(raw_html)
         annotated = annotation.html
         schema = build_schema(annotated)
+        from core.services.blocks import preview_classic_upgrade
+
+        blocks_ready, _diff = preview_classic_upgrade(annotated)
         sections_summary = {
             "items": [
                 {
@@ -733,6 +741,8 @@ def _run_annotation_job(job_id, raw_html):
             "backfilled_fields": annotation.backfilled_fields,
             "promoted_sections": annotation.promoted_sections,
             "salvaged_fields": annotation.salvaged_fields,
+            "unmarked_text_count": annotation.unmarked_text_count,
+            "blocks_ready": blocks_ready,
             "model": annotation.model,
             "prompt_tokens": annotation.prompt_tokens,
             "completion_tokens": annotation.completion_tokens,
@@ -917,6 +927,7 @@ def template_annotate_status(request, job_id):
                 "backfilled_fields",
                 "promoted_sections",
                 "salvaged_fields",
+                "unmarked_text_count",
                 "model",
                 "prompt_tokens",
                 "completion_tokens",
@@ -924,6 +935,8 @@ def template_annotate_status(request, job_id):
                 "total_tokens",
             ):
                 body[key] = job.sections.get(key, 0)
+            if "blocks_ready" in job.sections:
+                body["blocks_ready"] = bool(job.sections.get("blocks_ready"))
         else:
             # Rows created before integrity counters used a plain section list.
             body["sections"] = job.sections
@@ -1171,6 +1184,10 @@ def tenant_create(request):
         _warn_ignored_submitted_field_markers(
             request, new_template_html, tenant.template.schema
         )
+    if not blocks_new_template:
+        from core.services import blocks as _blocks
+
+        _blocks.ensure_block_editor(tenant, user=request.user)
     token = _stash_credentials_in_session(request, user, password)
     return redirect(
         f"{reverse('dashboard:site_created', args=[tenant.pk])}?token={token}"
@@ -2249,6 +2266,8 @@ def _page_create(request, tenant, scope):
             template, template.html_source, user=request.user, label="Initial"
         )
         page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
+    _blocks.ensure_block_editor(page, user=request.user)
+    page.refresh_from_db()
     _warn_ignored_submitted_field_markers(
         request, html_source, template.schema
     )
@@ -2418,9 +2437,8 @@ def page_list(request, pk):
 @require_POST
 def page_create(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    # Block-shell sites compose pages from the palette (no HTML). Staff can
-    # still paste raw HTML for a classic per-page template by submitting
-    # html_source (the import flow and non-shell sites use that path).
+    # Agency UI is HTML-first (one form). Staff can still POST start_from
+    # without html_source to compose a shared-shell page from the palette.
     if not request.POST.get("html_source") and tenant.template and tenant.template.is_block_shell:
         return _page_create_shared(request, tenant, "agency")
     return _page_create(request, tenant, "agency")
@@ -2523,6 +2541,15 @@ def _annotate_template_in_background(
         if template.has_editable_schema:
             template.editing_mode = Template.EDITING_EDITABLE
             template.save(update_fields=["editing_mode", "updated_at"])
+        from core.models import Page
+        from core.services import blocks as _blocks
+
+        page = Page.objects.filter(template=template).first()
+        if page is not None:
+            _blocks.ensure_block_editor(page)
+        else:
+            for owned in Tenant.objects.filter(template=template):
+                _blocks.ensure_block_editor(owned)
         section_count = len((template.schema or {}).get("sections", []))
         logger.info(
             "Sibling annotation applied to template=%s (%d sections)",
@@ -2756,6 +2783,10 @@ def page_edit_html(request, pk, page_pk):
             _warn_ignored_submitted_field_markers(
                 request, new_html, page.template.schema
             )
+            from core.services import blocks as _blocks
+
+            page.template.refresh_from_db()
+            _blocks.ensure_block_editor(page, user=request.user)
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,
@@ -3374,6 +3405,7 @@ def _save_content(request, editable):
         _normalize_regions(content, template)
     except _BlockValidationError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    drop_blank_instance_fields(content)
 
     schema = (
         build_schema(template.html_source)

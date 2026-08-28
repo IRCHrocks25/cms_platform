@@ -108,3 +108,28 @@ class NoOpApplyPreservesOriginalHtmlTests(TestCase):
         out = render_site(template, {"nav": {"link1": "Go", "link1_href": "#contact"}})
         self.assertIn('href="#contact"', out)
         self.assertIn("Go", out)
+
+    def test_wrapper_field_does_not_wipe_child_fields(self):
+        """A blockquote marked as richtext that already contains a quote
+        field and a cite field must keep both. Rewriting the wrapper with
+        the quote text alone is what made attribution vanish on preview."""
+        template = (
+            "<section data-section='problem'>"
+            "<blockquote data-edit='problem.blockquote_1' data-type='richtext' "
+            "class='quote'>"
+            "<p data-edit='problem.quote' data-type='richtext'>Being busy.</p>"
+            "<cite data-edit='problem.quote_author' data-type='text'>"
+            "Daniel Burrus</cite>"
+            "</blockquote>"
+            "</section>"
+        )
+        out = render_site(template, {
+            "problem": {
+                "blockquote_1": "Being busy.",
+                "quote": "Being busy.",
+                "quote_author": "Daniel Burrus",
+            }
+        })
+        self.assertIn("Daniel Burrus", out)
+        self.assertIn('class="quote"', out)
+        self.assertIn("problem.quote_author", out)

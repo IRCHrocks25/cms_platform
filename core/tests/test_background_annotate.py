@@ -152,6 +152,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "backfilled_fields": 3,
                 "promoted_sections": 4,
                 "salvaged_fields": 5,
+                "unmarked_text_count": 0,
+                "blocks_ready": True,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -172,6 +174,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "backfilled_fields": 3,
                 "promoted_sections": 4,
                 "salvaged_fields": 5,
+                "unmarked_text_count": 2,
+                "blocks_ready": False,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -199,6 +203,8 @@ class AnnotationJobSummaryTests(TestCase):
                 "backfilled_fields": 3,
                 "promoted_sections": 4,
                 "salvaged_fields": 5,
+                "unmarked_text_count": 2,
+                "blocks_ready": False,
                 "model": "gpt-5.6-luna",
                 "prompt_tokens": 101,
                 "completion_tokens": 52,
@@ -299,6 +305,10 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.backfilled_fields", source)
         self.assertIn("body.promoted_sections", source)
         self.assertIn("body.salvaged_fields", source)
+        self.assertIn("body.unmarked_text_count", source)
+        self.assertIn("body.blocks_ready", source)
+        self.assertIn("Ready for blocks", source)
+        self.assertIn("Classic only", source)
         self.assertIn("var hasIntegrityWarning", source)
 
     def test_new_site_annotation_ui_has_the_same_terminal_failure_contract(self):
@@ -317,8 +327,35 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.backfilled_fields", source)
         self.assertIn("body.promoted_sections", source)
         self.assertIn("body.salvaged_fields", source)
+        self.assertIn("body.unmarked_text_count", source)
+        self.assertIn("body.blocks_ready", source)
+        self.assertIn("Ready for blocks", source)
         self.assertIn("var hasIntegrityWarning", source)
         self.assertIn(
             "Applying this result will produce a template with no editable fields.",
             source,
+        )
+
+    def test_annotate_fetch_prefers_the_form_csrf_token(self):
+        source = self._new_site_source()
+        self.assertIn('input[name=csrfmiddlewaretoken]', source)
+        self.assertIn("This page's security token expired", source)
+
+
+class AnnotateCsrfFailureTests(TestCase):
+    def test_json_annotate_post_without_token_returns_json_403(self):
+        staff = User.objects.create_user("csrf-op", password="pw", is_staff=True)
+        client = self.client_class(enforce_csrf_checks=True)
+        client.force_login(staff)
+        response = client.post(
+            reverse("dashboard:template_annotate"),
+            data='{"html":"<h1>Hi</h1>"}',
+            content_type="application/json",
+            HTTP_ACCEPT="application/json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["error"],
+            "This page's security token expired. Refresh and run AI annotation again.",
         )

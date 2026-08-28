@@ -33,9 +33,9 @@
       </a>
     </div>
 
-    {% if can_manage_pages and is_block_shell %}
-    {% comment %}Block-shell create (agency + client): no HTML paste — the new
-    page shares the site shell and is composed from the curated block palette.{% endcomment %}
+    {% if can_manage_pages and is_block_shell and scope != "agency" %}
+    {% comment %}Client create on a block shell: no HTML paste — the new page
+    shares the site shell and is composed from the curated block palette.{% endcomment %}
     <div class="card content-block content-block-spaced">
       {% if at_page_cap %}
         <h3 class="content-block-title">New page</h3>
@@ -79,33 +79,36 @@
 
     {% if can_manage_pages and scope == "agency" %}
     <div class="card content-block content-block-spaced">
-      <h3 class="content-block-title">
-        {% if is_block_shell %}New page from HTML <span class="badge badge-soft">advanced</span>{% else %}New page{% endif %}
-      </h3>
-      {% if is_block_shell %}
-      <p class="field-help m-0">
-        This site builds pages from blocks (above). Use this only if you need a
-        page with its own pasted/annotated HTML instead — it gets its own template.
-      </p>
-      {% endif %}
-      <form method="post" action="{{ nav_urls.new }}" class="stack-5">
+      {% if at_page_cap %}
+        <h3 class="content-block-title">New page</h3>
+        <p class="field-help m-0">You've reached the maximum of {{ page_cap }} pages. Delete one to add another.</p>
+      {% else %}
+      <div class="content-block-action-head">
+        <h3 class="content-block-title">New page</h3>
+        <button type="submit" form="page-create-form" class="btn btn-primary">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+          Add page
+        </button>
+      </div>
+      <form id="page-create-form" method="post" action="{{ nav_urls.new }}" class="stack-5">
         {% csrf_token %}
         <div class="row page-create-row">
           <div class="field field-min-200">
-            <label class="field-label" for="pf-title-html">Page title</label>
-            <input class="input" type="text" id="pf-title-html" name="title" maxlength="120" placeholder="About us" required>
+            <label class="field-label" for="pf-title">Page title</label>
+            <input class="input" type="text" id="pf-title" name="title" maxlength="120" placeholder="About us" required>
           </div>
           <div class="field field-min-160">
-            <label class="field-label" for="pf-slug-html">URL slug</label>
-            <input class="input" type="text" id="pf-slug-html" name="slug" maxlength="80" placeholder="about">
+            <label class="field-label" for="pf-slug">URL slug</label>
+            <input class="input" type="text" id="pf-slug" name="slug" maxlength="80" placeholder="about">
           </div>
         </div>
         <p class="field-help m-0">
           Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
-          Paste the page's HTML below (annotate it with AI for the editable fields). Each page gets its own template.
+          Paste the page HTML, fetch it from a URL, or annotate it with AI, then click Add page.
         </p>
         {% include "dashboard/_html_source_editor.html" with html_value="" %}
       </form>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -489,10 +492,10 @@
     {% else %}
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
-        {% if can_manage_pages and is_block_shell %}
+        {% if can_manage_pages and is_block_shell and scope != "agency" %}
           <p>Add one above. Give it a title and URL slug like <code>about</code> or <code>services</code>, then compose it from the block palette. No HTML needed.</p>
         {% elif can_manage_pages %}
-          <p>Add one above. Give it a URL slug like <code>about</code> or <code>services</code> and paste its HTML.</p>
+          <p>Add one above. Give it a URL slug like <code>about</code> or <code>services</code>, paste or fetch the HTML, then click Add page.</p>
         {% else %}
           <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency; they'll set it up for you.</p>
         {% endif %}

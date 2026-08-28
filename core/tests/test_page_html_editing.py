@@ -45,10 +45,13 @@ class PageCreateFromHtmlTests(TestCase):
         page = self.tenant.pages.get(slug="about")
         # Its own dedicated template, not the home template.
         self.assertNotEqual(page.template_id, self.tenant.template_id)
-        self.assertEqual(page.template.html_source, _HERO)
-        # Schema was built on save so the editor has fields immediately.
-        ids = [s["id"] for s in page.template.schema.get("sections", [])]
-        self.assertIn("hero", ids)
+        # Annotated paste converts to a block shell on create so Add section
+        # is available for this page the same way as any future client site.
+        self.assertTrue(page.template.is_block_shell)
+        self.assertEqual(
+            [item["type"] for item in (page.content.get("regions") or {}).get("main") or []],
+            ["hero"],
+        )
 
     def test_blank_html_is_rejected(self):
         self.client.post(

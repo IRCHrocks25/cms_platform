@@ -642,13 +642,27 @@
     return tpl.innerHTML;
   }
 
+  function cmsIsBlankHtml(value) {
+    var s = String(value == null ? "" : value);
+    s = s.replace(/&nbsp;|&#160;|\u00a0/gi, " ");
+    s = s.replace(/<br\s*\/?>/gi, "");
+    s = s.replace(/<[^>]+>/g, "");
+    return !s.replace(/\s+/g, "");
+  }
+
   function getValue(fieldId) {
     var idx = fieldId.indexOf(".");
     var sec = fieldId.slice(0, idx), fld = fieldId.slice(idx + 1);
     if (BLOCKS) {
       var inst = findInstance(sec);
       if (inst) {
-        if (inst.fields && inst.fields[fld] !== undefined) return inst.fields[fld];
+        var stored = inst.fields && inst.fields[fld];
+        // Empty / <br>-only contenteditable leftovers mean "use the designed
+        // default". The properties panel hydrates from CMS.blockDefaults so
+        // unedited fields show the designed copy instead of a blank box.
+        if (stored !== undefined && stored !== null && !cmsIsBlankHtml(stored)) {
+          return stored;
+        }
         return (BLOCK_DEFAULTS[inst.type] || {})[fld];
       }
     }
@@ -661,6 +675,10 @@
       var inst = findInstance(sec);
       if (inst) {
         if (!inst.fields) inst.fields = {};
+        if (cmsIsBlankHtml(value)) {
+          delete inst.fields[fld];
+          return;
+        }
         inst.fields[fld] = value;
         return;
       }
@@ -1635,7 +1653,10 @@
     if (data.type === "ready") {
       previewReady = true;
       setPreviewState("ready");
-      pushAllToPreview();
+      // The iframe already has the server-rendered designed HTML. Re-applying
+      // every field on first load wrote empty form values over body copy.
+      // Only push when the client has unsaved edits that the iframe lacks.
+      if (hasUnsavedChanges) pushAllToPreview();
       // Re-assert hidden state in case content._hidden has unsaved changes the
       // freshly server-rendered iframe doesn't reflect yet.
       content._hidden.forEach(function (id) { pushVisibility(id, true); });
@@ -1806,7 +1827,12 @@
         var merged = {};
         var defs = BLOCK_DEFAULTS[inst.type] || {};
         Object.keys(defs).forEach(function (k) { merged[k] = defs[k]; });
-        Object.keys(inst.fields || {}).forEach(function (k) { merged[k] = inst.fields[k]; });
+        Object.keys(inst.fields || {}).forEach(function (k) {
+          if (inst.fields[k] !== undefined && inst.fields[k] !== null &&
+              !cmsIsBlankHtml(inst.fields[k])) {
+            merged[k] = inst.fields[k];
+          }
+        });
         Object.keys(merged).forEach(function (k) { patch[inst.id + "." + k] = merged[k]; });
         return false;
       });
@@ -3672,10 +3698,20 @@
 
       if (ftype === "richtext") {
         var rt = node.querySelector("[data-bind]");
+        var ignoreRtInput = true;
         rt.innerHTML = cmsScrub(current);
+        // Empty contenteditables insert a <br> and fire `input`. Ignore that
+        // so we don't save a blank over the designed paragraph.
+        requestAnimationFrame(function () { ignoreRtInput = false; });
         rt.addEventListener("input", function () {
-          setValue(fieldId, rt.innerHTML);
-          var p = {}; p[fieldId] = rt.innerHTML;
+          if (ignoreRtInput) return;
+          var html = rt.innerHTML;
+          if (cmsIsBlankHtml(html)) {
+            setValue(fieldId, "");
+            return;
+          }
+          setValue(fieldId, html);
+          var p = {}; p[fieldId] = html;
           pushToPreview(p);
           scheduleSave();
         });

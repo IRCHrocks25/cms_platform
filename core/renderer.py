@@ -197,6 +197,13 @@ PREVIEW_BRIDGE_SCRIPT = """
     strong:1,b:1,i:1,u:1,small:1,label:1,summary:1,figcaption:1,dt:1,caption:1,legend:1};
   var CMS_BLOCK = {p:1,div:1,section:1,article:1,header:1,footer:1,aside:1,main:1,
     ul:1,ol:1,li:1,blockquote:1,pre:1,table:1,figure:1,address:1};
+  function cmsIsBlankHtml(value) {
+    var s = String(value == null ? '' : value);
+    s = s.replace(/&nbsp;|&#160;|\\u00a0/gi, ' ');
+    s = s.replace(/<br\\s*\\/?>/gi, '');
+    s = s.replace(/<[^>]+>/g, '');
+    return !s.replace(/\\s+/g, '');
+  }
   function cmsRichtextHTML(host, html) {
     var clean = cmsScrub(html);
     if (!CMS_PHRASING[host.tagName.toLowerCase()]) return clean;
@@ -513,6 +520,16 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (!cmsSelRange) return null;
     var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
     if (!cmsIsStyleable(host)) return null;
+    var node = cmsSelRange.commonAncestorContainer;
+    if (node && node.nodeType === 3) node = node.parentNode;
+    var existing = node && node.closest ? node.closest('.cms-tspan') : null;
+    // Restyle the current wrap instead of nesting another span. A colour
+    // slider otherwise stacked 10+ cms-tspan wraps and baked over the
+    // template's designed colours.
+    if (existing && host.contains(existing)) {
+      existing.style.setProperty(prop, value);
+      return host;
+    }
     var sp = document.createElement('span');
     sp.className = 'cms-tspan'; // marks a selection-styled span so the
                                 // whole-element recolor rule leaves it alone
@@ -631,11 +648,19 @@ PREVIEW_BRIDGE_SCRIPT = """
             var cval = cmsSafeCssValue(value);
             if (cval) el.style[prop] = cval;
           }
-          else if (t === 'richtext') { el.innerHTML = cmsRichtextHTML(el, value); }
+          else if (t === 'richtext') {
+            if (el.querySelector && el.querySelector('[data-edit]')) return;
+            if (cmsIsBlankHtml(value) && (el.innerHTML || '').replace(/<br\\s*\\/?>/gi,'').trim()) return;
+            el.innerHTML = cmsRichtextHTML(el, value);
+          }
           // Plain text field: normally textContent, but once it carries a
           // selection-styled span (or any inline markup) render it as HTML.
           else if (/<[a-z]/i.test(value)) { el.innerHTML = cmsRichtextHTML(el, value); }
-          else { el.textContent = value; }
+          else {
+            if (el.querySelector && el.querySelector('[data-edit]')) return;
+            if (cmsIsBlankHtml(value) && (el.textContent || '').trim()) return;
+            el.textContent = value;
+          }
         });
       });
     }
@@ -1389,6 +1414,11 @@ def _apply_field(el, value: str, ftype: str, *, preview: bool = False) -> None:
                 el.append(BeautifulSoup(value, "html.parser"))
         return
     if ftype == "richtext":
+        # A wrapper that already has child fields (blockquote > p + cite)
+        # must not be rewritten. Replacing its inner HTML deletes those
+        # fields and flattens the designed quote.
+        if el.find(attrs={"data-edit": True}) is not None:
+            return
         # First pass: byte-for-byte equality. Most no-edit renders hit
         # this and we're done, which saves a re-parse.
         current = (el.decode_contents() or "").strip()
@@ -2391,6 +2421,53 @@ def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict
 # --------------------------------------------------------------------------- #
 
 
+_BLANK_FIELD_TAGS_RE = re.compile(r"<[^>]+>", re.I)
+_BLANK_FIELD_BR_RE = re.compile(r"<br\s*/?>", re.I)
+_BLANK_FIELD_NBSP_RE = re.compile(r"&nbsp;|&#160;|\u00a0", re.I)
+
+
+def _is_blank_field_value(value: Any) -> bool:
+    """True for missing values and contenteditable leftovers (``<br>``, nbsp)."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    text = _BLANK_FIELD_NBSP_RE.sub(" ", value)
+    text = _BLANK_FIELD_BR_RE.sub("", text)
+    text = _BLANK_FIELD_TAGS_RE.sub("", text)
+    return not text.strip()
+
+
+def drop_blank_instance_fields(content: dict[str, Any] | None) -> None:
+    """Remove empty / ``<br>`` instance fields so they cannot override defaults."""
+    if not isinstance(content, dict):
+        return
+    regions = content.get("regions")
+    if not isinstance(regions, dict):
+        return
+
+    def _walk(instances: list) -> None:
+        for inst in instances:
+            if not isinstance(inst, dict):
+                continue
+            fields = inst.get("fields")
+            if isinstance(fields, dict):
+                inst["fields"] = {
+                    key: value
+                    for key, value in fields.items()
+                    if not _is_blank_field_value(value)
+                }
+            children = inst.get("children")
+            if isinstance(children, dict):
+                for child_list in children.values():
+                    if isinstance(child_list, list):
+                        _walk(child_list)
+
+    for inst_list in regions.values():
+        if isinstance(inst_list, list):
+            _walk(inst_list)
+
+
 def merge_block_defaults(
     block_schema: dict[str, Any], instance_fields: dict[str, Any] | None
 ) -> dict[str, str]:
@@ -2405,6 +2482,8 @@ def merge_block_defaults(
         if field.get("type") == "ghl-embed":
             merged[str(field.get("id"))] = ""
     for key, value in (instance_fields or {}).items():
+        if _is_blank_field_value(value):
+            continue
         merged[str(key)] = value
     return merged
 

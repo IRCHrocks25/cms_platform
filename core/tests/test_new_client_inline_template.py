@@ -149,6 +149,11 @@ class InlineTemplateCreatePlugAndForgetTests(TestCase):
         tenant = Tenant.objects.get(subdomain="bellas")
         self.assertIsNotNone(tenant.template_id)
         self.assertEqual(tenant.template.name, "Bella's Restaurant")
+        self.assertTrue(tenant.template.is_block_shell)
+        self.assertEqual(
+            [item["type"] for item in (tenant.content.get("regions") or {}).get("main") or []],
+            ["hero"],
+        )
 
     def test_two_inline_templates_with_same_name_dont_collide_on_slug(self):
         """CMS-27: slug uniqueness is per-owner. Two tenants may both hold

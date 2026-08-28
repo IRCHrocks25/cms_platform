@@ -141,7 +141,7 @@ class ClientPageManagementTests(TestCase):
         self.assertEqual(main[0]["fields"]["title"], "Src hero")
         self.assertNotEqual(main[0]["id"], "blk_src")  # fresh id
 
-    def test_client_on_classic_template_cannot_create(self):
+    def test_client_on_classic_template_is_upgraded_and_can_create(self):
         c = Client(HTTP_HOST="beta.localhost")
         beta_member = get_user_model().objects.create_user("bob", password="x")
         TenantMembership.objects.create(tenant=self.classic_tenant, user=beta_member)
@@ -150,8 +150,8 @@ class ClientPageManagementTests(TestCase):
                       {"title": "X", "slug": "x"})
         self.assertEqual(resp.status_code, 302)
         self.classic_tenant.refresh_from_db()
-        self.assertFalse(self.classic_tenant.template.is_block_shell)
-        self.assertFalse(self.classic_tenant.pages.filter(slug="x").exists())
+        self.assertTrue(self.classic_tenant.template.is_block_shell)
+        self.assertTrue(self.classic_tenant.pages.filter(slug="x").exists())
 
     def test_client_cannot_paste_html(self):
         # A non-staff client's html_source is ignored — they get a shared-shell
@@ -201,11 +201,33 @@ class ClientPageManagementTests(TestCase):
         c.force_login(self.staff)
         resp = c.get(reverse("dashboard:page_list", args=[self.tenant.pk]))
         self.assertEqual(resp.status_code, 200)
-        # Both paths are offered on a shell: the block "Start from" chooser is
-        # primary, and the advanced HTML-paste editor stays available.
-        self.assertContains(resp, "Start from")
+        # Agency create is one HTML-first form with a heading submit — not a
+        # second "Start from" card stacked on top of a buttonless HTML import.
+        self.assertContains(resp, "New page")
         self.assertContains(resp, "HTML source")
-        self.assertContains(resp, "New page from HTML")
+        self.assertContains(resp, 'id="page-create-form"', html=False)
+        self.assertContains(
+            resp, 'type="submit" form="page-create-form"', html=False
+        )
+        self.assertNotContains(resp, "Start from")
+        self.assertNotContains(resp, "New page from HTML")
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_client_page_list_keeps_block_start_from_chooser(self):
+        c = self._client()
+        resp = c.get(reverse("dashboard:page_list_self"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Start from")
+        self.assertContains(resp, "Add page")
+        self.assertNotContains(resp, "HTML source")
+        self.assertNotContains(resp, "New page from HTML")
 
     def test_rename_page(self):
         page = Page.objects.create(
@@ -318,16 +340,22 @@ class ClientPageManagementTests(TestCase):
             },
         }
     )
-    def test_classic_site_editor_stays_classic(self):
+    def test_classic_site_editor_upgrades_to_block_chrome(self):
         c = Client(HTTP_HOST="beta.localhost")
         c.force_login(self.staff)
         resp = c.get(reverse("dashboard:root"))
         self.assertEqual(resp.status_code, 200)
         self.classic_tenant.refresh_from_db()
-        self.assertFalse(self.classic_tenant.template.is_block_shell)
-        self.assertNotContains(resp, "is-block-mode")
-        self.assertNotContains(resp, "cms-header-panel")
-        self.assertContains(resp, "Sections")
+        self.assertTrue(self.classic_tenant.template.is_block_shell)
+        self.assertContains(resp, "cms-header-panel")
+        self.assertContains(resp, "is-block-mode")
+        self.assertContains(resp, "Add section")
+        self.assertContains(resp, "editor-tools-menu")
+        self.assertContains(resp, "data-header-layout")
+        self.assertContains(resp, "data-header-logo-gallery")
+        self.assertContains(resp, "data-header-logo-upload")
+        self.assertContains(resp, "data-header-logo-size")
+        self.assertContains(resp, "data-header-show-name")
 
     @override_settings(
         STORAGES={

@@ -23,12 +23,6 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError
 
 from core.models import Page, Template, Tenant
-from core.parser import build_schema
-from core.renderer import (
-    merge_with_defaults,
-    render_page_from_blocks,
-    render_site,
-)
 from core.services import blocks
 
 
@@ -74,15 +68,13 @@ class Command(BaseCommand):
             )
 
         old_html = template.html_source
-        old_schema = build_schema(old_html)
-        shell_html, fragments = blocks.split_shell_and_blocks(old_html, region=region)
+        _shell_html, fragments = blocks.split_shell_and_blocks(old_html, region=region)
         if not fragments:
             raise CommandError(
                 "No body sections found to convert — every section is chrome."
             )
 
         block_keys = [k for k, _ in fragments]
-        catalog = blocks._catalog_from_fragments(fragments)
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"Template: {template.name} (pk={template.pk})"))
         self.stdout.write(f"  Chrome kept + region '{region}' inserted.")
@@ -96,14 +88,17 @@ class Command(BaseCommand):
         conversions: list[tuple[object, dict]] = []
         for ed in editables:
             content = ed.content or {}
-            classic = render_site(old_html, merge_with_defaults(old_schema, content))
             new_content = blocks.convert_content_to_regions(content, block_keys, region=region)
-            block_out = render_page_from_blocks(shell_html, new_content, catalog)
             label = self._label(ed)
-            if blocks.normalize_for_diff(classic) == blocks.normalize_for_diff(block_out):
+            matched, snippet = blocks.preview_classic_upgrade(
+                old_html, content, region=region
+            )
+            if matched:
                 self.stdout.write(self.style.SUCCESS(f"  [match]    {label}"))
             else:
                 self.stdout.write(self.style.ERROR(f"  [MISMATCH] {label}"))
+                if snippet:
+                    self.stdout.write(f"             {snippet}")
                 failures.append(label)
             conversions.append((ed, new_content))
 

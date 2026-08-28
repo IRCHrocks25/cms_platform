@@ -44,6 +44,19 @@ class BuildBlockSchemaTests(TestCase):
         self.assertEqual(build_block_schema("")["fields"], [])
         self.assertEqual(build_block_schema("<div>no block</div>")["fields"], [])
 
+    def test_child_bearing_text_keeps_the_accent_span_in_defaults(self):
+        frag = (
+            '<section data-section="problem" data-label="The Problem">'
+            '<h2 data-edit="problem.title" data-type="text">'
+            'Busy isn\'t a strategy. <span class="hl">It\'s a symptom.</span>'
+            "</h2></section>"
+        )
+        schema = build_block_schema(frag)
+        title = next(f for f in schema["fields"] if f["id"] == "title")
+        self.assertEqual(title["type"], "richtext")
+        self.assertIn('class="hl"', title["default"])
+        self.assertIn("It's a symptom.", title["default"])
+
 
 class BlockTypeModelTests(TestCase):
     def test_schema_derived_on_save(self):
@@ -83,6 +96,77 @@ class RenderPageFromBlocksTests(TestCase):
         }
         html = render_page_from_blocks(SHELL, content, catalog)
         self.assertIn("Bob", html)          # overridden field
+
+    def test_empty_instance_field_keeps_designed_default(self):
+        """A stored "" must not wipe the block HTML. The editor used to
+        re-apply empty form values on preview-ready and delete body copy."""
+        catalog = self._catalog()
+        content = {
+            "regions": {
+                "main": [
+                    {"id": "blk_1", "type": "testimonial",
+                     "fields": {"quote": "", "author": ""}},
+                ]
+            }
+        }
+        html = render_page_from_blocks(SHELL, content, catalog)
+        self.assertIn("Great food", html)
+        self.assertIn("Jane", html)
+
+    def test_instance_wrapper_is_the_section_not_an_extra_box(self):
+        from bs4 import BeautifulSoup
+
+        catalog = self._catalog()
+        content = {
+            "regions": {
+                "main": [{"id": "blk_1", "type": "testimonial", "fields": {}}],
+            }
+        }
+        html = render_page_from_blocks(SHELL, content, catalog)
+        soup = BeautifulSoup(html, "lxml")
+        inst = soup.find(attrs={"data-instance-id": "blk_1"})
+        self.assertIsNotNone(inst)
+        self.assertEqual(inst.name, "section")
+        self.assertEqual(inst.parent.get("data-region"), "main")
+        self.assertEqual(inst.get("data-block-type"), "testimonial")
+
+    def test_drop_blank_instance_fields_strips_placeholders(self):
+        from core.renderer import drop_blank_instance_fields
+
+        content = {
+            "regions": {
+                "main": [
+                    {
+                        "id": "blk_1",
+                        "type": "testimonial",
+                        "fields": {
+                            "quote": "<br>",
+                            "author": "Bob",
+                            "empty": "",
+                        },
+                    }
+                ]
+            }
+        }
+        drop_blank_instance_fields(content)
+        self.assertEqual(
+            content["regions"]["main"][0]["fields"],
+            {"author": "Bob"},
+        )
+
+    def test_contenteditable_br_placeholder_keeps_designed_default(self):
+        catalog = self._catalog()
+        content = {
+            "regions": {
+                "main": [
+                    {"id": "blk_1", "type": "testimonial",
+                     "fields": {"quote": "<br>", "author": "<p><br></p>"}},
+                ]
+            }
+        }
+        html = render_page_from_blocks(SHELL, content, catalog)
+        self.assertIn("Great food", html)
+        self.assertIn("Jane", html)
         self.assertIn("Great food", html)   # default field kept
         self.assertIn('data-instance-id="blk_1"', html)
         self.assertIn('data-block-type="testimonial"', html)
@@ -495,29 +579,32 @@ class MigrateCommandTests(TestCase):
 
 
 class EnsureBlockEditorTests(TestCase):
-    def test_leaves_classic_designed_html_intact(self):
+    def test_upgrades_classic_and_keeps_copy(self):
         from django.contrib.auth.models import User
 
-        source = (
-            "<section data-section='hero' data-label='Hero'>"
-            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
-        )
         owner = User.objects.create_user("own", password="x")
-        template = Template.objects.create(name="Classic", html_source=source)
+        template = Template.objects.create(
+            name="Classic",
+            html_source=(
+                "<section data-section='hero' data-label='Hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            ),
+        )
         tenant = Tenant.objects.create(
             name="Acme", subdomain="acme", template=template, owner=owner,
             content={"hero": {"title": "Kept"}},
         )
         blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        self.assertFalse(tenant.template.is_block_shell)
-        self.assertEqual(tenant.template_id, template.pk)
-        self.assertEqual(tenant.template.html_source, source)
-        self.assertEqual(tenant.content, {"hero": {"title": "Kept"}})
-        html = blocks.render_content(tenant.template, tenant.content)
+        shell = tenant.template
+        self.assertTrue(shell.is_block_shell)
+        self.assertEqual(tenant.content["regions"]["main"][0]["fields"]["title"], "Kept")
+        self.assertEqual(tenant.content["_classic"]["hero"]["title"], "Kept")
+        self.assertGreaterEqual(shell.allowed_block_types.count(), 20)
+        html = blocks.render_content(shell, tenant.content)
         self.assertIn("Kept", html)
 
-    def test_does_not_mutate_shared_library_classic(self):
+    def test_clones_shared_library_template(self):
         from django.contrib.auth.models import User
 
         a = User.objects.create_user("a", password="x")
@@ -541,18 +628,191 @@ class EnsureBlockEditorTests(TestCase):
         t1.refresh_from_db()
         t2.refresh_from_db()
         library.refresh_from_db()
-        self.assertEqual(t1.template_id, library.pk)
+        self.assertTrue(t1.template.is_block_shell)
+        self.assertNotEqual(t1.template_id, library.pk)
         self.assertEqual(t2.template_id, library.pk)
         self.assertFalse(library.is_block_shell)
-        self.assertEqual(t1.content, {"hero": {"title": "One"}})
         self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
-    def test_designed_page_stays_full_html(self):
-        """Opening the editor must not hollow a designed landing page.
+    def test_skips_convert_when_classic_and_block_renders_differ(self):
+        from unittest.mock import patch
 
-        Auto-upgrade used to extract body sections into BlockTypes and leave
-        ``data-region="main"`` empty, so the agency textarea and the preview
-        lost the hero, clients strip, and everything between header and footer.
+        from django.contrib.auth.models import User
+
+        owner = User.objects.create_user("gate", password="x")
+        template = Template.objects.create(
+            name="ClassicGate",
+            html_source=(
+                "<section data-section='hero' data-label='Hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            ),
+        )
+        tenant = Tenant.objects.create(
+            name="Gate", subdomain="gate", template=template, owner=owner,
+            content={"hero": {"title": "Hi"}},
+        )
+        with patch(
+            "core.services.blocks.classic_upgrade_is_safe",
+            return_value=(False, "at 0: classic=...X... block=...Y..."),
+        ):
+            blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        self.assertFalse(tenant.template.is_block_shell)
+        self.assertNotIn("regions", tenant.content or {})
+
+    def test_problem_fixture_converts_when_parity_matches(self):
+        from django.contrib.auth.models import User
+
+        designed = """
+        <!DOCTYPE html><html><head><style>
+        body > .sec { display: block; }
+        </style></head><body>
+        <header class="nav" data-section="header" data-group="Header" data-label="Header">
+          <a class="brand" href="#top">Burrus</a>
+        </header>
+        <section class="sec" data-section="problem" data-label="The Problem"
+                 data-group="Sections">
+          <p class="eyebrow" data-edit="problem.eyebrow" data-type="text">The Problem</p>
+          <h2 class="h-sec" data-edit="problem.title" data-type="richtext">
+            Busy isn't a strategy. <span class="hl">It's a symptom.</span>
+          </h2>
+        </section>
+        <footer data-section="footer" data-group="Footer" data-label="Footer">
+          <a href="mailto:office@burrus.com">office@burrus.com</a>
+        </footer>
+        </body></html>
+        """
+        owner = User.objects.create_user("parity", password="x")
+        template = Template.objects.create(name="Parity", html_source=designed)
+        tenant = Tenant.objects.create(
+            name="Parity", subdomain="parity", template=template, owner=owner,
+            content={},
+        )
+        matched, snippet = blocks.preview_classic_upgrade(designed, {})
+        self.assertTrue(matched, snippet)
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        self.assertTrue(tenant.template.is_block_shell)
+
+    def test_stale_regions_do_not_block_convert(self):
+        """A leftover regions blob from a failed convert must not overwrite
+        the instances rebuilt from the current annotated sections."""
+        html = (
+            "<section data-section='hero' data-label='Hero' data-group='Home'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            "<section data-section='after' data-label='After' data-group='Home'>"
+            "<p data-edit='after.body' data-type='text'>Next</p></section>"
+        )
+        stale = {
+            "regions": {
+                "main": [
+                    {"id": "hero", "type": "hero", "fields": {}},
+                    {"id": "old", "type": "after_course", "fields": {}},
+                ]
+            },
+            "_classic": {},
+        }
+        converted = blocks.convert_content_to_regions(stale, ["hero", "after"])
+        self.assertEqual(
+            [item["type"] for item in converted["regions"]["main"]],
+            ["hero", "after"],
+        )
+        matched, snippet = blocks.preview_classic_upgrade(html, stale)
+        self.assertTrue(matched, snippet)
+
+    def test_html_comments_between_sections_do_not_fail_parity(self):
+        html = (
+            "<section data-section='hero' data-label='Hero' data-group='Home'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            "<!-- HEADLINE ALTERNATES -->"
+            "<section data-section='about' data-label='About' data-group='Home'>"
+            "<p data-edit='about.body' data-type='text'>Copy</p></section>"
+        )
+        matched, snippet = blocks.preview_classic_upgrade(html, {})
+        self.assertTrue(matched, snippet)
+
+    def test_nested_sections_stay_inside_parent_block(self):
+        html = (
+            "<!doctype html><html><body>"
+            "<header data-section='nav' data-group='Header'>Nav</header>"
+            "<section data-section='proof' data-label='Proof' data-group='Home'>"
+            "<p data-edit='proof.heading' data-type='text'>Who checked</p>"
+            "<article data-section='testimonial_1' data-label='T1'>"
+            "<p data-edit='testimonial_1.quote' data-type='text'>Great</p>"
+            "</article>"
+            "</section>"
+            "<footer data-section='footer' data-group='Footer'>Foot</footer>"
+            "</body></html>"
+        )
+        shell, fragments = blocks.split_shell_and_blocks(html)
+        self.assertEqual([key for key, _ in fragments], ["proof"])
+        self.assertIn("testimonial_1", fragments[0][1])
+        self.assertIn('data-region="main"', shell)
+        self.assertNotIn("HEADLINE", shell)
+        matched, snippet = blocks.preview_classic_upgrade(html, {})
+        self.assertTrue(matched, snippet)
+
+    def test_overlays_stay_in_shell_and_nested_cards_stay_in_parent(self):
+        """Any future client page — not a Burrus special case.
+
+        Header/footer stay designed. Body bands become blocks. A mobile menu
+        and video modal stay in the shell even if someone marked them.
+        Nested slides stay inside their parent band.
+        """
+        html = """<!doctype html><html><body>
+        <header class="nav" data-section="nav" data-group="Header" data-label="Nav">
+          <a href="#top">Brand</a>
+        </header>
+        <div class="menu" id="menu" data-section="menu" data-label="Menu">
+          <a href="#faq">FAQ</a>
+        </div>
+        <section data-section="hero" data-label="Hero" data-group="Home">
+          <h1 data-edit="hero.title" data-type="text">Welcome guests</h1>
+        </section>
+        <section data-section="proof" data-label="Proof" data-group="Home">
+          <p data-edit="proof.heading" data-type="text">Who checked</p>
+          <article data-section="quote_1" data-label="Quote">
+            <p data-edit="quote_1.body" data-type="text">Loved it</p>
+          </article>
+        </section>
+        <footer data-section="footer" data-group="Footer" data-label="Footer">
+          <a href="mailto:hi@example.com">hi@example.com</a>
+        </footer>
+        <div class="modal" id="videoModal" data-section="intro_video">Watch later</div>
+        </body></html>"""
+        from django.contrib.auth.models import User
+
+        owner = User.objects.create_user("future", password="x")
+        template = Template.objects.create(name="Any Client", html_source=html)
+        tenant = Tenant.objects.create(
+            name="Future Co", subdomain="futureco", template=template, owner=owner,
+        )
+        matched, snippet = blocks.preview_classic_upgrade(html, {})
+        self.assertTrue(matched, snippet)
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        shell = tenant.template
+        self.assertTrue(shell.is_block_shell)
+        self.assertIn('id="menu"', shell.html_source)
+        self.assertIn("videoModal", shell.html_source)
+        self.assertIn("hi@example.com", shell.html_source)
+        types = [i["type"] for i in tenant.content["regions"]["main"]]
+        self.assertEqual(types, ["hero", "proof"])
+        self.assertNotIn("menu", types)
+        self.assertNotIn("intro_video", types)
+        proof = BlockType.objects.get(key="proof")
+        self.assertIn("quote_1", proof.html_source)
+        rendered = blocks.render_content(shell, tenant.content)
+        self.assertIn("Welcome guests", rendered)
+        self.assertIn("Loved it", rendered)
+        self.assertIn("Watch later", rendered)
+
+    def test_designed_page_keeps_words_after_upgrade(self):
+        """Classic annotated pages still render after the block-editor upgrade.
+
+        Body sections become blocks so Add section works. The designed header
+        and footer stay in the shell (no site-header chrome rewrite), and
+        render must put the extracted sections back into the preview.
         """
         from django.contrib.auth.models import User
 
@@ -595,23 +855,99 @@ class EnsureBlockEditorTests(TestCase):
         )
         blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        html_source = tenant.template.html_source
-        self.assertFalse(tenant.template.is_block_shell)
-        self.assertNotIn('data-region="main"', html_source)
-        self.assertNotIn("site-header-inner", html_source)
-        self.assertIn("Welcome to the course", html_source)
-        self.assertIn("Daniel Burrus", html_source)
-        self.assertIn("Questions we hear a lot", html_source)
-        self.assertIn("Start the course", html_source)
-        self.assertIn("office@burrus.com", html_source)
+        shell = tenant.template
+        self.assertTrue(shell.is_block_shell)
+        self.assertNotIn("site-header-inner", shell.html_source)
+        self.assertIn("Start the course", shell.html_source)
+        self.assertIn("office@burrus.com", shell.html_source)
+        faq = BlockType.objects.get(key="faq_section")
+        self.assertIn("Questions we hear a lot", faq.html_source)
 
-        html = blocks.render_content(tenant.template, tenant.content, preview=True)
+        html = blocks.render_content(shell, tenant.content, preview=True)
         self.assertIn("Welcome to the course", html)
         self.assertIn("Daniel Burrus", html)
         self.assertIn("Questions we hear a lot", html)
         self.assertIn("office@burrus.com", html)
         self.assertIn("cdn.example.com/logo.png", html)
         self.assertIn("data-cms-preview-reveal", html)
+
+    def test_designed_problem_section_stays_designed_after_upgrade(self):
+        """Annotation converts a designed band by adding data-* only.
+
+        The block-editor upgrade must put that same band back: two-tone
+        headline span, framed portrait, quote + attribution, and the page
+        CSS tokens. A hollow region wrapper must not break `body > section`
+        style matching (display:contents on the filled main slot).
+        """
+        from django.contrib.auth.models import User
+
+        designed = """
+        <!DOCTYPE html><html><head><style>
+        :root { --ocean: #929FA7; --snow: #fff; --text-2: rgba(255,255,255,.72); }
+        body > .sec { display: block; }
+        .h-sec { color: var(--snow); }
+        .hl { color: var(--ocean); }
+        .body-t { color: var(--text-2); }
+        .quote cite { letter-spacing: .2em; }
+        .portrait-in::before { content: ""; inset: 14px; border: 1px solid #ccc; }
+        </style></head><body>
+        <header class="nav" data-section="header" data-group="Header" data-label="Header">
+          <a class="brand" href="#top">Burrus</a>
+        </header>
+        <section class="sec sec-alt" id="problem" data-section="problem"
+                 data-label="The Problem" data-group="Sections">
+          <div class="split split-r">
+            <div>
+              <p class="eyebrow" data-edit="problem.eyebrow" data-type="text">The Problem</p>
+              <h2 class="h-sec" data-edit="problem.title" data-type="richtext">
+                Busy isn't a strategy. <span class="hl">It's a symptom.</span>
+              </h2>
+              <p class="body-t" data-edit="problem.paragraph_1" data-type="richtext">
+                The top five executives at General Motors were busy.
+              </p>
+              <blockquote class="quote">
+                <p data-edit="problem.quote" data-type="richtext">
+                  Being busy didn't help them.
+                </p>
+                <cite data-edit="problem.quote_author" data-type="text">Daniel Burrus</cite>
+              </blockquote>
+            </div>
+            <figure class="portrait">
+              <div class="portrait-in">
+                <img alt="" data-edit="problem.portrait" data-type="image"
+                     src="https://cdn.example.com/problem.jpg"/>
+              </div>
+            </figure>
+          </div>
+        </section>
+        <footer data-section="footer" data-group="Footer" data-label="Footer">
+          <a href="mailto:office@burrus.com">office@burrus.com</a>
+        </footer>
+        </body></html>
+        """
+        owner = User.objects.create_user("design", password="x")
+        template = Template.objects.create(name="Designed", html_source=designed)
+        tenant = Tenant.objects.create(
+            name="Designed", subdomain="designed", template=template, owner=owner,
+            content={},
+        )
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        frag = BlockType.objects.get(key="problem").html_source
+        self.assertIn('class="hl"', frag)
+        self.assertIn("portrait-in", frag)
+        self.assertIn("Daniel Burrus", frag)
+        self.assertIn("split-r", frag)
+
+        html = blocks.render_content(tenant.template, tenant.content, preview=True)
+        self.assertIn('class="hl"', html)
+        self.assertIn("It's a symptom.", html)
+        self.assertIn("Daniel Burrus", html)
+        self.assertIn("cdn.example.com/problem.jpg", html)
+        self.assertIn("portrait-in", html)
+        self.assertIn("--ocean: #929FA7", html)
+        self.assertIn("display:contents", html.replace(" ", ""))
+        self.assertNotIn("site-header-inner", html)
 
     def test_already_wrapped_shell_does_not_wipe_footer(self):
         """A template already rewritten by the old chrome upgrader still has

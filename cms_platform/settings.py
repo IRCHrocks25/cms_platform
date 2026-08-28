@@ -152,6 +152,7 @@ def _csrf_trusted_origins():
 
 
 CSRF_TRUSTED_ORIGINS = lazy(_csrf_trusted_origins, list)()
+CSRF_FAILURE_VIEW = "core.csrf.csrf_failure"
 
 
 INSTALLED_APPS = [
