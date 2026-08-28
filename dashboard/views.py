@@ -13,6 +13,7 @@ from django.db.models import Count, Max, Q
 from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -2917,10 +2918,76 @@ def page_delete_self(request, page_pk):
 # --------------------------------------------------------------------------- #
 
 
+def _block_form_partial(request, tenant, page=None):
+    """JSON fragment for one newly added block: server-rendered form section.
+
+    Used by the editor so Add / Duplicate can insert fields in place instead of
+    reloading the whole dashboard. ``type`` is an allowlisted block key; ``id``
+    is the client-minted instance id that will be saved next.
+    """
+    from core.services import blocks as _blocks
+
+    editable = page or tenant
+    tpl = getattr(editable, "template", None)
+    if not tpl or not tpl.is_block_shell:
+        return JsonResponse({"ok": False, "error": "Not a block page."}, status=400)
+    if not _client_may_edit_content(request, editable):
+        return JsonResponse(
+            {"ok": False, "error": "This site isn't set up for editing yet."},
+            status=403,
+        )
+    block_type = (request.GET.get("type") or "").strip()
+    inst_id = (request.GET.get("id") or "").strip()
+    if not inst_id.startswith("blk_") or not _INSTANCE_ID_RE.match(inst_id):
+        return JsonResponse({"ok": False, "error": "Invalid block id."}, status=400)
+    catalog = _blocks.catalog_for_template(tpl)
+    entry = catalog.get(block_type)
+    if not entry:
+        return JsonResponse({"ok": False, "error": "Unknown block type."}, status=400)
+    fields = []
+    for field in (entry.get("schema") or {}).get("fields", []):
+        fentry = dict(field)
+        fentry["id"] = f"{inst_id}.{field['id']}"
+        fields.append(fentry)
+    slot_names = entry.get("regions") or []
+    section = {
+        "id": inst_id,
+        "label": entry.get("label") or block_type,
+        "icon": entry.get("icon") or "square",
+        "fields": fields,
+        "is_instance": True,
+        "block_type": block_type,
+        "depth": 0,
+        "parent_id": "",
+        "region": "main",
+        "is_layout": bool(slot_names),
+    }
+    schema = (
+        build_schema(tpl.html_source)
+        if tpl.html_source
+        else ((tpl.schema if tpl else None) or {"sections": []})
+    )
+    site_link_targets = [{"value": "/", "label": "Home"}]
+    for p in tenant.pages.all():
+        site_link_targets.append({"value": f"/{p.slug}/", "label": p.title})
+    site_link_targets.append({"value": "/blog/", "label": "Blog"})
+    html = render_to_string(
+        "dashboard/partials/block_form_section.html",
+        {
+            "section": section,
+            "link_targets": site_link_targets + schema.get("link_targets", []),
+        },
+        request=request,
+    )
+    return JsonResponse({"ok": True, "section": html})
+
+
 def _render_editor(request, tenant, *, scope, page=None):
     # The editor drives either the tenant home (page=None) or one inner Page.
     # Both expose the same template / content / is_published shape, so the only
     # differences are the action URLs and the bar labels.
+    if request.GET.get("block_form"):
+        return _block_form_partial(request, tenant, page=page)
     editable = page or tenant
     from core.services import blocks as _blocks
 

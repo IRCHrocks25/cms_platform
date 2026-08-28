@@ -1,0 +1,14 @@
+<div class="editor-form-section{% if section.is_layout %} is-layout-block{% endif %}" id="section-{{ section.id }}" data-section-id="{{ section.id }}"{% if section.is_instance %} data-instance-id="{{ section.id }}" data-block-type="{{ section.block_type }}" data-depth="{{ section.depth }}" data-parent-id="{{ section.parent_id|default_if_none:'' }}" data-region="{{ section.region }}"{% if section.is_layout %} data-is-layout="1"{% endif %}{% endif %}>
+  <div class="editor-form-section-head">
+    <h2>{{ section.label }}</h2>
+    <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
+  </div>
+  <div class="stack-5">
+    {% for field in section.fields %}
+      {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+    {% endfor %}
+    {% if section.is_layout and not section.fields %}
+      <p class="field-hint layout-block-hint">This is a container. Click <strong>+ Add block</strong> in a column, or keep this selected and use Quick Add to drop elements inside it.</p>
+    {% endif %}
+  </div>
+</div>

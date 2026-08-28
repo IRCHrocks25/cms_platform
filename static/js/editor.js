@@ -38,6 +38,7 @@
   var MAX_BLOCKS = 40;
   var MAX_DEPTH = (window.CMS && window.CMS.maxBlockDepth) || 2;
   var structuralReload = false;
+  var skipLayerClick = false;
   // Drag state shared between the palette cards and the form-panel drop zones.
   // { kind: "new", type } when dragging a palette card; { kind: "move", id }
   // when reordering an existing section.
@@ -301,6 +302,10 @@
     var name = headerDestName(path);
     return name.indexOf("header") === 0 || name === "nav";
   }
+  function saveAndRefreshHeader() {
+    renderHeaderPanel();
+    livePreviewReload(null);
+  }
   function addHeaderLink(label, href) {
     var h = ensureHeader();
     h.menu.push({
@@ -309,14 +314,14 @@
       href: href || "/",
       page_id: null,
     });
-    saveAndReload();
+    saveAndRefreshHeader();
   }
   function enableHeaderButton() {
     var h = ensureHeader();
     h.button.on = true;
     if (!h.button.label) h.button.label = "Get Started";
     if (!h.button.href) h.button.href = "#";
-    saveAndReload();
+    saveAndRefreshHeader();
   }
   function setHeaderLogo(url) {
     var h = ensureHeader();
@@ -324,13 +329,12 @@
     h.logo = url || "";
     if (url && !had) h.show_name = false;
     if (!url) h.show_name = true;
-    renderHeaderPanel();
-    saveAndReload();
+    saveAndRefreshHeader();
   }
   function setHeaderLayout(layout) {
     if (["classic", "packed", "centered"].indexOf(layout) === -1) return;
     ensureHeader().layout = layout;
-    saveAndReload();
+    saveAndRefreshHeader();
   }
   function setHeaderMenuLabel(id, html) {
     var h = ensureHeader();
@@ -479,14 +483,12 @@
       var t = e.target;
       if (t.hasAttribute("data-header-show-name")) {
         h.show_name = !!t.checked;
-        renderHeaderPanel();
-        saveAndReload();
+        saveAndRefreshHeader();
         return;
       }
       if (t.hasAttribute("data-header-btn-on")) {
         h.button.on = !!t.checked;
-        renderHeaderPanel();
-        saveAndReload();
+        saveAndRefreshHeader();
         return;
       }
       var row = t.closest("[data-header-row]");
@@ -502,7 +504,7 @@
       item.page_id = t.value === "" ? null : parseInt(t.value, 10);
       if (isNaN(item.page_id)) item.page_id = null;
       item.href = (opt && opt.getAttribute("data-url")) || "/";
-      saveAndReload();
+      saveAndRefreshHeader();
     });
     panel.addEventListener("click", function (e) {
       if (e.target.closest("[data-header-logo-gallery]")) {
@@ -536,7 +538,7 @@
       if (idx < 0) return;
       if (e.target.closest("[data-header-del]")) {
         h.menu.splice(idx, 1);
-        saveAndReload();
+        saveAndRefreshHeader();
         return;
       }
       var move = e.target.closest("[data-header-move]");
@@ -547,7 +549,7 @@
         var tmp = h.menu[idx];
         h.menu[idx] = h.menu[next];
         h.menu[next] = tmp;
-        saveAndReload();
+        saveAndRefreshHeader();
       }
     });
     var logoFile = panel.querySelector("[data-header-logo-file]");
@@ -749,10 +751,9 @@
         hasUnsavedChanges = false;
         setStatus("saved");
         if (structuralReload) {
-          // A structural block op (add/remove/reorder/duplicate) changes the
-          // form + layers + preview structure — a full editor reload is the
-          // simplest correct way to reflect the server-reconciled regions.
-          // Stash the canvas scroll so we land back where we were, not at top.
+          // A few structural ops still need a full editor reload (empty-page
+          // zero-state, header chrome). Stash the canvas scroll so we land
+          // back where we were, not at the top.
           structuralReload = false;
           stashPreviewScroll();
           window.location.reload();
@@ -1609,7 +1610,7 @@
     document.querySelectorAll(".editor-form-section[data-section-id]").forEach(function (sec) {
       if (sec.closest && sec.closest('[data-panel="brand"]')) return;
       var head = sec.querySelector(".editor-form-section-head");
-      if (!head) return;
+      if (!head || head.querySelector(".cms-vis-toggle")) return;
       var id = sec.getAttribute("data-section-id");
       if (isHidden(id)) sec.classList.add("cms-form-hidden");
       head.appendChild(makeVisToggle(id));
@@ -1617,6 +1618,7 @@
     // Per-field toggles — skip Brand fields too.
     document.querySelectorAll(".field[data-field-id]").forEach(function (node) {
       if (node.closest && node.closest('[data-panel="brand"]')) return;
+      if (node.querySelector(".cms-vis-toggle")) return;
       var id = node.getAttribute("data-field-id");
       if (isHidden(id)) node.classList.add("cms-form-hidden");
       node.classList.add("cms-has-vis");
@@ -2361,8 +2363,7 @@
 
   // Delete is live too: prune the removed subtree's form sections + layer
   // entries, refresh the surviving blocks' controls, and reload just the
-  // preview. (Duplicate still reloads: its new block needs a server-rendered,
-  // event-wired form section that can't be cloned client-side.)
+  // preview. Add / duplicate mount new form sections in place the same way.
   function deleteResync(removedIds) {
     if (currentBlockId && removedIds.indexOf(currentBlockId) !== -1) closeBlockDrawer();
     removedIds.forEach(function (rid) {
@@ -2513,6 +2514,190 @@
     return inst;
   }
 
+  // ---- live add / duplicate (no full-page flash) -------------------------
+  // Mount a new form section + Layers row, wire fields, then save + reload
+  // only the preview iframe. Falls back to a full reload if the fragment
+  // cannot be built (unknown type, network error).
+  function hideZeroState() {
+    var zero = document.querySelector(".editor-zero-state");
+    if (zero && zero.parentNode) zero.parentNode.removeChild(zero);
+    syncCanvasStart();
+  }
+
+  function stripInjectedChrome(sec) {
+    if (!sec) return;
+    sec.querySelectorAll(".block-controls, .block-drag-grip, .layout-add-row, .cms-vis-toggle").forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    sec.classList.remove("cms-block-active", "cms-drop-target", "cms-dragging",
+      "block-depth-1", "block-depth-2");
+    sec.removeAttribute("data-cms-dnd");
+    sec.querySelectorAll("[data-cms-bound]").forEach(function (n) { n.removeAttribute("data-cms-bound"); });
+    sec.querySelectorAll("[data-cms-style-bound]").forEach(function (n) { n.removeAttribute("data-cms-style-bound"); });
+  }
+
+  function rewriteInstanceIds(root, fromId, toId) {
+    if (!root || !fromId || !toId || fromId === toId) return;
+    var attrs = [
+      "id", "for", "data-field-id", "data-bind", "data-bind-image", "data-bind-color",
+      "data-gallery-pick", "data-style-panel", "data-style-pick-image", "data-ghl-picker",
+      "data-instance-id", "data-section-id", "data-parent-id", "data-vis-id",
+      "aria-describedby", "aria-labelledby",
+    ];
+    function rewrite(node) {
+      if (!node || !node.getAttribute) return;
+      attrs.forEach(function (a) {
+        var v = node.getAttribute(a);
+        if (v && v.indexOf(fromId) !== -1) node.setAttribute(a, v.split(fromId).join(toId));
+      });
+    }
+    rewrite(root);
+    if (root.querySelectorAll) root.querySelectorAll("*").forEach(rewrite);
+  }
+
+  function makeLayerLink(sec) {
+    var id = sec.getAttribute("data-instance-id");
+    var labelEl = sec.querySelector(".editor-form-section-head h2");
+    var label = labelEl ? (labelEl.textContent || "").trim() : "Section";
+    var isLayout = sec.getAttribute("data-is-layout") === "1";
+    var depth = parseInt(sec.getAttribute("data-depth") || "0", 10) || 0;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sidebar-link" + (isLayout ? " is-layout" : "") + (depth ? " is-nested" : "");
+    btn.setAttribute("data-jump", id);
+    btn.setAttribute("data-depth", String(depth));
+    btn.style.setProperty("--tree-depth", String(depth));
+    var icon = isLayout
+      ? '<rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/>'
+      : (depth
+        ? '<circle cx="12" cy="12" r="3.2"/>'
+        : '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>');
+    var iconFill = depth && !isLayout ? "currentColor" : "none";
+    btn.innerHTML =
+      '<span class="sidebar-link-icon" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" fill="' + iconFill + '" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + icon + "</svg>" +
+      "</span>" +
+      '<span class="sidebar-link-text"></span>';
+    btn.querySelector(".sidebar-link-text").textContent = label;
+    return btn;
+  }
+
+  function ensureLayersGroup() {
+    var aside = document.querySelector(".editor-sidebar");
+    if (!aside) return null;
+    var groups = aside.querySelectorAll(".sidebar-group");
+    for (var i = 0; i < groups.length; i++) {
+      var label = groups[i].querySelector(".sidebar-group-label");
+      var text = label ? (label.textContent || "").trim() : "";
+      if (text === "Sections" || groups[i].querySelector(".sidebar-link:not([data-chrome])")) {
+        return groups[i];
+      }
+    }
+    var grp = document.createElement("div");
+    grp.className = "sidebar-group";
+    grp.innerHTML = '<div class="sidebar-group-label">Sections</div>';
+    aside.appendChild(grp);
+    return grp;
+  }
+
+  function insertMountedSection(sec) {
+    hideZeroState();
+    var panel = document.querySelector('.editor-tab-panel[data-panel="content"]');
+    if (panel) panel.appendChild(sec);
+    var grp = ensureLayersGroup();
+    if (grp) {
+      var link = makeLayerLink(sec);
+      grp.appendChild(link);
+      bindLayerLink(link);
+    }
+    bindFormSectionDnD(sec);
+    if (typeof bindEditorFields === "function") bindEditorFields(sec);
+    injectVisibilityToggles();
+    sec.querySelectorAll("[data-gallery-pick]").forEach(function (btn) {
+      if (btn.getAttribute("data-cms-gallery") === "1") return;
+      btn.setAttribute("data-cms-gallery", "1");
+      btn.addEventListener("click", function () {
+        if (openContentGallery) openContentGallery(btn.getAttribute("data-gallery-pick"));
+      });
+    });
+  }
+
+  function mountFromClone(sourceSec, fromId, toId) {
+    var sec = sourceSec.cloneNode(true);
+    stripInjectedChrome(sec);
+    rewriteInstanceIds(sec, fromId, toId);
+    insertMountedSection(sec);
+    return sec;
+  }
+
+  function fetchBlockForm(type, id) {
+    var url;
+    try {
+      var parsed = new URL(window.location.href);
+      parsed.searchParams.set("block_form", "1");
+      parsed.searchParams.set("type", type);
+      parsed.searchParams.set("id", id);
+      url = parsed.toString();
+    } catch (e) {
+      url = window.location.pathname + "?block_form=1&type=" + encodeURIComponent(type) +
+        "&id=" + encodeURIComponent(id);
+    }
+    return fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok || !data.ok || !data.section) {
+          return Promise.reject(data);
+        }
+        return data.section;
+      });
+    });
+  }
+
+  function mountFromHtml(html) {
+    var wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    var sec = wrap.querySelector(".editor-form-section");
+    if (!sec) throw new Error("empty block form");
+    insertMountedSection(sec);
+    return sec;
+  }
+
+  function mountOneSpec(spec) {
+    if (spec.sourceId) {
+      var src = document.querySelector('.editor-form-section[data-instance-id="' + spec.sourceId + '"]');
+      if (src) {
+        mountFromClone(src, spec.sourceId, spec.id);
+        return Promise.resolve();
+      }
+    }
+    if (spec.type) {
+      var same = document.querySelector('.editor-form-section[data-block-type="' + spec.type + '"]');
+      if (same) {
+        mountFromClone(same, same.getAttribute("data-instance-id"), spec.id);
+        return Promise.resolve();
+      }
+      return fetchBlockForm(spec.type, spec.id).then(mountFromHtml);
+    }
+    var loc = findInstanceLoc(spec.id);
+    if (loc && loc.inst && loc.inst.type) {
+      return fetchBlockForm(loc.inst.type, spec.id).then(mountFromHtml);
+    }
+    return Promise.reject(new Error("cannot mount block"));
+  }
+
+  function mountLiveBlocks(specs, focusId) {
+    Promise.all(specs.map(mountOneSpec)).then(function () {
+      saveAndResync(focusId);
+      if (focusId) openBlockSettings(focusId);
+    }).catch(function () {
+      setPendingFocus(focusId);
+      saveAndReload();
+    });
+  }
+
   function addBlock(type, destPath) {
     if (isHeaderDest(destPath)) {
       pendingBlockStyle = null;
@@ -2551,8 +2736,7 @@
       content._styles[inst.id + ".__block"] = pendingBlockStyle;
       pendingBlockStyle = null;
     }
-    setPendingFocus(inst.id);
-    saveAndReload();
+    mountLiveBlocks([{ id: inst.id, type: type }], inst.id);
   }
 
   // Total instances in a subtree (the block itself plus every nested child).
@@ -2575,14 +2759,17 @@
         JSON.parse(JSON.stringify(content._styles[fid]));
     });
   }
-  function cloneInstance(inst) {
+  function cloneInstance(inst, idMap) {
     var copy = { id: newInstanceId(), type: inst.type,
                  fields: JSON.parse(JSON.stringify(inst.fields || {})) };
+    if (idMap) idMap[inst.id] = copy.id;
     remapStylesForClone(inst.id, copy.id);
     if (inst.children && typeof inst.children === "object") {
       copy.children = {};
       Object.keys(inst.children).forEach(function (name) {
-        copy.children[name] = (inst.children[name] || []).map(cloneInstance);
+        copy.children[name] = (inst.children[name] || []).map(function (child) {
+          return cloneInstance(child, idMap);
+        });
       });
     }
     return copy;
@@ -2598,10 +2785,12 @@
       window.alert("This page has reached the maximum of " + MAX_BLOCKS + " sections.");
       return;
     }
-    var clone = cloneInstance(loc.inst);
+    var idMap = {};
+    var clone = cloneInstance(loc.inst, idMap);
     loc.list.splice(loc.index + 1, 0, clone);
-    setPendingFocus(clone.id);
-    saveAndReload();
+    mountLiveBlocks(Object.keys(idMap).map(function (oldId) {
+      return { id: idMap[oldId], type: null, sourceId: oldId };
+    }), clone.id);
   }
 
   function moveBlock(id, dir) {
@@ -3256,8 +3445,7 @@
     if (!list) { window.alert("That destination is no longer available."); return; }
     var inst = makeInstance(type);
     listInsertBefore(list, inst, beforeId);
-    setPendingFocus(inst.id);
-    saveAndReload();
+    mountLiveBlocks([{ id: inst.id, type: type }], inst.id);
   }
 
   // Canvas drag-reorder of an EXISTING block to a resolved {dest, beforeId}.
@@ -3284,12 +3472,10 @@
     saveAndResync(id);
   }
 
-  function initFormDnD() {
-    var panel = document.querySelector('.editor-tab-panel[data-panel="content"]');
-    if (!panel) return;
-    var sections = panel.querySelectorAll(".editor-form-section[data-instance-id]");
-    sections.forEach(function (sec) {
-      sec.addEventListener("dragover", function (e) {
+  function bindFormSectionDnD(sec) {
+    if (!sec || sec.getAttribute("data-cms-dnd") === "1") return;
+    sec.setAttribute("data-cms-dnd", "1");
+    sec.addEventListener("dragover", function (e) {
         if (!dragPayload) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = dragPayload.kind === "new" ? "copy" : "move";
@@ -3312,8 +3498,7 @@
             } else {
               var inst = makeInstance(dragPayload.type);
               target.list.splice(target.index + 1, 0, inst);
-              setPendingFocus(inst.id);
-              saveAndReload();
+              mountLiveBlocks([{ id: inst.id, type: dragPayload.type }], inst.id);
             }
           }
         } else if (dragPayload.kind === "move" && dragPayload.id !== sec.getAttribute("data-instance-id")) {
@@ -3348,7 +3533,12 @@
         });
         head.addEventListener("dragend", function () { dragPayload = null; clearDropHints(); sec.classList.remove("cms-dragging"); });
       }
-    });
+  }
+
+  function initFormDnD() {
+    var panel = document.querySelector('.editor-tab-panel[data-panel="content"]');
+    if (!panel) return;
+    panel.querySelectorAll(".editor-form-section[data-instance-id]").forEach(bindFormSectionDnD);
   }
 
   // After a structural reload, restore the user's place: re-select the block
@@ -3518,10 +3708,11 @@
   }
 
   // ---- bind fields -----------------------------------------------------
-  function init() {
-    // Tab switching (Content / Brand) is wired inline in editor.html so it is
-    // immune to static-file caching; window.cmsSwitchTab is exposed there.
-    document.querySelectorAll("[data-field-id]").forEach(function (node) {
+  function bindEditorFields(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-field-id]").forEach(function (node) {
+      if (node.getAttribute("data-cms-bound") === "1") return;
+      node.setAttribute("data-cms-bound", "1");
       var fieldId = node.dataset.fieldId;
       var ftype = node.dataset.fieldType;
       var current = getValue(fieldId) || "";
@@ -3881,7 +4072,9 @@
     // Per-field Style panel — whole-element styling (colour/size/font/weight/
     // italic/align). Colours use a custom picker (swatch) rather than presets.
     // Selection-level styling is separate (the floating bubble on the preview).
-    document.querySelectorAll("[data-style-panel]").forEach(function (panel) {
+    root.querySelectorAll("[data-style-panel]").forEach(function (panel) {
+      if (panel.getAttribute("data-cms-style-bound") === "1") return;
+      panel.setAttribute("data-cms-style-bound", "1");
       var fieldId = panel.getAttribute("data-style-panel");
       var current = getStyle(fieldId);
 
@@ -3994,6 +4187,12 @@
         });
       });
     });
+  }
+
+  function init() {
+    // Tab switching (Content / Brand) is wired inline in editor.html so it is
+    // immune to static-file caching; window.cmsSwitchTab is exposed there.
+    bindEditorFields(document);
 
     // Bind global Design controls (fonts / size dropdowns + color swatches).
     cmsLoadEditorFonts();
@@ -4046,9 +4245,14 @@
     }
 
     // sidebar jump + drag a block onto another section in Layers
-    var skipLayerClick = false;
-    document.querySelectorAll(".sidebar-link").forEach(function (link) {
-      var isChrome = link.getAttribute("data-chrome") === "1";
+    document.querySelectorAll(".sidebar-link").forEach(bindLayerLink);
+    __cmsContinueInit();
+  }
+
+  function bindLayerLink(link) {
+    if (!link || link.getAttribute("data-cms-layer") === "1") return;
+    link.setAttribute("data-cms-layer", "1");
+    var isChrome = link.getAttribute("data-chrome") === "1";
       if (BLOCKS && !isChrome) {
         link.setAttribute("draggable", "true");
         link.setAttribute("title", "Drag onto another section to move it");
@@ -4144,8 +4348,9 @@
         if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
         scrollPreviewToSection(id); // mirror the jump in the live preview
       });
-    });
+  }
 
+  function __cmsContinueInit() {
     // sidebar search
     var search = document.getElementById("section-search");
     if (search) {

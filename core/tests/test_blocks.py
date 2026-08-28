@@ -1681,3 +1681,71 @@ class RenderParityTests(TestCase):
         for marker in ("data-cms-label", "data-empty-region", "data-cms-add-here",
                        "cms-editable", "PREVIEW_BRIDGE", "cms-sel-frame"):
             self.assertNotIn(marker, public, f"preview-only chrome '{marker}' leaked to public render")
+
+
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+
+
+@override_settings(
+    TENANT_BASE_DOMAIN="localhost",
+    ALLOWED_HOSTS=["*"],
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    },
+)
+class BlockFormPartialTests(TestCase):
+    """Add-section fragment: server-rendered fields without a full editor reload."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.staff = User.objects.create_user("op", password="x", is_staff=True)
+        self.tpl = Template.objects.create(name="Shell", html_source=SHELL)
+        self.block = BlockType.objects.create(
+            key="testimonial",
+            label="Testimonial",
+            html_source=TESTIMONIAL,
+        )
+        self.tpl.allowed_block_types.add(self.block)
+        self.tenant = Tenant.objects.create(
+            name="Acme",
+            subdomain="acme",
+            template=self.tpl,
+            owner=self.staff,
+        )
+        self.client.force_login(self.staff)
+
+    def test_returns_form_section_for_allowlisted_type(self):
+        url = reverse("dashboard:tenant_editor", args=[self.tenant.pk])
+        resp = self.client.get(
+            url,
+            {"block_form": "1", "type": "testimonial", "id": "blk_abcdef01"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        html = data["section"]
+        self.assertIn('data-instance-id="blk_abcdef01"', html)
+        self.assertIn('data-block-type="testimonial"', html)
+        self.assertIn('data-field-id="blk_abcdef01.quote"', html)
+        self.assertIn('data-field-id="blk_abcdef01.author"', html)
+        self.assertNotIn("<html", html.lower())
+
+    def test_rejects_unknown_type_and_bad_id(self):
+        url = reverse("dashboard:tenant_editor", args=[self.tenant.pk])
+        bad_type = self.client.get(
+            url,
+            {"block_form": "1", "type": "not-a-block", "id": "blk_abcdef01"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(bad_type.status_code, 400)
+        bad_id = self.client.get(
+            url,
+            {"block_form": "1", "type": "testimonial", "id": "nope"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(bad_id.status_code, 400)
