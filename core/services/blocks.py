@@ -1034,3 +1034,143 @@ def normalize_for_diff(html: str) -> str:
     out = str(soup)
     out = re.sub(r">\s+<", "><", out)
     return re.sub(r"\s+", " ", out).strip()
+
+
+def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]:
+    from core.parser import build_block_schema
+
+    catalog: dict[str, dict] = {}
+    for key, frag in fragments:
+        schema = build_block_schema(frag)
+        catalog[key] = {
+            "key": key,
+            "label": schema.get("label") or key,
+            "icon": schema.get("icon") or "square",
+            "category": schema.get("category") or "General",
+            "schema": schema,
+            "html": frag,
+        }
+    return catalog
+
+
+def attach_builder_primitives(template) -> None:
+    """Allowlist the shared primitive catalog on a shell (idempotent)."""
+    if template is None or not template.is_block_shell:
+        return
+    from core.management.commands.seed_builder_blocks import seed_block_types
+
+    block_types, _created, _updated = seed_block_types()
+    if block_types:
+        template.allowed_block_types.add(*block_types)
+    new_html = upgrade_shell_chrome_slots(template.html_source or "")
+    if new_html != (template.html_source or ""):
+        template.html_source = new_html
+        template.save()
+
+
+def apply_classic_upgrade(template, *, region: str = "main") -> None:
+    """Convert a classic annotated template and every page that uses it.
+
+    Chrome stays in the shell; body sections become allowlisted blocks and
+    each tenant/page's ``{section: fields}`` content is rewritten into
+    ``regions``. Original content is kept under ``_classic`` for rollback.
+    """
+    from django.db import transaction
+
+    from core.models import BlockType, Page, Tenant
+    from core.parser import build_block_schema
+
+    if template.is_block_shell:
+        attach_builder_primitives(template)
+        return
+
+    old_html = template.html_source or ""
+    shell_html, fragments = split_shell_and_blocks(old_html, region=region)
+    if not fragments:
+        soup = BeautifulSoup(old_html, "lxml")
+        host = soup.body or soup
+        slot = soup.new_tag("div")
+        slot["data-region"] = region
+        host.append(slot)
+        shell_html = str(soup)
+
+    block_keys = [k for k, _ in fragments]
+    editables = list(Tenant.objects.filter(template=template))
+    editables += list(Page.objects.filter(template=template))
+    conversions = [
+        (ed, convert_content_to_regions(ed.content or {}, block_keys, region=region))
+        for ed in editables
+    ]
+
+    with transaction.atomic():
+        block_types = []
+        for key, frag in fragments:
+            schema = build_block_schema(frag)
+            bt, _ = BlockType.objects.get_or_create(
+                key=key,
+                defaults={
+                    "html_source": frag,
+                    "label": schema.get("label") or key,
+                },
+            )
+            bt.html_source = frag
+            bt.label = schema.get("label") or bt.label or key
+            bt.icon = schema.get("icon") or bt.icon or "square"
+            bt.category = schema.get("category") or bt.category or "General"
+            bt.save()
+            block_types.append(bt)
+
+        template.html_source = upgrade_shell_chrome_slots(shell_html)
+        template.save()
+        if block_types:
+            template.allowed_block_types.add(*block_types)
+        attach_builder_primitives(template)
+
+        for ed, new_content in conversions:
+            new_content["_classic"] = ed.content or {}
+            ed.content = new_content
+            ed.save(update_fields=["content"])
+
+
+def _clone_shared_template(template, tenant, user=None):
+    """Never mutate a library/shared template in place (A1)."""
+    from core.models import Page, Tenant
+
+    owned = template.tenant_id == tenant.pk
+    others = Tenant.objects.filter(template=template).exclude(pk=tenant.pk).exists()
+    if owned and not others:
+        return template
+
+    clone = template.clone_for(tenant, user=user)
+    tenant.template = clone
+    tenant.save(update_fields=["template"])
+    Page.objects.filter(tenant=tenant, template=template).update(template=clone)
+    return clone
+
+
+def ensure_block_editor(editable, *, user=None):
+    """Give a classic site the block editor the first time someone opens it.
+
+    Existing copy is converted in place (dual-written to ``_classic``). A
+    shared/library template is cloned onto this tenant first so other sites
+    keep their locked HTML until they open the editor themselves.
+    """
+    from core.models import Page, Tenant
+
+    template = getattr(editable, "template", None)
+    if template is None or not (template.html_source or "").strip():
+        return template
+
+    tenant = editable if isinstance(editable, Tenant) else editable.tenant
+    if not template.is_block_shell:
+        template = _clone_shared_template(template, tenant, user)
+        if isinstance(editable, Tenant) and editable.template_id != template.pk:
+            editable.template = template
+        if isinstance(editable, Page) and editable.template_id != template.pk:
+            editable.template = template
+            editable.save(update_fields=["template"])
+        apply_classic_upgrade(template)
+        template.refresh_from_db()
+    else:
+        attach_builder_primitives(template)
+    return template

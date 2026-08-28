@@ -21,10 +21,9 @@ preserved under a ``_classic`` backup key for rollback (dual-write).
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
-from core.models import BlockType, Page, Template, Tenant
-from core.parser import build_block_schema, build_schema
+from core.models import Page, Template, Tenant
+from core.parser import build_schema
 from core.renderer import (
     merge_with_defaults,
     render_page_from_blocks,
@@ -43,24 +42,7 @@ def _resolve_template(ident: str) -> Template:
     obj = qs.first()
     if obj is None:
         raise CommandError(f"No template matches {ident!r} (pk, slug, or name).")
-    return obj
-
-
-def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]:
-    """Build a render catalog straight from fragment HTML (no DB write) so the
-    diff gate can run before anything is committed."""
-    catalog: dict[str, dict] = {}
-    for key, frag in fragments:
-        schema = build_block_schema(frag)
-        catalog[key] = {
-            "key": key,
-            "label": schema.get("label") or key,
-            "icon": schema.get("icon") or "square",
-            "category": schema.get("category") or "General",
-            "schema": schema,
-            "html": frag,
-        }
-    return catalog
+        return obj
 
 
 class Command(BaseCommand):
@@ -100,7 +82,7 @@ class Command(BaseCommand):
             )
 
         block_keys = [k for k, _ in fragments]
-        catalog = _catalog_from_fragments(fragments)
+        catalog = blocks._catalog_from_fragments(fragments)
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"Template: {template.name} (pk={template.pk})"))
         self.stdout.write(f"  Chrome kept + region '{region}' inserted.")
@@ -138,40 +120,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("\nDry-run only. Re-run with --apply to commit."))
             return
 
-        # ---- commit ------------------------------------------------------ #
-        with transaction.atomic():
-            block_types = []
-            for key, frag in fragments:
-                schema = catalog[key]["schema"]
-                bt, _ = BlockType.objects.get_or_create(
-                    key=key,
-                    defaults={
-                        "html_source": frag,
-                        "label": schema.get("label") or key,
-                    },
-                )
-                bt.html_source = frag
-                bt.label = schema.get("label") or bt.label or key
-                bt.icon = schema.get("icon") or bt.icon or "square"
-                bt.category = schema.get("category") or bt.category or "General"
-                bt.save()  # re-derives schema
-                block_types.append(bt)
-
-            template.html_source = shell_html
-            template.save()  # re-derives (chrome-only) schema
-            template.allowed_block_types.set(block_types)
-
-            for ed, new_content in conversions:
-                # Dual-write: stash the pre-migration content for rollback. The
-                # `_` prefix keeps the renderer from ever reading it.
-                new_content["_classic"] = ed.content or {}
-                ed.content = new_content
-                ed.save(update_fields=["content"])
-
+        blocks.apply_classic_upgrade(template, region=region)
+        template.refresh_from_db()
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nMigrated template '{template.name}': "
-                f"{len(block_types)} block type(s), {len(conversions)} page(s) converted."
+                f"{template.allowed_block_types.count()} block type(s), "
+                f"{len(conversions)} page(s) converted."
             )
         )
 

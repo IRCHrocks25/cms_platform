@@ -472,9 +472,10 @@ class MigrateCommandTests(TestCase):
         template.refresh_from_db()
         tenant.refresh_from_db()
         self.assertTrue(template.is_block_shell)
-        self.assertEqual(
-            set(template.allowed_block_types.values_list("key", flat=True)),
-            {"hero", "about", "menu"},
+        self.assertTrue(
+            {"hero", "about", "menu"}.issubset(
+                set(template.allowed_block_types.values_list("key", flat=True))
+            )
         )
         # content rewritten into ordered instances + dual-write backup kept.
         instances = tenant.content["regions"]["main"]
@@ -491,6 +492,63 @@ class MigrateCommandTests(TestCase):
         template = Template.objects.create(name="Shell2", html_source=SHELL)
         with self.assertRaises(CommandError):
             call_command("migrate_template_to_blocks", str(template.pk))
+
+
+class EnsureBlockEditorTests(TestCase):
+    def test_upgrades_classic_and_keeps_copy(self):
+        from django.contrib.auth.models import User
+
+        owner = User.objects.create_user("own", password="x")
+        template = Template.objects.create(
+            name="Classic",
+            html_source=(
+                "<section data-section='hero' data-label='Hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            ),
+        )
+        tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=template, owner=owner,
+            content={"hero": {"title": "Kept"}},
+        )
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        shell = tenant.template
+        self.assertTrue(shell.is_block_shell)
+        self.assertEqual(tenant.content["regions"]["main"][0]["fields"]["title"], "Kept")
+        self.assertEqual(tenant.content["_classic"]["hero"]["title"], "Kept")
+        self.assertGreaterEqual(shell.allowed_block_types.count(), 20)
+        html = blocks.render_content(shell, tenant.content)
+        self.assertIn("Kept", html)
+
+    def test_clones_shared_library_template(self):
+        from django.contrib.auth.models import User
+
+        a = User.objects.create_user("a", password="x")
+        b = User.objects.create_user("b", password="x")
+        library = Template.objects.create(
+            name="Shared",
+            html_source=(
+                "<section data-section='hero' data-label='Hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            ),
+        )
+        t1 = Tenant.objects.create(
+            name="One", subdomain="one", template=library, owner=a,
+            content={"hero": {"title": "One"}},
+        )
+        t2 = Tenant.objects.create(
+            name="Two", subdomain="two", template=library, owner=b,
+            content={"hero": {"title": "Two"}},
+        )
+        blocks.ensure_block_editor(t1)
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        library.refresh_from_db()
+        self.assertTrue(t1.template.is_block_shell)
+        self.assertNotEqual(t1.template_id, library.pk)
+        self.assertEqual(t2.template_id, library.pk)
+        self.assertFalse(library.is_block_shell)
+        self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
 
 ROW2 = (

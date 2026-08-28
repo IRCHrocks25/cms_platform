@@ -21,6 +21,7 @@ from core.services.annotator import (
     _find_split_root,
     _merge_chunk_results,
     _merge_chunk_usage,
+    _parity_field_count,
     _reconcile_annotated_fields,
     annotate_html,
     annotate_html_result,
@@ -476,7 +477,10 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
             if section["id"] != "brand"
             for field in section["fields"]
         ]
-        self.assertEqual(len(fields), 4)
+        # The text CTA <a> also gets a parser-synthesized ``*_href`` companion.
+        self.assertEqual(_parity_field_count(schema), 4)
+        self.assertEqual(len(fields), 5)
+        self.assertTrue(any(field.get("applies_to") for field in fields))
         self.assertEqual(sum(field["type"] == "image" for field in fields), 1)
         self.assertEqual(result.promoted_sections, 1)
         self.assertEqual(result.salvaged_fields, 3)
@@ -663,10 +667,33 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
             out = annotate_html(html)
 
         soup = BeautifulSoup(out, "lxml")
-        field_count = sum(
-            len(section.get("fields", []))
-            for section in build_schema(out).get("sections", [])
-            if section.get("id") != "brand"
-        )
+        field_count = _parity_field_count(build_schema(out))
         self.assertEqual(len(soup.find_all(attrs={"data-edit": True})), field_count)
         self.assertEqual(soup.find("h1")["data-edit"], "hero.title")
+
+    def test_text_anchor_href_companions_do_not_break_parity(self):
+        """Five text <a>s add five schema-only ``*_href`` fields — the gate
+        that compared raw schema length to data-edit markers rejected those
+        pages (309 vs 314 on a real import)."""
+        html = (
+            "<header data-section='nav' data-group='Header'>"
+            "<a data-edit='nav.home' data-type='text' href='/'>Home</a>"
+            "<a data-edit='nav.about' data-type='text' href='/about'>About</a>"
+            "<a data-edit='nav.work' data-type='text' href='/work'>Work</a>"
+            "<a data-edit='nav.blog' data-type='text' href='/blog'>Blog</a>"
+            "<a data-edit='nav.contact' data-type='text' href='/contact'>Contact</a>"
+            "</header>"
+            "<section data-section='hero'><h1 data-edit='hero.title' "
+            "data-type='text'>Hi</h1></section>"
+        )
+        schema = build_schema(html)
+        soup = BeautifulSoup(html, "lxml")
+        markers = len(soup.find_all(attrs={"data-edit": True}))
+        raw_fields = sum(
+            len(section.get("fields", []))
+            for section in schema.get("sections", [])
+            if section.get("id") != "brand"
+        )
+        self.assertEqual(markers, 6)
+        self.assertEqual(raw_fields, 11)
+        self.assertEqual(_parity_field_count(schema), markers)

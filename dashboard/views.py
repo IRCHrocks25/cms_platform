@@ -2159,12 +2159,16 @@ def _user_can_manage_pages(request):
     """
     if request.user.is_staff or request.user.is_superuser:
         return True
-    tpl = getattr(getattr(request, "tenant", None), "template", None)
+    tenant = getattr(request, "tenant", None)
+    tpl = getattr(tenant, "template", None)
     return bool(tpl and tpl.is_block_shell)
 
 
 def _page_list(request, tenant, scope):
     from core.services import blocks as _blocks
+
+    _blocks.ensure_block_editor(tenant, user=request.user)
+    tenant.refresh_from_db()
 
     can_manage = _user_can_manage_pages(request)
     pages = [
@@ -2197,6 +2201,10 @@ def _page_list(request, tenant, scope):
 
 
 def _page_create(request, tenant, scope):
+    from core.services import blocks as _blocks
+
+    _blocks.ensure_block_editor(tenant, user=request.user)
+    tenant.refresh_from_db()
     nav = _page_nav_urls(scope, tenant)
     title = (request.POST.get("title") or "").strip()
     slug = slugify(request.POST.get("slug") or title)[:80]
@@ -2803,6 +2811,10 @@ def page_list_self(request):
 @tenant_member_required
 @require_POST
 def page_create_self(request):
+    from core.services import blocks as _blocks
+
+    _blocks.ensure_block_editor(request.tenant, user=request.user)
+    request.tenant.refresh_from_db()
     if not _user_can_manage_pages(request):
         messages.error(request, "Adding pages is managed by your agency. Get in touch and they'll set it up.")
         return redirect("dashboard:page_list_self")
@@ -2879,6 +2891,15 @@ def _render_editor(request, tenant, *, scope, page=None):
     # Both expose the same template / content / is_published shape, so the only
     # differences are the action URLs and the bar labels.
     editable = page or tenant
+    from core.services import blocks as _blocks
+
+    _blocks.ensure_block_editor(editable, user=request.user)
+    if page is None:
+        tenant.refresh_from_db()
+        editable = tenant
+    else:
+        page.refresh_from_db()
+        editable = page
     # Build the schema fresh from the template HTML so the editor always reflects
     # the CURRENT parser (per-element style flags, theme tokens, etc.) even for
     # templates whose stored schema predates those features (avoids a stale
@@ -3399,7 +3420,9 @@ class _BlockValidationError(Exception):
 # The exact shape ``core.services.blocks.new_instance_id`` mints:
 # ``blk_`` + token_hex(4) == 8 lowercase hex chars. Accept longer hex runs too
 # in case the mint width ever grows, but nothing outside [a-f0-9].
-_INSTANCE_ID_RE = re.compile(r"^blk_[a-f0-9]{8,}$")
+# Fresh ids are ``blk_`` + hex (E14). Migrated classic sections keep their
+# original slug ids (``hero``, ``about``) so field / style keys still match.
+_INSTANCE_ID_RE = re.compile(r"^(?:blk_[a-f0-9]{8,}|[a-z][a-z0-9_-]{0,79})$")
 
 
 def _sanitize_content_field_values(content: dict, schema: dict) -> None:
