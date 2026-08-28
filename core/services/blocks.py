@@ -1064,14 +1064,57 @@ def _is_root_block(node) -> bool:
     return True
 
 
+def _is_style_glue(node) -> bool:
+    """CSS / comments parked between bands belong to the next band."""
+    if isinstance(node, Comment):
+        return True
+    return isinstance(node, Tag) and node.name in {"style", "link"}
+
+
+def _is_script_glue(node) -> bool:
+    """Init scripts immediately after a band belong to that band."""
+    return isinstance(node, Tag) and node.name == "script"
+
+
+def _absorb_split_glue(primary, primary_ids) -> None:
+    """Move sibling ``<style>`` / ``<script>`` *inside* the neighboring band.
+
+    The renderer mounts only the ``data-section`` wrapper of each fragment, so
+    glue left as a sibling is dropped and carousels (proof, showcase) render
+    as unstyled stacked slides. Style prepends into the next root; script
+    appends onto the previous root.
+    """
+    pending: list = []
+    last_root = None
+    for child in list(primary.children):
+        if id(child) in primary_ids:
+            for node in reversed(pending):
+                child.insert(0, node)
+            pending = []
+            last_root = child
+        elif _is_style_glue(child):
+            pending.append(child)
+        elif _is_script_glue(child) and last_root is not None:
+            last_root.append(child)
+        elif _is_script_glue(child):
+            pending.append(child)
+    if pending and last_root is not None:
+        for node in pending:
+            last_root.append(node)
+
+
 def split_shell_and_blocks(html: str, *, region: str = "main") -> tuple[str, list[tuple[str, str]]]:
     """Split a classic annotated page into (shell_html, [(key, fragment_html)]).
 
     Root ``data-section`` bands become blocks even when they sit inside
-    ``<main>`` (or any other wrapper). Header/footer stay in the shell. The
-    span from the first root block to the last — in the parent that holds
-    most of them — is replaced by a single ``<div data-region="...">``.
+    ``<main>`` (or any other wrapper). Header/footer stay in the shell. A
+    ``<div data-region="...">`` is inserted where the first root sat.
     Nested sections stay inside their parent fragment.
+
+    Designed pages often park ``<style>`` / ``<script>`` as *siblings*
+    between bands (carousel CSS before the proof section, init JS after
+    it). Those are folded into the neighboring section before the band is
+    extracted, so the block keeps its layout and behavior.
     """
     soup = BeautifulSoup(html or "", "lxml")
     host = soup.body or soup
@@ -1087,33 +1130,36 @@ def split_shell_and_blocks(html: str, *, region: str = "main") -> tuple[str, lis
     for node in roots:
         parent_counts[id(node.parent)] = parent_counts.get(id(node.parent), 0) + 1
     primary = max(roots, key=lambda n: parent_counts[id(n.parent)]).parent
-    frag_map = {
-        id(n): ((n.get("data-section") or "").strip(), str(n)) for n in roots
-    }
 
     for node in roots:
         if node.parent is not primary:
             node.extract()
 
     primary_ids = {id(n) for n in roots if n.parent is primary}
+    _absorb_split_glue(primary, primary_ids)
+
+    # Capture fragments *after* glue is inside the band, so the catalog HTML
+    # still has the carousel CSS/JS when the renderer mounts the wrapper.
+    frag_map = {
+        id(n): ((n.get("data-section") or "").strip(), str(n)) for n in roots
+    }
+
     children = list(primary.children)
-    indices = [i for i, n in enumerate(children) if id(n) in primary_ids]
-    if indices:
-        first_i, last_i = indices[0], indices[-1]
-        slot = soup.new_tag("div")
-        slot["data-region"] = region
-        children[first_i].insert_before(slot)
-        for i in range(first_i, last_i + 1):
-            children[i].decompose()
+    first_root = next((n for n in children if id(n) in primary_ids), None)
+    slot = soup.new_tag("div")
+    slot["data-region"] = region
+    if first_root is not None:
+        first_root.insert_before(slot)
+        for child in children:
+            if id(child) in primary_ids:
+                child.extract()
     else:
-        slot = soup.new_tag("div")
-        slot["data-region"] = region
         host.append(slot)
 
     for node in roots:
-        key, frag = frag_map[id(node)]
-        if key:
-            fragments.append((key, frag))
+        mapped = frag_map.get(id(node))
+        if mapped and mapped[0]:
+            fragments.append(mapped)
     return _ensure_region_layout_css(str(soup)), fragments
 
 

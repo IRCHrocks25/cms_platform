@@ -154,14 +154,39 @@ class ClientPageManagementTests(TestCase):
         self.assertTrue(self.classic_tenant.pages.filter(slug="x").exists())
 
     def test_client_cannot_paste_html(self):
-        # A non-staff client's html_source is ignored — they get a shared-shell
-        # page, never a pasted-HTML template.
+        # A hidden html_source without Advanced is ignored — they get a
+        # shared-shell page, never a pasted-HTML template.
         c = self._client()
         c.post(reverse("dashboard:page_create_self"),
                {"title": "Sneaky", "slug": "sneaky",
                 "html_source": "<section data-section='x'></section>"})
         page = self.tenant.pages.get(slug="sneaky")
         self.assertEqual(page.template_id, self.shell.pk)
+
+    def test_client_html_opt_in_converts_to_blocks(self):
+        # Advanced HTML is allowed; annotated sections become a block page.
+        html = (
+            "<section data-section='about' data-label='About'>"
+            "<h1 data-edit='about.title' data-type='text'>Hi</h1></section>"
+        )
+        c = self._client()
+        resp = c.post(
+            reverse("dashboard:page_create_self"),
+            {
+                "title": "From HTML",
+                "slug": "from-html",
+                "start_from": "html",
+                "html_source": html,
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        page = self.tenant.pages.get(slug="from-html")
+        self.assertNotEqual(page.template_id, self.shell.pk)
+        self.assertTrue(page.template.is_block_shell)
+        self.assertEqual(
+            [item["type"] for item in (page.content.get("regions") or {}).get("main") or []],
+            ["about"],
+        )
 
     def test_agency_can_create_block_page_on_shell(self):
         # Agency surface (host = base domain) also composes from the palette on a
@@ -188,6 +213,33 @@ class ClientPageManagementTests(TestCase):
         self.assertEqual([b["type"] for b in main], ["hero"])
         self.assertNotEqual(main[0]["id"], "blk_home")  # fresh id
 
+    def test_agency_html_opt_in_converts_to_blocks(self):
+        html = (
+            "<main>"
+            "<section data-section='about' data-label='About'>"
+            "<h1 data-edit='about.title' data-type='text'>Hi</h1></section>"
+            "</main>"
+        )
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(self.staff)
+        resp = c.post(
+            reverse("dashboard:page_create", args=[self.tenant.pk]),
+            {
+                "title": "From HTML",
+                "slug": "from-html-agency",
+                "start_from": "html",
+                "html_source": html,
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        page = self.tenant.pages.get(slug="from-html-agency")
+        self.assertNotEqual(page.template_id, self.shell.pk)
+        self.assertTrue(page.template.is_block_shell)
+        self.assertEqual(
+            [item["type"] for item in (page.content.get("regions") or {}).get("main") or []],
+            ["about"],
+        )
+
     @override_settings(
         STORAGES={
             "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
@@ -201,15 +253,16 @@ class ClientPageManagementTests(TestCase):
         c.force_login(self.staff)
         resp = c.get(reverse("dashboard:page_list", args=[self.tenant.pk]))
         self.assertEqual(resp.status_code, 200)
-        # Agency create is one HTML-first form with a heading submit — not a
-        # second "Start from" card stacked on top of a buttonless HTML import.
+        # Agency create on a shell offers blank / copy-home plus advanced HTML.
         self.assertContains(resp, "New page")
+        self.assertContains(resp, "Start from")
+        self.assertContains(resp, "Blank page — add sections yourself")
+        self.assertContains(resp, "Advanced — paste designed HTML")
         self.assertContains(resp, "HTML source")
         self.assertContains(resp, 'id="page-create-form"', html=False)
         self.assertContains(
             resp, 'type="submit" form="page-create-form"', html=False
         )
-        self.assertNotContains(resp, "Start from")
         self.assertNotContains(resp, "New page from HTML")
 
     @override_settings(
@@ -226,7 +279,8 @@ class ClientPageManagementTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Start from")
         self.assertContains(resp, "Add page")
-        self.assertNotContains(resp, "HTML source")
+        self.assertContains(resp, "Advanced — paste designed HTML")
+        self.assertContains(resp, "HTML source")
         self.assertNotContains(resp, "New page from HTML")
 
     def test_rename_page(self):

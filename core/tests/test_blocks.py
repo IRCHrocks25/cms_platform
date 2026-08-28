@@ -765,6 +765,61 @@ class EnsureBlockEditorTests(TestCase):
         matched, snippet = blocks.preview_classic_upgrade(html, {})
         self.assertTrue(matched, snippet)
 
+    def test_sibling_style_and_script_stay_with_late_sections(self):
+        """Designed pages park carousel CSS/JS between bands, not inside them.
+
+        Wiping the first-to-last root span used to delete that glue and leave
+        the proof → footer stretch unstyled. Style prepends to the next band;
+        script appends to the previous one. A footer nested in the final CTA
+        travels with that block so it keeps the dark designed background.
+        """
+        html = (
+            "<!doctype html><html><body>"
+            "<header data-section='hero' data-label='Hero'>Get more for less.</header>"
+            "<section data-section='who' data-label='Who'>Built for owners</section>"
+            "<style>.tc-section{background:#080610}.tc-quote{color:#fff}</style>"
+            "<section class='tc-section' data-section='proof' data-label='Proof'>"
+            "<h2>The Proof Is In The Pipeline</h2>"
+            "<p class='tc-quote' id='tc-track'>Quote</p>"
+            "</section>"
+            "<script>window.PROOF_READY=1</script>"
+            "<section class='final-cta' data-section='cta' data-label='CTA'>"
+            "<h2>Ready to see your business on autopilot?</h2>"
+            "<footer>© 2026 Katalyst</footer>"
+            "</section>"
+            "</body></html>"
+        )
+        shell, fragments = blocks.split_shell_and_blocks(html)
+        keys = [key for key, _ in fragments]
+        self.assertEqual(keys, ["who", "proof", "cta"])
+        by_key = dict(fragments)
+        # Glue is folded into the proof band so the mounted wrapper keeps
+        # the carousel CSS/JS (sibling tags would be dropped on extract).
+        self.assertIn(".tc-section{background:#080610}", by_key["proof"])
+        self.assertIn("window.PROOF_READY=1", by_key["proof"])
+        self.assertIn("© 2026 Katalyst", by_key["cta"])
+        self.assertNotIn(".tc-section{background:#080610}", shell)
+        self.assertNotIn("window.PROOF_READY=1", shell)
+        self.assertNotIn("© 2026 Katalyst", shell)
+        self.assertIn("Get more for less.", shell)
+        self.assertNotIn('data-section="proof"', shell)
+
+        from django.contrib.auth.models import User
+
+        owner = User.objects.create_user("latepage", password="x")
+        template = Template.objects.create(name="LatePage", html_source=html)
+        tenant = Tenant.objects.create(
+            name="Late", subdomain="latepage", template=template, owner=owner,
+        )
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        rendered = blocks.render_content(tenant.template, tenant.content)
+        self.assertIn("The Proof Is In The Pipeline", rendered)
+        self.assertIn(".tc-section{background:#080610}", rendered)
+        self.assertIn("window.PROOF_READY=1", rendered)
+        self.assertIn("© 2026 Katalyst", rendered)
+        self.assertIn("Ready to see your business on autopilot?", rendered)
+
     def test_nested_sections_stay_inside_parent_block(self):
         html = (
             "<!doctype html><html><body>"

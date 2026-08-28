@@ -53,6 +53,23 @@ class PageCreateFromHtmlTests(TestCase):
             ["hero"],
         )
 
+    def test_annotated_html_inside_main_converts_to_blocks(self):
+        html = (
+            "<!doctype html><html><body><main>"
+            f"{_HERO}"
+            "</main></body></html>"
+        )
+        r = self.client.post(
+            self.url, {"title": "About", "slug": "about-main", "html_source": html}
+        )
+        self.assertEqual(r.status_code, 302)
+        page = self.tenant.pages.get(slug="about-main")
+        self.assertTrue(page.template.is_block_shell)
+        self.assertEqual(
+            [item["type"] for item in (page.content.get("regions") or {}).get("main") or []],
+            ["hero"],
+        )
+
     def test_blank_html_is_rejected(self):
         self.client.post(
             self.url, {"title": "About", "slug": "about", "html_source": "   "}

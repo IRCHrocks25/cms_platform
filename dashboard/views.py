@@ -2168,12 +2168,10 @@ def _user_can_manage_pages(request):
     """Page create / rename / delete / nav-order.
 
     Agency staff always may. Tenant members (clients) may too when their site
-    runs on a block *shell* — the Phase-2 relaxation of the locked-structure
-    promise. Clients compose pages from the curated block palette on the shared
-    shell, so they still cannot author raw HTML or invent layout; they only
-    stack agency-designed sections. Sites still on a classic (non-shell)
-    template stay agency-managed, because adding a client page there would need
-    pasted HTML. Caps are enforced at create time.
+    runs on a block *shell*. The default path is blank or copy-from — compose
+    from the curated palette. Advanced HTML (paste / fetch / annotate) is
+    allowed when they opt in; that HTML is converted to blocks on create, so
+    they still cannot keep a locked classic page. Caps are enforced at create.
     """
     if request.user.is_staff or request.user.is_superuser:
         return True
@@ -2218,6 +2216,25 @@ def _page_list(request, tenant, scope):
     )
 
 
+def _wants_html_page(request, *, require_explicit=False):
+    """True when this POST should create a page from pasted / annotated HTML.
+
+    Blank and copy-from stay on the shared shell. ``start_from=html`` is the
+    advanced opt-in. Classic agency forms have no radios — any pasted HTML
+    still counts. Clients must pick Advanced so a hidden ``html_source``
+    field cannot sneak a custom template onto a blank page.
+    """
+    start_from = (request.POST.get("start_from") or "").strip()
+    html_source = (request.POST.get("html_source") or "").strip()
+    if start_from == "html":
+        return True
+    if start_from in ("blank", "copy_home") or start_from.startswith("copy_page:"):
+        return False
+    if require_explicit:
+        return False
+    return bool(html_source)
+
+
 def _page_create(request, tenant, scope):
     from core.services import blocks as _blocks
 
@@ -2253,7 +2270,8 @@ def _page_create(request, tenant, scope):
         return redirect(nav["list"])
 
     # Each page owns its OWN template, built from the pasted HTML, so editing one
-    # page's HTML can never affect another page or the home site.
+    # page's HTML can never affect another page or the home site. Annotated
+    # sections are then converted to a block shell (same as opening the editor).
     with transaction.atomic():
         template = Template.objects.create(
             name=f"{tenant.name}: {title}",
@@ -2438,10 +2456,12 @@ def page_list(request, pk):
 @require_POST
 def page_create(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    # Agency UI is HTML-first (one form). Staff can still POST start_from
-    # without html_source to compose a shared-shell page from the palette.
-    if not request.POST.get("html_source") and tenant.template and tenant.template.is_block_shell:
-        return _page_create_shared(request, tenant, "agency")
+    # Blank / copy-home on a block shell shares the site chrome and skips HTML.
+    # Advanced HTML (pasted or annotated) still creates an owned template, then
+    # converts it to blocks.
+    if tenant.template and tenant.template.is_block_shell:
+        if not _wants_html_page(request):
+            return _page_create_shared(request, tenant, "agency")
     return _page_create(request, tenant, "agency")
 
 
@@ -2850,9 +2870,11 @@ def page_create_self(request):
     if not _user_can_manage_pages(request):
         messages.error(request, "Adding pages is managed by your agency. Get in touch and they'll set it up.")
         return redirect("dashboard:page_list_self")
-    # Staff may still paste raw HTML; clients always go through the curated
-    # shared-shell flow (no HTML, blocks only).
-    if request.POST.get("html_source") and (request.user.is_staff or request.user.is_superuser):
+    # Advanced HTML (explicit start_from=html) creates an owned template and
+    # converts it to blocks. Staff on the tenant host can still paste without
+    # the radio (legacy). A hidden html_source on blank/copy is ignored.
+    require_explicit = not (request.user.is_staff or request.user.is_superuser)
+    if _wants_html_page(request, require_explicit=require_explicit):
         return _page_create(request, request.tenant, "tenant")
     return _page_create_shared(request, request.tenant, "tenant")
 

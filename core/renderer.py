@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
@@ -2508,6 +2508,23 @@ def _build_block_instance(
     )
     if wrapper is None:
         return None, None
+    # Carousel CSS/JS is often a sibling of the section in the fragment
+    # (lxml wraps the string in html/body). Fold it into the wrapper so
+    # extract() does not drop the layout.
+    host = wrapper.parent
+    if host is not None:
+        extras = [
+            sib
+            for sib in list(host.children)
+            if sib is not wrapper
+            and isinstance(sib, Tag)
+            and sib.name in {"style", "script", "link"}
+        ]
+        for i, extra in enumerate(extras):
+            if extra.name in {"style", "link"}:
+                wrapper.insert(i, extra)
+            else:
+                wrapper.append(extra)
 
     key = (wrapper.get("data-block") or wrapper.get("data-section") or "").strip()
     # Promote the block to an instance "section": downstream section-based

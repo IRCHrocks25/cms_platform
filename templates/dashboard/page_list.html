@@ -33,9 +33,7 @@
       </a>
     </div>
 
-    {% if can_manage_pages and is_block_shell and scope != "agency" %}
-    {% comment %}Client create on a block shell: no HTML paste — the new page
-    shares the site shell and is composed from the curated block palette.{% endcomment %}
+    {% if can_manage_pages %}{% if is_block_shell or scope == "agency" %}
     <div class="card content-block content-block-spaced">
       {% if at_page_cap %}
         <h3 class="content-block-title">New page</h3>
@@ -60,57 +58,32 @@
             <input class="input" type="text" id="pf-slug" name="slug" maxlength="80" placeholder="about">
           </div>
         </div>
+        {% if is_block_shell %}
         <fieldset class="field m-0">
           <legend class="field-label">Start from</legend>
           <label class="row-inline"><input type="radio" name="start_from" value="blank" checked> Blank page — add sections yourself</label>
-          <label class="row-inline"><input type="radio" name="start_from" value="copy_home"> Copy the sections from my home page</label>
+          <label class="row-inline"><input type="radio" name="start_from" value="copy_home"> Copy the sections from {% if scope == "agency" %}the home page{% else %}my home page{% endif %}</label>
           {% for row in pages %}
             <label class="row-inline"><input type="radio" name="start_from" value="copy_page:{{ row.obj.pk }}"> Copy the sections from “{{ row.obj.title }}”</label>
           {% endfor %}
+          <label class="row-inline"><input type="radio" name="start_from" value="html"> Advanced — paste designed HTML, fetch a URL, or annotate with AI</label>
         </fieldset>
+        {% endif %}
         <p class="field-help m-0">
           Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
-          You'll compose the page from your agency's approved sections — no HTML needed.
+          {% if is_block_shell %}
+            Blank and copy start a block page. If you paste HTML, it becomes editable blocks after you add the page.
+          {% else %}
+            Paste the page HTML, fetch it from a URL, or annotate it with AI, then click Add page. Annotated HTML becomes a block page.
+          {% endif %}
         </p>
-      </form>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    {% if can_manage_pages and scope == "agency" %}
-    <div class="card content-block content-block-spaced">
-      {% if at_page_cap %}
-        <h3 class="content-block-title">New page</h3>
-        <p class="field-help m-0">You've reached the maximum of {{ page_cap }} pages. Delete one to add another.</p>
-      {% else %}
-      <div class="content-block-action-head">
-        <h3 class="content-block-title">New page</h3>
-        <button type="submit" form="page-create-form" class="btn btn-primary">
-          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
-          Add page
-        </button>
-      </div>
-      <form id="page-create-form" method="post" action="{{ nav_urls.new }}" class="stack-5">
-        {% csrf_token %}
-        <div class="row page-create-row">
-          <div class="field field-min-200">
-            <label class="field-label" for="pf-title">Page title</label>
-            <input class="input" type="text" id="pf-title" name="title" maxlength="120" placeholder="About us" required>
-          </div>
-          <div class="field field-min-160">
-            <label class="field-label" for="pf-slug">URL slug</label>
-            <input class="input" type="text" id="pf-slug" name="slug" maxlength="80" placeholder="about">
-          </div>
+        <div data-page-html-source{% if is_block_shell %} hidden{% endif %}>
+          {% include "dashboard/_html_source_editor.html" with html_value="" %}
         </div>
-        <p class="field-help m-0">
-          Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
-          Paste the page HTML, fetch it from a URL, or annotate it with AI, then click Add page.
-        </p>
-        {% include "dashboard/_html_source_editor.html" with html_value="" %}
       </form>
       {% endif %}
     </div>
-    {% endif %}
+    {% endif %}{% endif %}
 
     {% if can_manage_pages and scope == "agency" %}
     <div class="card content-block content-block-spaced">
@@ -492,7 +465,7 @@
     {% else %}
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
-        {% if can_manage_pages and is_block_shell and scope != "agency" %}
+        {% if can_manage_pages and is_block_shell %}
           <p>Add one above. Give it a title and URL slug like <code>about</code> or <code>services</code>, then compose it from the block palette. No HTML needed.</p>
         {% elif can_manage_pages %}
           <p>Add one above. Give it a URL slug like <code>about</code> or <code>services</code>, paste or fetch the HTML, then click Add page.</p>
@@ -502,4 +475,23 @@
       </div>
     {% endif %}
   </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var form = document.getElementById("page-create-form");
+  if (!form) return;
+  var htmlBox = form.querySelector("[data-page-html-source]");
+  if (!htmlBox) return;
+  function sync() {
+    var picked = form.querySelector("[name=start_from]:checked");
+    htmlBox.hidden = !!(picked && picked.value !== "html");
+  }
+  form.addEventListener("change", function (e) {
+    if (e.target && e.target.name === "start_from") sync();
+  });
+  sync();
+})();
+</script>
 {% endblock %}
