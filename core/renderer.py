@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
-from core.parser import effective_field_type
+from core.parser import build_schema, effective_field_type, parse_select_options
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -26,8 +26,19 @@ PREVIEW_BRIDGE_SCRIPT = """
   function send(type, payload) {
     parent.postMessage({ source: 'cms-preview', type: type, payload: payload }, '*');
   }
+  // Answer the editor's readiness ping so a missed initial 'ready' (a handshake
+  // race after a reload) always self-heals. Registered FIRST — before any other
+  // setup — so it responds even if later init throws.
+  window.addEventListener('message', function (e) {
+    if (e.source && e.source !== window.parent) return;
+    var d = e && e.data;
+    if (d && d.source === 'cms-editor' && d.type === 'ping') send('ready', {});
+  });
   var CMS_STYLE_PROP = { color: 'color', bgColor: 'backgroundColor', fontSize: 'fontSize',
-    fontFamily: 'fontFamily', fontWeight: 'fontWeight', align: 'textAlign' };
+    fontFamily: 'fontFamily', fontWeight: 'fontWeight', align: 'textAlign',
+    lineHeight: 'lineHeight', letterSpacing: 'letterSpacing', textTransform: 'textTransform',
+    padding: 'padding', margin: 'margin', width: 'width', maxWidth: 'maxWidth',
+    minHeight: 'minHeight', borderRadius: 'borderRadius' };
   function cmsEnsureFont(family) {
     if (!family) return;
     var safe = String(family).replace(/[^A-Za-z0-9 \\-]/g, '').trim();
@@ -42,6 +53,11 @@ PREVIEW_BRIDGE_SCRIPT = """
       safe.replace(/ /g, '+') + ':wght@300;400;500;600;700;800&display=swap';
     document.head.appendChild(link);
   }
+  function cmsParseGradient(value) {
+    var m = String(value || '').trim().match(/^([0-9]{1,3})deg\s*,\s*(#[0-9A-Fa-f]{3,8})\s*,\s*(#[0-9A-Fa-f]{3,8})$/);
+    if (!m || parseInt(m[1], 10) > 360) return '';
+    return m[1] + 'deg, ' + m[2] + ', ' + m[3];
+  }
   function cmsApplyStyle(el, style) {
     Object.keys(CMS_STYLE_PROP).forEach(function (k) {
       if (style[k] !== undefined && style[k] !== null && style[k] !== '') {
@@ -51,6 +67,69 @@ PREVIEW_BRIDGE_SCRIPT = """
       }
     });
     el.style.fontStyle = style.italic ? 'italic' : '';
+    if (style.padding) el.style.boxSizing = 'border-box';
+    else el.style.boxSizing = '';
+    if (style.maxWidth && !style.margin) {
+      el.style.marginLeft = 'auto';
+      el.style.marginRight = 'auto';
+    }
+    var mode = String(style.bgMode || '').toLowerCase();
+    if (mode !== 'color' && mode !== 'image' && mode !== 'gradient') {
+      mode = style.bgImage ? 'image' : (style.bgGradient ? 'gradient' : 'color');
+    }
+    var layers = [];
+    var overlay = parseInt(style.bgOverlay, 10);
+    if (mode === 'image' && overlay > 0 && overlay <= 80) {
+      var a = (overlay / 100).toFixed(2);
+      layers.push('linear-gradient(rgba(0,0,0,' + a + '),rgba(0,0,0,' + a + '))');
+    }
+    if (mode === 'gradient') {
+      var g = cmsParseGradient(style.bgGradient);
+      if (g) layers.push('linear-gradient(' + g + ')');
+    }
+    if (mode === 'image') {
+      var u = cmsSafeUrl(style.bgImage, { dataImage: true });
+      if (u) layers.push('url("' + String(u).replace(/["')(]/g, '') + '")');
+    }
+    var opacity = parseInt(style.bgOpacity, 10);
+    if (!(opacity >= 1 && opacity <= 100)) opacity = 100;
+    var blur = parseInt(style.bgBlur, 10);
+    if (!(blur >= 1 && blur <= 20)) blur = 0;
+    var useFx = mode === 'image' && layers.length && (opacity < 100 || blur > 0);
+    var fx = el.querySelector(':scope > .cms-bg-fx');
+    if (!useFx) {
+      if (fx) fx.parentNode.removeChild(fx);
+      el.classList.remove('cms-bg-fx-host', 'cms-bg-fx-clip');
+      el.style.backgroundImage = layers.join(',');
+      el.style.backgroundSize = (mode === 'image' && style.bgImage) ? (style.bgSize || 'cover') : '';
+      el.style.backgroundPosition = (mode === 'image' && style.bgImage) ? (style.bgPosition || 'center') : '';
+      el.style.backgroundRepeat = (mode === 'image' && style.bgImage) ? 'no-repeat' : '';
+    } else {
+      if (!fx) {
+        fx = document.createElement('div');
+        fx.className = 'cms-bg-fx';
+        fx.setAttribute('aria-hidden', 'true');
+        el.insertBefore(fx, el.firstChild);
+      }
+      el.classList.add('cms-bg-fx-host');
+      el.classList.toggle('cms-bg-fx-clip', blur > 0);
+      el.style.backgroundImage = '';
+      el.style.backgroundSize = '';
+      el.style.backgroundPosition = '';
+      el.style.backgroundRepeat = '';
+      fx.style.backgroundImage = layers.join(',');
+      fx.style.backgroundSize = style.bgSize || 'cover';
+      fx.style.backgroundPosition = style.bgPosition || 'center';
+      fx.style.backgroundRepeat = 'no-repeat';
+      fx.style.opacity = String(opacity / 100);
+      fx.style.filter = blur ? ('blur(' + blur + 'px)') : '';
+    }
+    var box = {DIV:1,SECTION:1,ARTICLE:1,HEADER:1,FOOTER:1,ASIDE:1,MAIN:1,LI:1};
+    if (mode === 'image' && style.bgImage && box[el.tagName]) {
+      if (!style.minHeight) el.style.minHeight = '220px';
+      if (!style.padding) { el.style.padding = '32px 20px'; el.style.boxSizing = 'border-box'; }
+      el.style.width = '100%';
+    }
     if (style.fontFamily) cmsEnsureFont(style.fontFamily);
     // Text color must also override styled descendants (<em>/<span>/<strong>/
     // <cite> with their own color rule), which a parent color can't do.
@@ -85,6 +164,30 @@ PREVIEW_BRIDGE_SCRIPT = """
     }
     return tpl.innerHTML;
   }
+  // Mirror the server sanitizers so live-typed values can't inject CSS or a
+  // scriptable URL between saves (server re-validates on the next render).
+  function cmsSafeUrl(value, opts) {
+    opts = opts || {};
+    var v = String(value == null ? '' : value).trim();
+    if (!v) return '';
+    if (/[\\x00-\\x1f]/.test(v)) return null;
+    var collapsed = v.replace(/\\s/g, '').toLowerCase();
+    if (collapsed.indexOf('javascript:') === 0 || collapsed.indexOf('vbscript:') === 0 ||
+        collapsed.indexOf('data:text/html') === 0) return null;
+    var low = v.toLowerCase();
+    if (low.indexOf('http://') === 0 || low.indexOf('https://') === 0 ||
+        low.indexOf('mailto:') === 0 || low.indexOf('tel:') === 0) return v;
+    if (opts.dataImage && low.indexOf('data:image/') === 0) return v;
+    if (v.charAt(0) === '/') return v;
+    if (opts.anchor && v.charAt(0) === '#') return v;
+    if (v.split('/')[0].indexOf(':') === -1) return v;
+    return null;
+  }
+  var CMS_SAFE_TOKEN = /^[A-Za-z0-9.%\\-\\s]+$/;
+  var CMS_SAFE_CSS = /^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(?:rgb|rgba|hsl|hsla)\\([0-9.,%\\s\\/]+\\)$/;
+  function cmsSafeCssValue(value) { var v = String(value == null ? '' : value).trim(); return CMS_SAFE_CSS.test(v) ? v : ''; }
+  function cmsSafeToken(value) { var v = String(value == null ? '' : value).trim(); return CMS_SAFE_TOKEN.test(v) ? v : ''; }
+  function cmsSafeFont(value) { return String(value == null ? '' : value).replace(/[^A-Za-z0-9 \\-]/g, '').trim(); }
   // Phrasing hosts (<p>, <h2>, <cite>, ...) can't legally contain a block
   // element. A contenteditable often wraps a typed line in <p>, so setting
   // pHost.innerHTML = "<p>text</p>" makes the browser split the node into an
@@ -115,11 +218,237 @@ PREVIEW_BRIDGE_SCRIPT = """
     return tpl.innerHTML;
   }
   document.querySelectorAll('[data-edit]').forEach(function (el) {
+    if (el.getAttribute('data-header-name') === 'off' || el.hasAttribute('hidden')) return;
     el.classList.add('cms-editable');
+    el.addEventListener('click', function (e) {
+      if (cmsEditingEl === el) return;   // clicking to move the caret while editing
+      e.preventDefault();
+      e.stopPropagation();
+      var blk = el.closest ? el.closest('[data-instance-id]') : null;
+      if (blk) cmsSelectBlock(blk);
+      send('focus-field', { id: el.getAttribute('data-edit') });
+      var inNav = !!(el.closest && el.closest(
+        'header, [data-region^="header"], .site-nav, .site-header-actions, .site-brand'
+      ));
+      var kind = el.getAttribute('data-type') || 'text';
+      if (el.querySelector && el.querySelector('.site-header-logo')) {
+        var chrome = el.closest('[data-section]');
+        send('select-block', { id: chrome ? chrome.getAttribute('data-section') : 'header' });
+        return;
+      }
+      if (inNav && (kind === 'text' || kind === 'richtext')) cmsBeginEdit(el);
+    });
+    // Double-click a text/richtext element to edit it right on the canvas.
+    var dt = el.getAttribute('data-type') || 'text';
+    if (dt === 'image') {
+      el.classList.add('cms-image-editable');
+      el.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var blk = el.closest ? el.closest('[data-instance-id]') : null;
+        if (blk) cmsSelectBlock(blk);
+        send('replace-image', { id: el.getAttribute('data-edit') });
+      });
+    }
+    if (dt === 'text' || dt === 'richtext') {
+      el.classList.add('cms-inline-editable');
+      el.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        cmsBeginEdit(el);
+      });
+    }
+  });
+
+  // ---- inline (in-canvas) text editing ---------------------------------
+  // Double-click makes a text/richtext element contentEditable; blur or Enter
+  // (plain text) commits and echoes text-update so the editor persists it and
+  // syncs the matching form field. Escape reverts. Selection styling (the
+  // floating bubble) keeps working because it manipulates the DOM directly.
+  var cmsEditingEl = null, cmsEditOrig = null;
+  function cmsBeginEdit(el) {
+    if (cmsEditingEl === el) return;
+    if (cmsEditingEl) cmsCommitEdit();
+    var dt = el.getAttribute('data-type') || (el.hasAttribute('data-header-link') ? 'text' : '');
+    if (dt !== 'text' && dt !== 'richtext') return;
+    cmsEditingEl = el;
+    cmsEditOrig = el.innerHTML;
+    el.setAttribute('contenteditable', 'true');
+    el.classList.add('cms-inline-editing');
+    el.focus();
+    // Select the whole element's text so typing replaces it (feels like a
+    // single-line rename); the user can click to place a caret instead.
+    try {
+      var sel = window.getSelection(); sel.removeAllRanges();
+      var r = document.createRange(); r.selectNodeContents(el); sel.addRange(r);
+    } catch (e) {}
+    send('inline-edit', {
+      id: el.getAttribute('data-edit') || el.getAttribute('data-header-link'),
+      editing: true
+    });
+  }
+  function cmsReadEditable(el) {
+    var dt = el.getAttribute('data-type') || 'text';
+    // Plain text stays plain unless it carries inline markup (styled spans,
+    // links, <br>) — then store HTML, mirroring apply-content's text branch.
+    if (dt === 'richtext') return el.innerHTML;
+    return el.querySelector('*') ? el.innerHTML : el.textContent;
+  }
+  function cmsEndEdit(el) {
+    el.removeAttribute('contenteditable');
+    el.classList.remove('cms-inline-editing');
+    send('inline-edit', {
+      id: el.getAttribute('data-edit') || el.getAttribute('data-header-link'),
+      editing: false
+    });
+  }
+  function cmsCommitEdit() {
+    if (!cmsEditingEl) return;
+    var el = cmsEditingEl; cmsEditingEl = null; cmsEditOrig = null;
+    var val = cmsReadEditable(el);
+    cmsEndEdit(el);
+    var hid = el.getAttribute('data-header-link');
+    if (hid) send('header-menu-label', { id: hid, html: val });
+    else send('text-update', { id: el.getAttribute('data-edit'), html: val });
+  }
+  function cmsCancelEdit() {
+    if (!cmsEditingEl) return;
+    var el = cmsEditingEl; cmsEditingEl = null;
+    if (cmsEditOrig != null) el.innerHTML = cmsEditOrig;
+    cmsEditOrig = null;
+    cmsEndEdit(el);
+  }
+  // Commit when focus leaves the edited element (e.g. clicking the canvas or a
+  // toolbar control in the parent frame). The stored selection range keeps the
+  // floating bubble targeting the right text afterwards.
+  document.addEventListener('focusout', function (e) {
+    if (cmsEditingEl && e.target === cmsEditingEl) {
+      window.setTimeout(function () { if (cmsEditingEl === e.target) cmsCommitEdit(); }, 0);
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!cmsEditingEl) return;
+    if (e.key === 'Escape') { e.preventDefault(); cmsCancelEdit(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      var dt = cmsEditingEl.getAttribute('data-type') || 'text';
+      if (dt === 'text') { e.preventDefault(); cmsCommitEdit(); }
+    }
+  });
+
+  // Block-instance selection: clicking a block's chrome (anywhere that isn't an
+  // editable field, whose handler stops propagation above) selects that block
+  // in the editor so its fields + layer entry light up. Only present on
+  // block-shell pages; a no-op elsewhere.
+  document.querySelectorAll('[data-instance-id]').forEach(function (el) {
+    el.classList.add('cms-block-instance');
+    el.addEventListener('click', function (e) {
+      e.stopPropagation();   // innermost block wins; don't reselect ancestors
+      cmsSelectBlock(el);
+      send('select-block', { id: el.getAttribute('data-instance-id') });
+    });
+    var home = el.closest('[data-region]');
+    var rname = home && (home.getAttribute('data-region') || '');
+    if (rname && /^footer/.test(rname) && !el.querySelector(':scope > .cms-chrome-drag')) {
+      var handle = document.createElement('button');
+      handle.type = 'button';
+      handle.className = 'cms-chrome-drag';
+      handle.setAttribute('draggable', 'true');
+      handle.setAttribute('title', 'Drag to another header/footer column');
+      handle.setAttribute('aria-label', 'Drag to move');
+      handle.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>';
+      handle.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); });
+      handle.addEventListener('dragstart', function (e) {
+        var id = el.getAttribute('data-instance-id');
+        cmsDragMoveId = id;
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('application/x-cms-moveblock', id);
+          e.dataTransfer.setData('text/plain', id);
+        } catch (_) {}
+        el.classList.add('cms-dragging');
+        if (cmsSelFrame) cmsSelFrame.style.visibility = 'hidden';
+        e.stopPropagation();
+      });
+      handle.addEventListener('dragend', function () {
+        el.classList.remove('cms-dragging');
+        if (cmsSelFrame) cmsSelFrame.style.visibility = '';
+        cmsDragMoveId = null;
+        cmsDragClear();
+      });
+      el.classList.add('cms-chrome-drag-host');
+      el.insertBefore(handle, el.firstChild);
+    }
+  });
+  // Fixed chrome (nav / footer) is not a block instance. Clicking the bar
+  // itself — not an annotated field — still opens Header/Footer properties.
+  document.querySelectorAll('[data-section]').forEach(function (el) {
+    if (el.hasAttribute('data-instance-id')) return;
+    el.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('[data-edit], [data-header-add-link], [data-header-add-button]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      send('select-block', { id: el.getAttribute('data-section') });
+    });
+  });
+  document.querySelectorAll('[data-header-link]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      send('focus-field', { id: el.getAttribute('data-edit') });
+      var chrome = el.closest('[data-section]');
+      send('select-block', { id: chrome ? chrome.getAttribute('data-section') : 'header' });
+      cmsBeginEdit(el);
+    });
+  });
+  document.querySelectorAll('[data-header-add-link]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      send('header-add-link', {});
+    });
+  });
+  document.querySelectorAll('[data-header-add-button]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      send('header-add-button', {});
+    });
+  });
+  // A photo in the block may not be the annotated node (broken <img> wrappers).
+  // If the block has exactly one image field, clicking any <img> replaces that.
+  document.querySelectorAll('[data-instance-id] img').forEach(function (img) {
+    if (img.getAttribute('data-edit') && (img.getAttribute('data-type') || '') === 'image') return;
+    img.addEventListener('click', function (e) {
+      var blk = img.closest('[data-instance-id]');
+      if (!blk) return;
+      var slots = blk.querySelectorAll('[data-edit][data-type="image"]');
+      if (slots.length !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cmsSelectBlock(blk);
+      send('focus-field', { id: slots[0].getAttribute('data-edit') });
+    });
+    img.addEventListener('dblclick', function (e) {
+      var blk = img.closest('[data-instance-id]');
+      if (!blk) return;
+      var slots = blk.querySelectorAll('[data-edit][data-type="image"]');
+      if (slots.length !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cmsSelectBlock(blk);
+      send('replace-image', { id: slots[0].getAttribute('data-edit') });
+    });
+  });
+
+  // Empty-column "+" adders: clicking one opens the Quick Add drawer in the
+  // editor with that column preselected as the destination (GHL-style).
+  document.querySelectorAll('[data-cms-add-here]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var dest = el.getAttribute('data-cms-dest') || '';
+      var key = el.getAttribute('data-cms-add-type') || '';
+      if (key) send('canvas-add', { key: key, dest: dest });
+      else send('add-block', { dest: dest });
     });
   });
 
@@ -142,7 +471,27 @@ PREVIEW_BRIDGE_SCRIPT = """
     // its value into inline HTML (a styled span).
     var t = host.getAttribute('data-type') || 'text';
     return t !== 'image' && t !== 'video' && t !== 'color' && t !== 'link' &&
-      t !== 'ghl-embed';
+      t !== 'ghl-embed' && t !== 'select' && t !== 'embed' && t !== 'code';
+  }
+  function cmsApplySelect(el, value) {
+    value = value == null ? '' : String(value);
+    var raw = (el.getAttribute('data-options') || '').trim();
+    var allowed = [];
+    raw.split(';').forEach(function (chunk) {
+      chunk = chunk.trim(); if (!chunk) return;
+      var v = chunk.indexOf('=') >= 0 ? chunk.slice(chunk.indexOf('=') + 1) : chunk;
+      v = v.trim(); if (v && allowed.indexOf(v) < 0) allowed.push(v);
+    });
+    var apply = (el.getAttribute('data-apply') || 'class').trim();
+    if (apply.indexOf('style:') === 0) {
+      var prop = apply.slice(6).trim();
+      if (!/^[a-zA-Z-]{1,40}$/.test(prop)) return;
+      el.style.removeProperty(prop);
+      if (allowed.indexOf(value) >= 0 && value) el.style.setProperty(prop, value);
+      return;
+    }
+    allowed.forEach(function (c) { el.classList.remove(c); });
+    if (allowed.indexOf(value) >= 0 && value) el.classList.add(value);
   }
   document.addEventListener('selectionchange', function () {
     var s = window.getSelection();
@@ -192,17 +541,68 @@ PREVIEW_BRIDGE_SCRIPT = """
     host.normalize();
     return host;
   }
+  // Wrap the current selection in an <a href> (or unwrap it). Stored like the
+  // styled spans above — inside the field's own HTML — so links survive save.
+  function cmsLinkSelection(href) {
+    if (!cmsSelRange || !href) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsStyleable(host)) return null;
+    var a = document.createElement('a');
+    a.setAttribute('href', href);
+    var r = cmsSelRange.cloneRange();
+    try { r.surroundContents(a); }
+    catch (e) { try { a.appendChild(r.extractContents()); r.insertNode(a); } catch (_) { return null; } }
+    var sel = window.getSelection(); sel.removeAllRanges();
+    var nr = document.createRange(); nr.selectNodeContents(a); sel.addRange(nr);
+    cmsSelRange = nr.cloneRange();
+    return host;
+  }
+  function cmsUnlinkSelection() {
+    if (!cmsSelRange) return null;
+    var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
+    if (!cmsIsStyleable(host)) return null;
+    var r = cmsSelRange;
+    Array.prototype.slice.call(host.querySelectorAll('a')).forEach(function (a) {
+      if (r.intersectsNode(a)) {
+        while (a.firstChild) a.parentNode.insertBefore(a.firstChild, a);
+        a.parentNode.removeChild(a);
+      }
+    });
+    host.normalize();
+    return host;
+  }
   window.addEventListener('message', function (e) {
+    // Only trust messages from the dashboard window that framed us. An
+    // attacker window can spoof the `source` string but not `e.source`.
+    if (e.source && e.source !== window.parent) return;
     var data = e.data || {};
     if (data.source !== 'cms-editor') return;
     if (data.type === 'apply-content') {
       Object.entries(data.payload || {}).forEach(function (entry) {
         var fid = entry[0];
         var value = entry[1];
+        if (fid.slice(-5) === '_href') {
+          var hrefHost = fid.slice(0, -5);
+          var lurlH = cmsSafeUrl(value, { anchor: true });
+          if (lurlH === null) return;
+          document.querySelectorAll('[data-edit="' + hrefHost + '"]').forEach(function (host) {
+            host.setAttribute('href', lurlH);
+          });
+          return;
+        }
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
           if (t === 'ghl-embed') { return; }
+          if (t === 'select') { cmsApplySelect(el, value); return; }
+          if (t === 'embed') { var esrc = cmsSafeUrl(value); if (esrc === null) return; el.setAttribute('src', esrc); return; }
+          // Code fields are inert in preview (same-origin dashboard iframe):
+          // show the raw HTML as escaped text, never execute it. The public
+          // render (server-side, preview=false) still emits it raw by design.
+          if (t === 'code') { el.textContent = value == null ? '' : value; return; }
           if (t === 'image') {
+            var isrc = cmsSafeUrl(value, { dataImage: true });
+            if (isrc === null) return;
+            value = isrc;
             el.setAttribute('src', value);
             // Mirror _apply_image: clear responsive/lazy attrs so the new src wins.
             if (el.hasAttribute('srcset')) el.removeAttribute('srcset');
@@ -217,16 +617,19 @@ PREVIEW_BRIDGE_SCRIPT = """
             }
           }
           else if (t === 'video') {
+            var vurl = cmsSafeUrl(value);
+            if (vurl === null) return;
             if (el.tagName.toLowerCase() === 'video') {
               var vsrc = el.querySelector('source');
-              if (vsrc) { vsrc.setAttribute('src', value); } else { el.setAttribute('src', value); }
+              if (vsrc) { vsrc.setAttribute('src', vurl); } else { el.setAttribute('src', vurl); }
               if (el.load) { el.load(); }
-            } else { el.setAttribute('src', value); }
+            } else { el.setAttribute('src', vurl); }
           }
-          else if (t === 'link') { el.setAttribute('href', value); }
+          else if (t === 'link') { var lurl = cmsSafeUrl(value, { anchor: true }); if (lurl === null) return; el.setAttribute('href', lurl); }
           else if (t === 'color') {
             var prop = (el.tagName.toLowerCase() === 'span') ? 'color' : 'background-color';
-            el.style[prop] = value;
+            var cval = cmsSafeCssValue(value);
+            if (cval) el.style[prop] = cval;
           }
           else if (t === 'richtext') { el.innerHTML = cmsRichtextHTML(el, value); }
           // Plain text field: normally textContent, but once it carries a
@@ -236,10 +639,38 @@ PREVIEW_BRIDGE_SCRIPT = """
         });
       });
     }
+    if (data.type === 'header-logo-size') {
+      var px = parseInt((data.payload && data.payload.size), 10);
+      if (!(px >= 24 && px <= 80)) px = 40;
+      document.querySelectorAll('.site-header-logo').forEach(function (img) {
+        img.style.height = px + 'px';
+        img.style.width = 'auto';
+        img.style.maxWidth = 'min(40vw,' + (px * 5) + 'px)';
+      });
+    }
     if (data.type === 'apply-styles') {
       Object.entries(data.payload || {}).forEach(function (entry) {
         var fid = entry[0];
         var style = entry[1] || {};
+        var suffix = '.__block';
+        var regionMark = '.__region.';
+        if (fid && fid.slice(-suffix.length) === suffix) {
+          var bid = fid.slice(0, -suffix.length);
+          document.querySelectorAll('[data-instance-id="' + bid + '"]').forEach(function (el) {
+            cmsApplyStyle(el, style);
+          });
+          return;
+        }
+        if (fid && fid.indexOf(regionMark) !== -1) {
+          var rparts = fid.split(regionMark);
+          var rid = rparts[0];
+          var rname = rparts.slice(1).join(regionMark);
+          document.querySelectorAll('[data-instance-id="' + rid + '"]').forEach(function (wrap) {
+            var cell = wrap.querySelector(':scope > [data-region="' + rname + '"]');
+            if (cell) cmsApplyStyle(cell, style);
+          });
+          return;
+        }
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           cmsApplyStyle(el, style);
         });
@@ -249,12 +680,15 @@ PREVIEW_BRIDGE_SCRIPT = """
       var g = data.payload || {};
       var css = '';
       var bodyDecls = '';
-      if (g.fontFamily) { bodyDecls += 'font-family:' + g.fontFamily + ';'; cmsEnsureFont(g.fontFamily); }
-      if (g.baseSize) bodyDecls += 'font-size:' + g.baseSize + ';';
-      if (g.textColor) bodyDecls += 'color:' + g.textColor + ';';
-      if (g.pageBg) bodyDecls += 'background-color:' + g.pageBg + ';';
+      var gFam = cmsSafeFont(g.fontFamily), gSize = cmsSafeToken(g.baseSize),
+          gText = cmsSafeCssValue(g.textColor), gBg = cmsSafeCssValue(g.pageBg),
+          gHead = cmsSafeFont(g.headingFamily);
+      if (gFam) { bodyDecls += 'font-family:' + gFam + ';'; cmsEnsureFont(gFam); }
+      if (gSize) bodyDecls += 'font-size:' + gSize + ';';
+      if (gText) bodyDecls += 'color:' + gText + ';';
+      if (gBg) bodyDecls += 'background-color:' + gBg + ';';
       if (bodyDecls) css += 'body{' + bodyDecls + '}';
-      if (g.headingFamily) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + g.headingFamily + ';}'; cmsEnsureFont(g.headingFamily); }
+      if (gHead) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + gHead + ';}'; cmsEnsureFont(gHead); }
       var gtag = document.getElementById('cms-global-style');
       if (!gtag) { gtag = document.createElement('style'); gtag.id = 'cms-global-style'; document.head.appendChild(gtag); }
       gtag.textContent = css;
@@ -264,7 +698,8 @@ PREVIEW_BRIDGE_SCRIPT = """
       var tcss = '';
       Object.keys(tk).forEach(function (n) {
         var sn = String(n).replace(/[^a-zA-Z0-9_-]/g, '');
-        if (sn && tk[n]) { tcss += '--' + sn + ':' + tk[n] + ';'; }
+        var sv = cmsSafeCssValue(tk[n]) || cmsSafeToken(tk[n]);
+        if (sn && sv) { tcss += '--' + sn + ':' + sv + ';'; }
       });
       var toktag = document.getElementById('cms-tokens');
       if (!toktag) { toktag = document.createElement('style'); toktag.id = 'cms-tokens'; document.head.appendChild(toktag); }
@@ -283,6 +718,11 @@ PREVIEW_BRIDGE_SCRIPT = """
       var sd = data.payload || {};
       var host = sd.clear ? cmsClearSelection() : cmsStyleSelection(sd.prop, sd.value);
       if (host) send('text-update', { id: host.getAttribute('data-edit'), html: host.innerHTML });
+    }
+    if (data.type === 'link-selection') {
+      var ld = data.payload || {};
+      var lhost = ld.clear ? cmsUnlinkSelection() : cmsLinkSelection(ld.href);
+      if (lhost) send('text-update', { id: lhost.getAttribute('data-edit'), html: lhost.innerHTML });
     }
     if (data.type === 'scroll-to-section') {
       var sec = document.querySelector('[data-section="' + data.payload.id + '"]');
@@ -306,22 +746,427 @@ PREVIEW_BRIDGE_SCRIPT = """
         el.classList.toggle('cms-hidden', vhide);
       });
     }
+    if (data.type === 'frame-block') {
+      var fbEl = document.querySelector('[data-instance-id="' + data.payload.id + '"]');
+      if (fbEl) { cmsSelectBlock(fbEl); fbEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    }
+    if (data.type === 'restore-scroll') {
+      // After a structural reload, put the canvas back where the user was
+      // (instant, no smooth-scroll, so it never looks like a jump to top).
+      var ry = (data.payload && data.payload.y) || 0;
+      window.scrollTo(0, ry);
+    }
+    if (data.type === 'clear-selection') { cmsClearSelFrame(); }
+    if (data.type === 'peek-field') {
+      cmsClearPeek();
+      var pk = document.querySelectorAll('[data-edit="' + data.payload.id + '"]');
+      pk.forEach(function (el) { el.classList.add('cms-peek'); });
+      if (pk[0]) pk[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    if (data.type === 'peek-clear') { cmsClearPeek(); }
+    if (data.type === 'config') {
+      if (data.payload && data.payload.maxDepth != null) CMS_MAX_DEPTH = data.payload.maxDepth;
+    }
+    if (data.type === 'canvas-drag-clear') { cmsDragClear(); cmsDragMoveId = null; }
+    if (data.type === 'canvas-drag-move') {
+      cmsDragMoveId = (data.payload && data.payload.id) || null;
+    }
+    cmsPositionFrame();
   });
+
+  // ---- on-canvas selection frame + block mini-toolbar ------------------
+  // A floating frame drawn over the selected block: accent border + ring, a
+  // block-name label, and a toolbar (move up/down, duplicate, delete) that
+  // mirrors the drawer's actions. pointer-events pass through the frame so
+  // inner fields stay clickable; only the toolbar captures clicks.
+  var cmsSelEl = null, cmsSelFrame = null;
+  function cmsClearPeek() {
+    document.querySelectorAll('.cms-peek').forEach(function (el) { el.classList.remove('cms-peek'); });
+  }
+  function cmsTitleCase(s) {
+    return String(s || '').replace(/[-_]+/g, ' ')
+      .replace(/\\b\\w/g, function (c) { return c.toUpperCase(); }).trim();
+  }
+  var CMS_ICO = {
+    up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
+    down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+    dup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+    del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6"/></svg>',
+    grip: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>'
+  };
+  function cmsBuildFrame() {
+    var f = document.createElement('div');
+    f.id = 'cms-sel-frame';
+    f.innerHTML =
+      '<span class="cms-sel-label"></span>' +
+      '<span class="cms-sel-tools">' +
+        '<button type="button" class="cms-sel-drag" draggable="true" title="Drag to move" aria-label="Drag to move">' + CMS_ICO.grip + '</button>' +
+        '<span class="cms-sel-div" aria-hidden="true"></span>' +
+        '<button type="button" data-act="move-up" title="Move up" aria-label="Move up">' + CMS_ICO.up + '</button>' +
+        '<button type="button" data-act="move-down" title="Move down" aria-label="Move down">' + CMS_ICO.down + '</button>' +
+        '<button type="button" data-act="duplicate" title="Duplicate (Ctrl/Cmd+D)" aria-label="Duplicate">' + CMS_ICO.dup + '</button>' +
+        '<button type="button" data-act="delete" title="Delete (Del)" aria-label="Delete">' + CMS_ICO.del + '</button>' +
+      '</span>';
+    document.body.appendChild(f);
+    // Keep any text selection intact when a tool is pressed — but NOT the drag
+    // grip, whose native drag must be allowed to start.
+    f.querySelector('.cms-sel-tools').addEventListener('mousedown', function (e) {
+      if (e.target.closest && e.target.closest('.cms-sel-drag')) return;
+      e.preventDefault();
+    });
+    f.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-act]') : null;
+      if (!b || !cmsSelEl) return;
+      e.preventDefault(); e.stopPropagation();
+      send('block-action', { id: cmsSelEl.getAttribute('data-instance-id'), action: b.getAttribute('data-act') });
+    });
+    // Drag the grip to reorder this block on the canvas (Stage C).
+    var grip = f.querySelector('.cms-sel-drag');
+    grip.addEventListener('dragstart', function (e) {
+      if (!cmsSelEl) return;
+      var id = cmsSelEl.getAttribute('data-instance-id');
+      cmsDragMoveId = id;
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('application/x-cms-moveblock', id);
+        e.dataTransfer.setData('text/plain', id);
+        if (cmsSelEl.querySelector('[data-region]')) {
+          e.dataTransfer.setData('application/x-cms-layout', '1');
+        }
+      } catch (_) {}
+      cmsSelEl.classList.add('cms-dragging');
+      if (cmsSelFrame) cmsSelFrame.style.visibility = 'hidden';
+    });
+    grip.addEventListener('dragend', function () {
+      if (cmsSelEl) cmsSelEl.classList.remove('cms-dragging');
+      if (cmsSelFrame) cmsSelFrame.style.visibility = '';
+      cmsDragMoveId = null;
+      cmsDragClear();
+    });
+    return f;
+  }
+  function cmsPositionFrame() {
+    if (!cmsSelEl || !cmsSelFrame) return;
+    if (!document.body.contains(cmsSelEl)) { cmsClearSelFrame(); return; }
+    var r = cmsSelEl.getBoundingClientRect();
+    var top = r.top + (window.scrollY || window.pageYOffset || 0);
+    var left = r.left + (window.scrollX || window.pageXOffset || 0);
+    cmsSelFrame.style.transform = 'translate(' + left + 'px,' + top + 'px)';
+    cmsSelFrame.style.width = r.width + 'px';
+    cmsSelFrame.style.height = r.height + 'px';
+    var inHeader = !!(cmsSelEl.closest && cmsSelEl.closest(
+      'header, [data-region^="header"], .site-nav, .site-header-actions'
+    ));
+    var compact = inHeader || r.height < 48 || r.width < 88;
+    cmsSelFrame.classList.toggle('cms-sel-frame--compact', compact);
+    // Never cover the words. Short header items get the toolbar UNDER the
+    // link. Inset is only for tall blocks clipped by the top of the viewport.
+    cmsSelFrame.classList.toggle('cms-sel-frame--below', compact);
+    cmsSelFrame.classList.toggle('cms-sel-frame--inset', !compact && r.top < 44);
+  }
+  function cmsSelectBlock(el) {
+    if (!el) return;
+    cmsSelEl = el;
+    if (!cmsSelFrame) cmsSelFrame = cmsBuildFrame();
+    var label = el.getAttribute('data-cms-label') ||
+      cmsTitleCase(el.getAttribute('data-block-type') || 'Block');
+    cmsSelFrame.querySelector('.cms-sel-label').textContent = label;
+    cmsSelFrame.classList.add('is-active');
+    cmsPositionFrame();
+  }
+  function cmsClearSelFrame() {
+    cmsSelEl = null;
+    if (cmsSelFrame) cmsSelFrame.classList.remove('is-active');
+  }
+  window.addEventListener('scroll', cmsPositionFrame, true);
+  window.addEventListener('resize', cmsPositionFrame);
+  // Reflows (font loads, image loads, richtext edits) can move the element
+  // without a scroll/resize event; keep the frame glued.
+  setInterval(function () { if (cmsSelEl) cmsPositionFrame(); }, 250);
+
+  // ---- canvas drag & drop (Stage C) ------------------------------------
+  // Same-origin preview, so native drag events fire in here. We draw a 2px
+  // accent insertion line + region outline (valid) or muted (invalid), then
+  // hand the resolved {dest, beforeId} back to the editor to mutate content.
+  var CMS_MAX_DEPTH = 99;        // overwritten by the editor's 'config' message
+  var cmsDragMoveId = null;      // id of a block being reordered on the canvas
+  var cmsDropCtx = null;         // last resolved drop target
+  var cmsDropLine = null;
+  function cmsEnsureDropLine() {
+    if (!cmsDropLine) { cmsDropLine = document.createElement('div'); cmsDropLine.id = 'cms-drop-line'; document.body.appendChild(cmsDropLine); }
+    return cmsDropLine;
+  }
+  function cmsDragClear() {
+    if (cmsDropLine) cmsDropLine.style.display = 'none';
+    document.querySelectorAll('.cms-drop-region, .cms-drop-region--invalid').forEach(function (el) {
+      el.classList.remove('cms-drop-region', 'cms-drop-region--invalid');
+    });
+  }
+  function cmsDragKind(dt) {
+    if (!dt || !dt.types) return null;
+    var t = Array.prototype.slice.call(dt.types);
+    if (t.indexOf('application/x-cms-newblock') !== -1) return 'new';
+    if (t.indexOf('application/x-cms-moveblock') !== -1) return 'move';
+    return null;
+  }
+  // Column depth of a region: 0 for the shell's "main", +1 per nested column.
+  function cmsColDepth(region) {
+    var d = 0, el = region;
+    while (el) {
+      var name = el.getAttribute && el.getAttribute('data-region');
+      if (name != null && name !== 'main') d++;
+      el = el.parentElement ? el.parentElement.closest('[data-region]') : null;
+    }
+    return d;
+  }
+  function cmsOwnSlots(inst) {
+    if (!inst || !inst.querySelectorAll) return [];
+    var slots = [];
+    inst.querySelectorAll('[data-region]').forEach(function (slot) {
+      if (slot.closest('[data-instance-id]') === inst) slots.push(slot);
+    });
+    return slots;
+  }
+  function cmsNearestSlot(slots, x, y) {
+    if (!slots.length) return null;
+    var best = slots[0], bestD = Infinity;
+    slots.forEach(function (slot) {
+      var r = slot.getBoundingClientRect();
+      var cx = Math.max(r.left, Math.min(x, r.right));
+      var cy = Math.max(r.top, Math.min(y, r.bottom));
+      var d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (d < bestD) { bestD = d; best = slot; }
+    });
+    return best;
+  }
+  function cmsShellSlots(root) {
+    var slots = [];
+    if (!root || !root.querySelectorAll) return slots;
+    root.querySelectorAll('[data-region]').forEach(function (slot) {
+      if (!slot.parentElement || !slot.parentElement.closest('[data-instance-id]')) slots.push(slot);
+    });
+    return slots;
+  }
+  function cmsRegionAt(x, y) {
+    var pt = document.elementFromPoint(x, y);
+    if (!pt) return null;
+    var region = pt.closest ? pt.closest('[data-region]') : null;
+    var inst = pt.closest ? pt.closest('[data-instance-id]') : null;
+    var slots = cmsOwnSlots(inst);
+    if (slots.length) {
+      if (slots.indexOf(region) !== -1) return region;
+      return cmsNearestSlot(slots, x, y);
+    }
+    if (region) return region;
+    var chrome = pt.closest ? pt.closest('header, footer, [data-section="header"], [data-section="footer"], [data-section="nav"]') : null;
+    if (chrome) return cmsNearestSlot(cmsShellSlots(chrome), x, y);
+    return null;
+  }
+  function cmsDropDest(region) {
+    var rname = (region.getAttribute('data-region') || 'main').trim() || 'main';
+    var owner = region.parentElement && region.parentElement.closest
+      ? region.parentElement.closest('[data-instance-id]') : null;
+    return owner ? (owner.getAttribute('data-instance-id') + '/' + rname) : rname;
+  }
+  function cmsResolveDrop(x, y, kind, dt) {
+    var region = cmsRegionAt(x, y);
+    if (!region) return null;
+    var invalid = false;
+    if (kind === 'move' && cmsDragMoveId) {
+      var mv = document.querySelector('[data-instance-id="' + cmsDragMoveId + '"]');
+      if (mv && (mv === region || mv.contains(region))) invalid = true;
+    }
+    var isLayout = dt && dt.types &&
+      Array.prototype.indexOf.call(dt.types, 'application/x-cms-layout') !== -1;
+    if (isLayout && cmsColDepth(region) >= CMS_MAX_DEPTH) invalid = true;
+    var kids = Array.prototype.slice.call(region.querySelectorAll(':scope > [data-instance-id]'));
+    if (kind === 'move' && cmsDragMoveId) {
+      kids = kids.filter(function (k) { return k.getAttribute('data-instance-id') !== cmsDragMoveId; });
+    }
+    var rrect = region.getBoundingClientRect();
+    var rname = (region.getAttribute('data-region') || 'main').trim() || 'main';
+    var rowLike = /^(header|footer)/.test(rname);
+    var beforeId = null, lineY = null;
+    for (var i = 0; i < kids.length; i++) {
+      var kr = kids[i].getBoundingClientRect();
+      var before = rowLike ? (x < kr.left + kr.width / 2) : (y < kr.top + kr.height / 2);
+      if (before) { beforeId = kids[i].getAttribute('data-instance-id'); lineY = kr.top; break; }
+    }
+    if (lineY === null) {
+      if (kids.length) { lineY = kids[kids.length - 1].getBoundingClientRect().bottom; }
+      else { lineY = rrect.top + 6; }
+    }
+    var dest = cmsDropDest(region);
+    return { region: region, rect: rrect, lineY: lineY, beforeId: beforeId, dest: dest, invalid: invalid };
+  }
+  document.addEventListener('dragover', function (e) {
+    var kind = cmsDragKind(e.dataTransfer);
+    if (!kind) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = kind === 'new' ? 'copy' : 'move';
+    var ctx = cmsResolveDrop(e.clientX, e.clientY, kind, e.dataTransfer);
+    cmsDragClear();
+    if (!ctx) { cmsDropCtx = null; return; }
+    cmsDropCtx = ctx;
+    ctx.region.classList.add(ctx.invalid ? 'cms-drop-region--invalid' : 'cms-drop-region');
+    var line = cmsEnsureDropLine();
+    line.className = ctx.invalid ? 'cms-invalid' : '';
+    line.style.display = 'block';
+    var top = ctx.lineY + (window.scrollY || window.pageYOffset || 0);
+    var left = ctx.rect.left + (window.scrollX || window.pageXOffset || 0);
+    line.style.transform = 'translate(' + left + 'px,' + top + 'px)';
+    line.style.width = ctx.rect.width + 'px';
+  });
+  document.addEventListener('dragleave', function (e) {
+    // Only clear when the pointer actually leaves the document.
+    if (e.relatedTarget === null && (e.clientX <= 0 || e.clientY <= 0)) cmsDragClear();
+  });
+  document.addEventListener('drop', function (e) {
+    var kind = cmsDragKind(e.dataTransfer);
+    if (!kind) return;
+    e.preventDefault();
+    var ctx = cmsDropCtx; cmsDropCtx = null; cmsDragClear();
+    if (!ctx || ctx.invalid) { cmsDragMoveId = null; return; }
+    if (kind === 'new') {
+      var key = '';
+      try { key = e.dataTransfer.getData('application/x-cms-newblock') || e.dataTransfer.getData('text/plain'); } catch (_) {}
+      if (key) send('canvas-add', { key: key, dest: ctx.dest, beforeId: ctx.beforeId });
+    } else {
+      var id = cmsDragMoveId;
+      try { id = e.dataTransfer.getData('application/x-cms-moveblock') || id; } catch (_) {}
+      if (id) send('canvas-move', { id: id, dest: ctx.dest, beforeId: ctx.beforeId });
+    }
+    cmsDragMoveId = null;
+  });
+
+  // Click on empty canvas (not a block/field/adder/frame) deselects.
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && t.closest && (t.closest('[data-instance-id]') || t.closest('[data-edit]') ||
+        t.closest('#cms-sel-frame') || t.closest('[data-cms-add-here]'))) return;
+    if (cmsSelEl) { cmsClearSelFrame(); send('deselect', {}); }
+  });
+
   send('ready', {});
 })();
 </script>
 <style>
+  .cms-bg-fx { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-repeat: no-repeat; }
+  .cms-bg-fx-host { position: relative; }
+  .cms-bg-fx-host.cms-bg-fx-clip { overflow: hidden; }
+  .cms-bg-fx-host > *:not(.cms-bg-fx) { position: relative; z-index: 1; }
+  [data-header-name=off], .site-brand.hide-name,
+  .site-header-brand.hide-name .site-brand,
+  .site-header-brand.hide-name [data-edit$=".brand"] { display: none !important; }
   .cms-editable { outline: 1px dashed transparent; outline-offset: 4px;
                   transition: outline-color 0.15s ease, background 0.15s ease; cursor: pointer; }
-  .cms-editable:hover { outline-color: #2563eb; background: rgba(37, 99, 235, 0.06); }
-  .cms-highlight { outline: 2px solid #1e3a8a !important;
-                   box-shadow: 0 0 0 6px rgba(30, 58, 138, 0.15); }
+  .cms-editable:hover { outline-color: #2457d6; background: rgba(36, 87, 214, 0.06); }
+  .cms-image-editable { cursor: pointer; }
+  .cms-image-editable:hover { outline: 2px solid #2457d6; outline-offset: 3px; }
+  .cms-inline-editable:hover { cursor: text; }
+  .cms-inline-editing, .cms-inline-editing:hover {
+    outline: 2px solid #2457d6 !important; outline-offset: 3px;
+    background: #fff !important; cursor: text;
+    box-shadow: 0 0 0 6px rgba(36, 87, 214, 0.12);
+  }
+  .cms-highlight { outline: 2px solid #2457d6 !important;
+                   box-shadow: 0 0 0 6px rgba(36, 87, 214, 0.15); }
+  /* peek: a light, non-committal outline shown while hovering a field row */
+  .cms-peek { outline: 2px dashed #2457d6 !important; outline-offset: 3px;
+              background: rgba(36, 87, 214, 0.05); }
   .cms-section-flash { animation: cms-section-flash 1.2s ease; }
   @keyframes cms-section-flash {
-    0%   { outline: 2px solid rgba(30, 58, 138, 0); outline-offset: -2px; }
-    25%  { outline: 2px solid rgba(30, 58, 138, 0.85); outline-offset: -2px; }
-    100% { outline: 2px solid rgba(30, 58, 138, 0); outline-offset: -2px; }
+    0%   { outline: 2px solid rgba(36, 87, 214, 0); outline-offset: -2px; }
+    25%  { outline: 2px solid rgba(36, 87, 214, 0.85); outline-offset: -2px; }
+    100% { outline: 2px solid rgba(36, 87, 214, 0); outline-offset: -2px; }
   }
+  /* ---- on-canvas selection frame + block mini-toolbar ---- */
+  #cms-sel-frame {
+    position: absolute; top: 0; left: 0; z-index: 2147483000;
+    pointer-events: none; display: none; box-sizing: border-box;
+    border: 2px solid #2457d6; border-radius: 3px;
+    box-shadow: 0 0 0 4px rgba(36, 87, 214, 0.14);
+  }
+  #cms-sel-frame.is-active { display: block; }
+  #cms-sel-frame .cms-sel-label {
+    position: absolute; left: -2px; bottom: 100%; margin-bottom: 5px;
+    pointer-events: none; background: #2457d6; color: #fff;
+    font: 600 11px/1 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0.01em; padding: 4px 7px; border-radius: 5px; white-space: nowrap;
+  }
+  #cms-sel-frame .cms-sel-tools {
+    position: absolute; right: -2px; bottom: 100%; margin-bottom: 5px;
+    display: inline-flex; gap: 2px; pointer-events: auto;
+    background: #101828; border-radius: 8px; padding: 3px;
+    box-shadow: 0 8px 22px rgba(16, 24, 40, 0.26);
+  }
+  #cms-sel-frame.cms-sel-frame--inset .cms-sel-label,
+  #cms-sel-frame.cms-sel-frame--inset .cms-sel-tools {
+    bottom: auto; top: 5px; margin: 0;
+  }
+  #cms-sel-frame.cms-sel-frame--below .cms-sel-label,
+  #cms-sel-frame.cms-sel-frame--below .cms-sel-tools {
+    bottom: auto; top: 100%; margin: 6px 0 0;
+  }
+  #cms-sel-frame.cms-sel-frame--compact .cms-sel-label { display: none; }
+  #cms-sel-frame .cms-sel-tools button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: #fff; cursor: pointer;
+    transition: background 120ms ease;
+  }
+  #cms-sel-frame .cms-sel-tools button:hover { background: rgba(255, 255, 255, 0.16); }
+  #cms-sel-frame .cms-sel-tools button:active { background: rgba(255, 255, 255, 0.24); }
+  #cms-sel-frame .cms-sel-tools button:focus-visible {
+    outline: 2px solid #7aa2ff; outline-offset: 1px;
+  }
+  #cms-sel-frame .cms-sel-tools button[data-act="delete"]:hover { background: #b42318; }
+  #cms-sel-frame .cms-sel-tools svg { width: 15px; height: 15px; display: block; }
+  #cms-sel-frame .cms-sel-drag {
+    cursor: grab;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: #fff;
+  }
+  #cms-sel-frame .cms-sel-drag:hover { background: rgba(255, 255, 255, 0.16); }
+  #cms-sel-frame .cms-sel-drag:active { cursor: grabbing; }
+  #cms-sel-frame .cms-sel-div { width: 1px; height: 16px; background: rgba(255, 255, 255, 0.2); align-self: center; margin: 0 2px; }
+  /* ---- canvas drag & drop ---- */
+  .cms-dragging { opacity: 0.55 !important; }
+  #cms-drop-line {
+    position: absolute; top: 0; left: 0; z-index: 2147483001;
+    height: 0; border-top: 2px solid #2457d6; pointer-events: none; display: none;
+    box-shadow: 0 0 0 1px rgba(36, 87, 214, 0.25);
+  }
+  #cms-drop-line::before {
+    content: ""; position: absolute; left: -4px; top: -5px;
+    width: 8px; height: 8px; border-radius: 50%; background: #2457d6;
+  }
+  #cms-drop-line.cms-invalid { border-top-color: #98a2b3; box-shadow: none; }
+  #cms-drop-line.cms-invalid::before { background: #98a2b3; }
+  .cms-chrome-drag {
+    position: absolute; top: 4px; left: 4px; z-index: 4;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
+    background: #101828; color: #fff; cursor: grab;
+    box-shadow: 0 2px 8px rgba(16, 24, 40, 0.22);
+  }
+  .cms-chrome-drag:active { cursor: grabbing; }
+  .cms-chrome-drag svg { width: 13px; height: 13px; display: block; }
+  .cms-chrome-drag-host { position: relative; }
+  .site-header .cms-chrome-drag { opacity: 0; }
+  .site-header [data-instance-id]:hover > .cms-chrome-drag,
+  .site-header [data-instance-id]:focus-within > .cms-chrome-drag { opacity: 1; }
+  .cms-chrome-add {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 0; background: transparent; color: #667085;
+    font: 600 13px/1.2 system-ui, sans-serif;
+    padding: 4px 8px; border-radius: 6px; cursor: pointer;
+    white-space: nowrap;
+  }
+  .cms-chrome-add:hover { background: rgba(36, 87, 214, 0.08); color: #2457d6; }
+  .cms-drop-region { outline: 2px dashed #2457d6 !important; outline-offset: -2px; background: rgba(36, 87, 214, 0.05); }
+  .cms-drop-region--invalid { outline: 2px dashed #98a2b3 !important; outline-offset: -2px; background: rgba(152, 162, 179, 0.09); }
   /* Preview-only: hidden items are dimmed + marked, NOT removed, so the client
      can still see and toggle them. The public site uses display:none instead. */
   .cms-hidden { opacity: 0.4 !important; outline: 2px dashed #f59e0b !important;
@@ -431,7 +1276,48 @@ def _insert_sanitized_html(el, html: str) -> None:
         el.append(cleaned)
 
 
-def _apply_field(el, value: str, ftype: str) -> None:
+_SAFE_CSS_PROP_RE = re.compile(r"^[a-zA-Z-]{1,40}$")
+
+
+def _apply_select(el, value) -> None:
+    """Apply a ``select`` field's chosen value to its element.
+
+    The element declares how to apply it via ``data-apply``:
+      * ``class``            — toggle the value into the class list (removing the
+                               other option values so presets never stack).
+      * ``style:<prop>``     — set an inline CSS declaration.
+
+    Only values present in the element's own ``data-options`` are honoured, so a
+    tampered content value cannot inject an arbitrary class or CSS declaration.
+    """
+    value = "" if value is None else str(value)
+    allowed = {o["value"] for o in parse_select_options(el)}
+    apply = (el.get("data-apply") or "class").strip()
+
+    if apply.startswith("style:"):
+        prop = apply.split(":", 1)[1].strip()
+        if not _SAFE_CSS_PROP_RE.match(prop):
+            return
+        existing = re.sub(rf"{re.escape(prop)}\s*:[^;]*;?", "", el.get("style", "")).strip()
+        if value in allowed and value:
+            el["style"] = (existing + f" {prop}: {value};").strip()
+        elif existing:
+            el["style"] = existing
+        else:
+            del el["style"]
+        return
+
+    # default: class toggle
+    classes = [c for c in (el.get("class") or []) if c not in allowed]
+    if value in allowed and value:
+        classes.append(value)
+    if classes:
+        el["class"] = classes
+    elif el.has_attr("class"):
+        del el["class"]
+
+
+def _apply_field(el, value: str, ftype: str, *, preview: bool = False) -> None:
     # No-op short-circuit. Skip the write when the value already equals what's
     # in the element, typically every render where the tenant hasn't actually
     # edited that field (merge_with_defaults pre-fills every field with its
@@ -441,30 +1327,66 @@ def _apply_field(el, value: str, ftype: str) -> None:
     # ``sanitize_html``, which is built for untrusted contenteditable input
     # and would strip the agency's design on every render).
     if ftype == "image":
-        if el.get("src", "") == value:
+        safe = _safe_url_value(value, allow_data_image=True)
+        if safe is None:
             return
-        _apply_image(el, value)
+        if el.get("src", "") == safe:
+            return
+        _apply_image(el, safe)
         return
     if ftype == "video":
+        safe = _safe_url_value(value)
+        if safe is None:
+            return
         source = el.find("source") if el.name == "video" else None
         current_src = source.get("src", "") if source is not None else el.get("src", "")
-        if current_src == value:
+        if current_src == safe:
             return
         if source is not None:
-            source["src"] = value
+            source["src"] = safe
         else:
-            el["src"] = value
+            el["src"] = safe
         return
     if ftype == "link":
-        if el.get("href", "") == value:
+        safe = _safe_url_value(value, allow_anchor=True)
+        if safe is None:
             return
-        el["href"] = value
+        if el.get("href", "") == safe:
+            return
+        el["href"] = safe
         return
     if ftype == "color":
+        safe = _safe_css_value(value)
+        if not safe:
+            return
         prop = "color" if el.name == "span" else "background-color"
         existing = el.get("style", "")
         cleaned = re.sub(rf"{prop}\s*:[^;]*;?", "", existing).strip()
-        el["style"] = (cleaned + f" {prop}: {value};").strip()
+        el["style"] = (cleaned + f" {prop}: {safe};").strip()
+        return
+    if ftype == "select":
+        _apply_select(el, value)
+        return
+    if ftype == "embed":
+        safe = _safe_url_value(value)
+        if safe is None:
+            return
+        if el.get("src", "") == safe:
+            return
+        el["src"] = safe
+        return
+    if ftype == "code":
+        # Client-controlled raw HTML. On the PUBLIC render it is intentionally
+        # unsanitized (opt-in raw HTML on the client's own site). In PREVIEW the
+        # iframe is same-origin with the dashboard, so executing it would let a
+        # client's markup run in an agency operator's authenticated session —
+        # render it as inert, escaped text instead.
+        el.clear()
+        if value:
+            if preview:
+                el.append(value)  # NavigableString -> escaped on output, inert
+            else:
+                el.append(BeautifulSoup(value, "html.parser"))
         return
     if ftype == "richtext":
         # First pass: byte-for-byte equality. Most no-edit renders hit
@@ -568,7 +1490,13 @@ def _apply_brand_tokens(soup: BeautifulSoup, brand_content: dict[str, str]) -> N
     def replace(match):
         var_name = match.group(1)
         if var_name in brand_content:
-            return f"--{var_name}: {brand_content[var_name]};"
+            # Brand tokens land inside a stylesheet rule, so an unvalidated value
+            # ("red; } body { ...") would break out and inject arbitrary CSS.
+            # Accept plain colors (the usual case) or bare lengths/keywords;
+            # keep the template's default for anything with braces/semicolons.
+            raw = str(brand_content[var_name] or "").strip()
+            if raw and (_safe_css_value(raw) or _SAFE_STYLE_TOKEN_RE.match(raw)):
+                return f"--{var_name}: {raw};"
         return match.group(0)
 
     style.string = re.sub(r"--([a-zA-Z0-9_-]+)\s*:\s*[^;]+;", replace, css)
@@ -584,7 +1512,33 @@ _STYLE_PROPERTIES = {
     "fontFamily": "font-family",
     "fontWeight": "font-weight",
     "align": "text-align",
+    "lineHeight": "line-height",
+    "letterSpacing": "letter-spacing",
+    "textTransform": "text-transform",
+    "padding": "padding",
+    "margin": "margin",
+    "width": "width",
+    "maxWidth": "max-width",
+    "minHeight": "min-height",
+    "borderRadius": "border-radius",
 }
+
+# Keys whose values are simple lengths/numbers/keywords (no colors, no fonts).
+# Validated against a conservative charset so a crafted value can't smuggle a
+# second declaration into the inline style attribute.
+_SIMPLE_STYLE_KEYS = {
+    "lineHeight", "letterSpacing", "textTransform",
+    "padding", "margin", "width", "maxWidth", "minHeight", "borderRadius",
+    "bgSize", "bgPosition", "bgMode", "bgOverlay", "bgOpacity", "bgBlur",
+}
+_SAFE_STYLE_TOKEN_RE = re.compile(r"^[A-Za-z0-9.%\-\s]+$")
+_SAFE_GRADIENT_RE = re.compile(
+    r"^(?P<angle>[0-9]{1,3})deg\s*,\s*"
+    r"(?P<from>#[0-9A-Fa-f]{3,8})\s*,\s*"
+    r"(?P<to>#[0-9A-Fa-f]{3,8})$"
+)
+_BLOCK_STYLE_SUFFIX = ".__block"
+_REGION_STYLE_MARK = ".__region."
 
 
 def _set_css_prop(el, prop: str, value: str) -> None:
@@ -596,6 +1550,216 @@ def _set_css_prop(el, prop: str, value: str) -> None:
     el["style"] = (cleaned + f" {prop}: {value};").strip()
 
 
+def _safe_gradient_value(value: str) -> str | None:
+    """Accept ``180deg,#111111,#ffffff`` only — no freeform CSS gradients."""
+    raw = str(value or "").strip()
+    match = _SAFE_GRADIENT_RE.match(raw)
+    if not match:
+        return None
+    angle = int(match.group("angle"))
+    if angle > 360:
+        return None
+    return f"{angle}deg,{match.group('from')},{match.group('to')}"
+
+
+def _safe_overlay(value) -> int | None:
+    try:
+        amount = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return amount if 0 < amount <= 80 else None
+
+
+def _safe_opacity(value) -> int | None:
+    """Background-image opacity 1–100. 100 means fully opaque."""
+    try:
+        amount = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return amount if 1 <= amount <= 100 else None
+
+
+def _safe_blur(value) -> int | None:
+    """Background blur radius in px, 1–20."""
+    try:
+        amount = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return amount if 0 < amount <= 20 else None
+
+
+def _find_bg_fx(el):
+    for kid in el.find_all("div", recursive=False):
+        classes = kid.get("class") or []
+        if "cms-bg-fx" in classes:
+            return kid
+    return None
+
+
+def _remove_bg_fx(el) -> None:
+    fx = _find_bg_fx(el)
+    if fx is not None:
+        fx.decompose()
+    classes = [c for c in (el.get("class") or []) if c not in ("cms-bg-fx-host", "cms-bg-fx-clip")]
+    if classes:
+        el["class"] = classes
+    elif el.has_attr("class"):
+        del el["class"]
+
+
+def _clear_css_prop(el, prop: str) -> None:
+    existing = el.get("style", "")
+    cleaned = re.sub(rf"{re.escape(prop)}\s*:[^;]*;?", "", existing).strip().strip(";")
+    if cleaned:
+        el["style"] = cleaned
+    elif el.has_attr("style"):
+        del el["style"]
+
+
+def _ensure_bg_fx_css(el) -> None:
+    root = el
+    while getattr(root, "parent", None) is not None:
+        root = root.parent
+    if not hasattr(root, "find"):
+        return
+    if root.find("style", attrs={"data-cms-bg-fx": True}):
+        return
+    tag = BeautifulSoup(
+        '<style data-cms-bg-fx="1">'
+        ".cms-bg-fx{position:absolute;inset:0;z-index:0;pointer-events:none;"
+        "background-repeat:no-repeat}"
+        ".cms-bg-fx-host{position:relative}"
+        ".cms-bg-fx-host.cms-bg-fx-clip{overflow:hidden}"
+        ".cms-bg-fx-host>:not(.cms-bg-fx){position:relative;z-index:1}"
+        "</style>",
+        "lxml",
+    ).find("style")
+    head = root.find("head") if hasattr(root, "find") else None
+    if head is not None:
+        head.append(tag)
+    else:
+        root.insert(0, tag)
+
+
+_BG_BOX_TAGS = frozenset({
+    "div", "section", "article", "header", "footer", "aside", "main", "li",
+})
+
+
+def _grow_bg_image_box(el, style: dict) -> None:
+    """A background image on a text line collapses to one line of height.
+    GHL-style columns need a real cell: cover the box and give it room."""
+    if el.name not in _BG_BOX_TAGS:
+        return
+    if not style.get("minHeight"):
+        _set_css_prop(el, "min-height", "220px")
+    if not style.get("padding"):
+        _set_css_prop(el, "padding", "32px 20px")
+        _set_css_prop(el, "box-sizing", "border-box")
+    _set_css_prop(el, "width", "100%")
+
+
+def _css_bg_url(value: str) -> str | None:
+    safe = _safe_url_value(value, allow_data_image=True)
+    if not safe:
+        return None
+    escaped = (
+        safe.replace("\\", "%5C")
+        .replace('"', "%22")
+        .replace("'", "%27")
+        .replace("(", "%28")
+        .replace(")", "%29")
+    )
+    return f'url("{escaped}")'
+
+
+def _apply_background(el, style: dict) -> None:
+    mode = str(style.get("bgMode") or "").strip().lower()
+    if mode not in ("color", "image", "gradient"):
+        if style.get("bgImage"):
+            mode = "image"
+        elif style.get("bgGradient"):
+            mode = "gradient"
+        else:
+            mode = "color"
+    layers: list[str] = []
+    overlay = _safe_overlay(style.get("bgOverlay"))
+    if overlay and mode == "image":
+        alpha = overlay / 100
+        layers.append(f"linear-gradient(rgba(0,0,0,{alpha:.2f}), rgba(0,0,0,{alpha:.2f}))")
+    if mode == "gradient":
+        gradient = _safe_gradient_value(style.get("bgGradient") or "")
+        if gradient:
+            angle, start, end = gradient.split(",", 2)
+            layers.append(f"linear-gradient({angle}, {start}, {end})")
+    if mode == "image":
+        url = _css_bg_url(style.get("bgImage") or "")
+        if url:
+            layers.append(url)
+    if not layers:
+        _remove_bg_fx(el)
+        return
+
+    opacity = _safe_opacity(style.get("bgOpacity"))
+    if opacity is None:
+        opacity = 100
+    blur = _safe_blur(style.get("bgBlur")) or 0
+    use_fx = mode == "image" and (opacity < 100 or blur > 0)
+    size = str(style.get("bgSize") or "cover")
+    position = str(style.get("bgPosition") or "center")
+
+    if not use_fx:
+        _remove_bg_fx(el)
+        _set_css_prop(el, "background-image", ", ".join(layers))
+        if mode == "image":
+            if _SAFE_STYLE_TOKEN_RE.match(size):
+                _set_css_prop(el, "background-size", size)
+            if _SAFE_STYLE_TOKEN_RE.match(position):
+                _set_css_prop(el, "background-position", position)
+            _set_css_prop(el, "background-repeat", "no-repeat")
+            _grow_bg_image_box(el, style)
+        return
+
+    _ensure_bg_fx_css(el)
+    fx = _find_bg_fx(el)
+    if fx is None:
+        fx = BeautifulSoup(
+            '<div class="cms-bg-fx" aria-hidden="true"></div>', "lxml"
+        ).div
+        el.insert(0, fx)
+
+    classes = list(el.get("class") or [])
+    if "cms-bg-fx-host" not in classes:
+        classes.append("cms-bg-fx-host")
+    if blur:
+        if "cms-bg-fx-clip" not in classes:
+            classes.append("cms-bg-fx-clip")
+    else:
+        classes = [c for c in classes if c != "cms-bg-fx-clip"]
+    el["class"] = classes
+
+    for prop in (
+        "background-image",
+        "background-size",
+        "background-position",
+        "background-repeat",
+    ):
+        _clear_css_prop(el, prop)
+
+    _set_css_prop(fx, "background-image", ", ".join(layers))
+    if _SAFE_STYLE_TOKEN_RE.match(size):
+        _set_css_prop(fx, "background-size", size)
+    if _SAFE_STYLE_TOKEN_RE.match(position):
+        _set_css_prop(fx, "background-position", position)
+    _set_css_prop(fx, "background-repeat", "no-repeat")
+    _set_css_prop(fx, "opacity", f"{opacity / 100:.2f}")
+    if blur:
+        _set_css_prop(fx, "filter", f"blur({blur}px)")
+    else:
+        _clear_css_prop(fx, "filter")
+    _grow_bg_image_box(el, style)
+
+
 def _apply_element_styles(el, style: dict) -> None:
     if not isinstance(style, dict):
         return
@@ -603,15 +1767,30 @@ def _apply_element_styles(el, style: dict) -> None:
         value = style.get(key)
         if value is None or value == "":
             continue
-        # Color values are validated so a malformed value can't smuggle extra
-        # declarations into the inline style attribute.
+        # Every value is validated so a malformed one can't smuggle a second
+        # declaration (";") or close the style attribute out of the inline style.
         if key in ("color", "bgColor"):
             value = _safe_css_value(value)
             if not value:
                 continue
+        elif key == "fontFamily":
+            value = _sanitize_font_family(value)
+            if not value:
+                continue
+        else:
+            # fontSize / fontWeight / align / lineHeight / letterSpacing /
+            # textTransform / layout lengths: numbers and keywords only.
+            if not _SAFE_STYLE_TOKEN_RE.match(str(value)):
+                continue
         _set_css_prop(el, css_prop, str(value))
     if style.get("italic"):
         _set_css_prop(el, "font-style", "italic")
+    if style.get("padding"):
+        _set_css_prop(el, "box-sizing", "border-box")
+    if style.get("maxWidth") and not style.get("margin"):
+        _set_css_prop(el, "margin-left", "auto")
+        _set_css_prop(el, "margin-right", "auto")
+    _apply_background(el, style)
 
 
 # A CSS color/value safe enough to interpolate into a stylesheet rule: hex,
@@ -623,6 +1802,52 @@ _SAFE_CSS_VALUE_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(?:rgb|rgba|h
 def _safe_css_value(value: str) -> str | None:
     v = str(value or "").strip()
     return v if _SAFE_CSS_VALUE_RE.match(v) else None
+
+
+# URL schemes that execute in a browser — never allowed in a client-set
+# href/src. ``data:text/html`` is included because it runs script when navigated
+# to or framed; ``data:image/`` (images only) is allowed separately.
+def _is_executable_url(value: str) -> bool:
+    v = re.sub(r"\s", "", str(value or "")).lower()
+    return v.startswith(("javascript:", "vbscript:", "data:text/html"))
+
+
+# Safe hosted/relative schemes for link hrefs and media srcs.
+_SAFE_URL_SCHEMES_LINK = ("http://", "https://", "mailto:", "tel:")
+
+
+def _safe_url_value(
+    value: str, *, allow_anchor: bool = False, allow_data_image: bool = False
+) -> str | None:
+    """Return ``value`` if it is safe to write into an ``href``/``src``, else None.
+
+    Accepts http(s), mailto:/tel: (links), absolute (``/``) and relative paths,
+    in-page anchors (``#``, links only), and — images only — ``data:image/``
+    URIs. Rejects ``javascript:``, ``vbscript:``, and ``data:text/html`` (the
+    schemes that execute in a browser). Empty string is passed through so a
+    field can clear/keep its default. This mirrors the sanitizer's
+    ``_is_safe_url`` but is used for the typed field values the richtext/blog
+    sanitizers never see."""
+    v = str(value or "").strip()
+    if not v:
+        return v
+    if re.search(r"[\x00-\x1f]", v):
+        return None
+    if _is_executable_url(v):
+        return None
+    lowered = v.lower()
+    if lowered.startswith(_SAFE_URL_SCHEMES_LINK):
+        return v
+    if allow_data_image and lowered.startswith("data:image/"):
+        return v
+    if v.startswith("/"):
+        return v
+    if allow_anchor and v.startswith("#"):
+        return v
+    # No scheme at all (e.g. "page/sub") is treated as a relative path.
+    if ":" not in v.split("/", 1)[0]:
+        return v
+    return None
 
 
 def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
@@ -641,6 +1866,20 @@ def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
         if not isinstance(element_id, str) or "." not in element_id:
             continue
         if not isinstance(style, dict):
+            continue
+        if element_id.endswith(_BLOCK_STYLE_SUFFIX):
+            inst_id = element_id[: -len(_BLOCK_STYLE_SUFFIX)]
+            if inst_id:
+                for el in soup.find_all(attrs={"data-instance-id": inst_id}):
+                    _apply_element_styles(el, style)
+            continue
+        if _REGION_STYLE_MARK in element_id:
+            inst_id, _, region = element_id.partition(_REGION_STYLE_MARK)
+            if inst_id and region:
+                for wrap in soup.find_all(attrs={"data-instance-id": inst_id}):
+                    for kid in wrap.find_all(True, recursive=False):
+                        if kid.get("data-region") == region:
+                            _apply_element_styles(kid, style)
             continue
         for el in soup.find_all(attrs={"data-edit": element_id}):
             _apply_element_styles(el, style)
@@ -665,15 +1904,18 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     element-specific CSS may still override the body-level defaults."""
     if not isinstance(global_styles, dict):
         return
+    # These decls are interpolated into a stylesheet, so each value is validated
+    # against the same allowlists as inline styles — an unvalidated value
+    # ("#fff} body{...}") would inject arbitrary site-wide CSS.
     body_decls = []
-    font_family = global_styles.get("fontFamily")
+    font_family = _sanitize_font_family(global_styles.get("fontFamily") or "")
     base_size = global_styles.get("baseSize")
-    text_color = global_styles.get("textColor")
-    heading_family = global_styles.get("headingFamily")
-    page_bg = global_styles.get("pageBg")
+    text_color = _safe_css_value(global_styles.get("textColor") or "")
+    heading_family = _sanitize_font_family(global_styles.get("headingFamily") or "")
+    page_bg = _safe_css_value(global_styles.get("pageBg") or "")
     if font_family:
         body_decls.append(f"font-family: {font_family};")
-    if base_size:
+    if base_size and _SAFE_STYLE_TOKEN_RE.match(str(base_size)):
         body_decls.append(f"font-size: {base_size};")
     if text_color:
         body_decls.append(f"color: {text_color};")
@@ -684,7 +1926,7 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     if body_decls:
         rules.append("body{" + " ".join(body_decls) + "}")
     if heading_family:
-        rules.append("h1,h2,h3,h4,h5,h6{font-family: " + str(heading_family) + ";}")
+        rules.append("h1,h2,h3,h4,h5,h6{font-family: " + heading_family + ";}")
     if not rules:
         return
 
@@ -969,12 +2211,20 @@ def render_site(
                 el.decompose()
             continue
         if field not in section_data:
+            href_only = f"{field}_href"
+            if el.name == "a" and href_only in section_data:
+                _apply_field(el, section_data[href_only], "link", preview=preview)
             continue
         # Same resolution the parser used to extract the default, so a
         # child-bearing "text" field is never written through el.string.
         # Applied after the ghl-embed branch above, which keys off the
         # declared type.
-        _apply_field(el, section_data[field], effective_field_type(el, ftype))
+        _apply_field(
+            el, section_data[field], effective_field_type(el, ftype), preview=preview
+        )
+        href_key = f"{field}_href"
+        if el.name == "a" and href_key in section_data:
+            _apply_field(el, section_data[href_key], "link", preview=preview)
 
     if needs_ghl_form_script:
         _inject_ghl_form_script(soup)
@@ -1103,3 +2353,281 @@ def merge_with_defaults(schema: dict[str, Any], content: dict[str, Any]) -> dict
             continue
         merged.setdefault(section_id, {}).update(fields or {})
     return merged
+
+
+# --------------------------------------------------------------------------- #
+# Block-instance rendering (curated block palette).                            #
+#                                                                              #
+# A block *shell* template is fixed chrome (data-section nav/footer) plus one  #
+# or more `data-region` slots. The tenant/page content carries an ordered list #
+# of block *instances* per region; each instance references a BlockType and    #
+# carries its own field values. Rendering clones each block fragment, rewrites #
+# its `data-edit` ids to `<instanceId>.<field>` (so duplicate block types on   #
+# the same page never collide), assembles them into the region, then reuses    #
+# `render_site` verbatim so every existing apply rule (image srcset reset,     #
+# richtext flatten, color, styles, tokens, hidden, GHL, preview bridge) fires  #
+# per instance with zero duplication.                                          #
+# --------------------------------------------------------------------------- #
+
+
+def merge_block_defaults(
+    block_schema: dict[str, Any], instance_fields: dict[str, Any] | None
+) -> dict[str, str]:
+    """Fill a single instance's missing fields with the block type's defaults.
+
+    Mirrors ``merge_with_defaults`` at instance scope: GHL embed choices are
+    never portable defaults, so they start empty and are only set by explicit,
+    tenant-validated instance content.
+    """
+    merged: dict[str, Any] = dict(block_schema.get("defaults") or {})
+    for field in block_schema.get("fields") or []:
+        if field.get("type") == "ghl-embed":
+            merged[str(field.get("id"))] = ""
+    for key, value in (instance_fields or {}).items():
+        merged[str(key)] = value
+    return merged
+
+
+def _build_block_instance(
+    instance: dict[str, Any], catalog: dict[str, dict], *, preview: bool = False
+):
+    """Return (wrapper_element, instance_content) for one block instance, or
+    (None, None) when its block type is unknown/inactive. The wrapper is a
+    detached BeautifulSoup element ready to append into a region slot."""
+    if not isinstance(instance, dict):
+        return None, None
+    inst_id = str(instance.get("id") or "").strip()
+    btype = catalog.get(instance.get("type"))
+    if not inst_id or not btype:
+        return None, None
+
+    frag = BeautifulSoup(btype.get("html") or "", "lxml")
+    wrapper = (
+        frag.find(attrs={"data-block": True})
+        or frag.find(attrs={"data-section": True})
+    )
+    if wrapper is None:
+        return None, None
+
+    key = (wrapper.get("data-block") or wrapper.get("data-section") or "").strip()
+    # Promote the block to an instance "section": downstream section-based
+    # behavior (scroll-to-section, hide-whole-block, flash) keys off
+    # data-section, so the instance id becomes the section id.
+    if wrapper.has_attr("data-block"):
+        del wrapper["data-block"]
+    wrapper["data-section"] = inst_id
+    wrapper["data-instance-id"] = inst_id
+    wrapper["data-block-type"] = key
+    # Friendly name for the on-canvas selection label — preview-only so the
+    # public render stays byte-for-byte identical to the classic render
+    # (migration parity). Falls back to a title-cased key client-side.
+    if preview:
+        _blk_label = str(btype.get("label") or "").strip()
+        if _blk_label:
+            wrapper["data-cms-label"] = _blk_label
+
+    # Rewrite every field id from the block-relative `key.field` to the
+    # per-instance `instanceId.field` so N copies of the same block type never
+    # share a value.
+    for field_el in wrapper.find_all(attrs={"data-edit": True}):
+        fid = (field_el.get("data-edit") or "").strip()
+        if "." not in fid:
+            continue
+        section_part, field_part = fid.split(".", 1)
+        if section_part != key:
+            continue
+        field_el["data-edit"] = f"{inst_id}.{field_part}"
+
+    inst_content = merge_block_defaults(btype.get("schema") or {}, instance.get("fields"))
+    return wrapper.extract(), inst_content
+
+
+_EMPTY_COLUMN_STYLE = (
+    "min-height:72px;border:1px dashed #cbd5e1;border-radius:8px;"
+    "display:flex;align-items:center;justify-content:center;text-align:center;"
+    "color:#94a3b8;font:13px/1.4 system-ui,sans-serif;padding:8px;"
+)
+
+
+def _empty_slot_button(dest: str) -> str:
+    """A clickable "+" placeholder for an empty column (preview only). Clicking
+    it asks the editor (via the bridge) to open Quick Add with this column as
+    the preset destination — GHL-style."""
+    return (
+        '<button type="button" data-cms-add-here="1" '
+        f'data-cms-dest="{dest}" aria-label="Add block to this column" '
+        'style="cursor:pointer;display:flex;flex-direction:column;'
+        'align-items:center;gap:2px;width:100%;border:0;background:transparent;'
+        'color:#94a3b8;font:13px/1.4 system-ui,sans-serif;">'
+        '<span style="font-size:26px;font-weight:600;line-height:1;">+</span>'
+        '<span>Add block</span></button>'
+    )
+
+
+_HEADER_ADDERS = {
+    "header-center": ("nav-link", "Add link"),
+    "header-right": ("button", "Add button"),
+    "header": ("button", "Add button"),
+    "nav": ("nav-link", "Add link"),
+}
+
+
+def _chrome_add_button(dest: str, label: str, add_type: str) -> str:
+    """Compact inline + for navbar slots (preview only). Inserts the typed
+    block directly instead of opening the full page-builder palette."""
+    return (
+        '<button type="button" class="cms-chrome-add" data-cms-add-here="1" '
+        f'data-cms-dest="{dest}" data-cms-add-type="{add_type}" '
+        f'aria-label="{label}">+ {label}</button>'
+    )
+
+
+def _assemble_instance(
+    instance: dict[str, Any],
+    catalog: dict[str, dict],
+    flat_content: dict[str, Any],
+    *,
+    depth: int = 0,
+    max_depth: int = 2,
+    preview: bool = False,
+):
+    """Build one instance wrapper, fill its nested column regions with child
+    instances (recursively), and register every instance's content in
+    ``flat_content`` keyed by instance id. Returns the wrapper element or
+    ``None`` when the block type is unknown/inactive.
+
+    In ``preview`` mode empty column slots get a visible dashed placeholder so
+    a just-added (still empty) row is not an invisible band in the editor. The
+    placeholder is preview-only — the public render never emits it."""
+    wrapper, inst_content = _build_block_instance(instance, catalog, preview=preview)
+    if wrapper is None:
+        return None
+    flat_content[str(instance.get("id"))] = inst_content
+
+    if depth < max_depth:
+        children = instance.get("children")
+        if isinstance(children, dict):
+            for slot in wrapper.find_all(attrs={"data-region": True}):
+                name = (slot.get("data-region") or "").strip()
+                slot.clear()
+                for child in children.get(name) or []:
+                    child_wrapper = _assemble_instance(
+                        child, catalog, flat_content,
+                        depth=depth + 1, max_depth=max_depth, preview=preview,
+                    )
+                    if child_wrapper is not None:
+                        slot.append(child_wrapper)
+
+    if preview:
+        for slot in wrapper.find_all(attrs={"data-region": True}):
+            if not slot.contents:
+                name = (slot.get("data-region") or "").strip()
+                dest = f"{instance.get('id')}/{name}"
+                existing = (slot.get("style") or "").rstrip(";")
+                slot["style"] = (existing + ";" if existing else "") + _EMPTY_COLUMN_STYLE
+                slot["data-empty-region"] = "1"
+                slot.append(BeautifulSoup(_empty_slot_button(dest), "html.parser"))
+    return wrapper
+
+
+def render_page_from_blocks(
+    shell_html: str,
+    content: dict[str, Any],
+    catalog: dict[str, dict],
+    *,
+    preview: bool = False,
+    site_settings: dict[str, Any] | None = None,
+    nav_pages: list[dict[str, Any]] | None = None,
+) -> str:
+    """Render a block-shell page: fixed chrome + ordered block instances.
+
+    ``content`` is the raw page content: ``regions`` (ordered instance lists
+    keyed by region name) plus top-level chrome sections (``nav``, ``footer``,
+    ``brand``) and ``_``-prefixed meta (``_styles`` / ``_hidden`` / ``_tokens``
+    / ``_global``). ``catalog`` maps a block key to ``{"schema": ..., "html":
+    ...}``.
+    """
+    if not shell_html:
+        return ""
+    content = content or {}
+    from core.services.blocks import (
+        MAX_BLOCK_DEPTH,
+        _HEADER_SLOTS,
+        alias_chrome_regions,
+        apply_header_chrome,
+        _apply_header_name,
+        normalize_header,
+    )
+
+    regions = alias_chrome_regions(content.get("regions") or {})
+    header_meta = normalize_header(
+        content.get("_header"), regions=regions, nav_pages=nav_pages,
+    )
+
+    # Chrome + meta get the classic default-merge against the shell's own
+    # (fixed-section) schema so empty chrome fields fall back to template
+    # defaults. Instance content is added per-instance below.
+    chrome_content = {k: v for k, v in content.items() if k != "regions"}
+    shell_schema = build_schema(shell_html)
+    flat_content = merge_with_defaults(shell_schema, chrome_content)
+
+    soup = BeautifulSoup(shell_html, "lxml")
+    region_slots = soup.find_all(attrs={"data-region": True})
+    for region_el in region_slots:
+        name = (region_el.get("data-region") or "main").strip() or "main"
+        region_el.clear()
+        if name in _HEADER_SLOTS:
+            continue
+        for instance in regions.get(name) or []:
+            wrapper = _assemble_instance(
+                instance, catalog, flat_content, depth=0,
+                max_depth=MAX_BLOCK_DEPTH, preview=preview,
+            )
+            if wrapper is None:
+                continue
+            region_el.append(wrapper)
+        if preview and not region_el.contents:
+            dest = name
+            existing = (region_el.get("style") or "").rstrip(";")
+            compact = name.startswith("footer")
+            extra = (
+                "min-height:40px;border:1px dashed #cbd5e1;border-radius:8px;"
+                "display:flex;align-items:center;justify-content:center;"
+                "padding:6px 10px;"
+                if compact
+                else _EMPTY_COLUMN_STYLE
+            )
+            region_el["style"] = (existing + ";" if existing else "") + extra
+            region_el["data-empty-region"] = "1"
+            region_el.append(BeautifulSoup(_empty_slot_button(dest), "html.parser"))
+        elif preview and name.startswith("footer"):
+            region_el.append(BeautifulSoup(_empty_slot_button(name), "html.parser"))
+
+    apply_header_chrome(soup, header_meta, preview=preview)
+
+    # Opt-in menus outside the header still get published pages. The header
+    # navbar is painted from ``_header`` above; don't refill those markers.
+    if nav_pages:
+        for menu_el in soup.find_all(attrs={"data-nav-pages": True}):
+            if menu_el.find_parent("header"):
+                continue
+            menu_el.clear()
+            for entry in nav_pages:
+                link = soup.new_tag("a", href=entry.get("url") or "#")
+                link.string = entry.get("title") or ""
+                menu_el.append(link)
+
+    assembled_html = str(soup)
+    # Reuse render_site verbatim so every apply rule + the preview bridge fire
+    # exactly as they do for classic pages — the assembled page is now just a
+    # normal annotated document whose "sections" are block instances.
+    html = render_site(
+        assembled_html, flat_content, preview=preview, site_settings=site_settings
+    )
+    # Field apply writes the brand text after chrome paint; hide it again so
+    # "Show site name" off cannot lose to a leftover wordmark.
+    if not header_meta.get("show_name", True):
+        out = BeautifulSoup(html, "lxml")
+        _apply_header_name(out, header_meta)
+        return str(out)
+    return html

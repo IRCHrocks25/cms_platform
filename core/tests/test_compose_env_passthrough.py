@@ -30,6 +30,11 @@ COMPOSE_ENV_ALLOWLIST = frozenset(
         "EMBED_ASSISTANT_PUBLIC_ORIGIN",
         "GHL_CHOOSELOCATION_URL",
         "GHL_CHOOSELOCATION_URL_STANDARD",
+        # Image-optimization tuning; sensible in-code defaults (2000px / q82).
+        "MEDIA_IMAGE_MAX_DIMENSION",
+        "MEDIA_IMAGE_JPEG_QUALITY",
+        # Opt-in X-Diag-* headers; production compose stays off (X1).
+        "DIAG_HEADERS",
     }
 )
 

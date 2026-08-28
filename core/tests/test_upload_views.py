@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 
-from core.models import MediaAsset, Template, TenantMembership, Tenant
+from core.models import MediaAsset, Page, Template, TenantMembership, Tenant
 
 IB = dict(
     ICEBERG_API_URL="https://api.test",
@@ -195,6 +195,23 @@ class MediaGalleryViewTests(TestCase):
             urls.index("https://cdn.example/landing-hero.jpg"),
         )
 
+    def test_dead_cloudinary_defaults_are_hidden(self):
+        self.tpl.html_source = (
+            "<section data-section='hero' data-label='Hero'>"
+            "<img src='https://res.cloudinary.com/dcuswyfur/image/upload/v1/old.png'>"
+            "<img src='https://cdn.example/keep.jpg'>"
+            "</section>"
+        )
+        self.tpl.save()
+        resp = self.client.get(
+            "/dashboard/editor/media/", HTTP_HOST="acme.localhost"
+        )
+        urls = {a["url"] for a in resp.json()["assets"]}
+        self.assertNotIn(
+            "https://res.cloudinary.com/dcuswyfur/image/upload/v1/old.png", urls
+        )
+        self.assertIn("https://cdn.example/keep.jpg", urls)
+
     def test_landing_page_images_without_uploads(self):
         resp = self.client.get(
             "/dashboard/editor/media/", HTTP_HOST="acme.localhost"
@@ -219,6 +236,37 @@ class MediaGalleryViewTests(TestCase):
         )
         urls = {a["url"] for a in resp.json()["assets"]}
         self.assertIn("https://cdn.example/client-upload.jpg", urls)
+
+    def test_block_fields_and_backgrounds_appear(self):
+        Page.objects.create(
+            tenant=self.tenant,
+            template=self.tpl,
+            title="Inner",
+            slug="inner",
+            content={
+                "regions": {
+                    "main": [{
+                        "id": "blk_abcd1234",
+                        "type": "image",
+                        "fields": {
+                            "src": "https://cdn.example/block-photo.jpg",
+                        },
+                    }]
+                },
+                "_styles": {
+                    "blk_abcd1234.__block": {
+                        "bgMode": "image",
+                        "bgImage": "https://cdn.example/section-bg.png",
+                    }
+                },
+            },
+        )
+        resp = self.client.get(
+            "/dashboard/editor/media/", HTTP_HOST="acme.localhost"
+        )
+        urls = {a["url"] for a in resp.json()["assets"]}
+        self.assertIn("https://cdn.example/block-photo.jpg", urls)
+        self.assertIn("https://cdn.example/section-bg.png", urls)
 
     def test_empty_gallery_when_no_images_on_page(self):
         bare = Template.objects.create(

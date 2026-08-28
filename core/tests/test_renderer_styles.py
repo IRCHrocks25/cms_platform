@@ -31,6 +31,23 @@ class ApplyElementStylesTests(SimpleTestCase):
         self.assertIn("font-style: italic;", style)
         self.assertIn("text-align: center;", style)
 
+    def test_typography_properties_mapped(self):
+        el = _el('<p data-edit="a.b">x</p>')
+        _apply_element_styles(el, {
+            "lineHeight": "1.5", "letterSpacing": "0.05em",
+            "textTransform": "uppercase",
+        })
+        style = el.get("style", "")
+        self.assertIn("line-height: 1.5;", style)
+        self.assertIn("letter-spacing: 0.05em;", style)
+        self.assertIn("text-transform: uppercase;", style)
+
+    def test_unsafe_typography_value_is_skipped(self):
+        el = _el('<p data-edit="a.b">x</p>')
+        _apply_element_styles(el, {"lineHeight": "1;} body{display:none"})
+        self.assertNotIn("line-height", el.get("style", ""))
+        self.assertNotIn("display:none", el.get("style", ""))
+
     def test_italic_false_omits_font_style(self):
         el = _el('<p data-edit="a.b">x</p>')
         _apply_element_styles(el, {"italic": False, "color": "#000000"})
@@ -57,6 +74,150 @@ class ApplyElementStylesTests(SimpleTestCase):
         _apply_styles(soup, {"hero.title": {"color": "#abcabc"}})
         self.assertIn("color: #abcabc;", soup.find(attrs={"data-edit": "hero.title"}).get("style", ""))
         self.assertEqual(soup.find(attrs={"data-edit": "hero.body"}).get("style", ""), "")
+
+    def test_layout_properties_mapped(self):
+        el = _el('<section data-edit="hero.box">x</section>')
+        _apply_element_styles(el, {
+            "padding": "32px", "maxWidth": "960px", "minHeight": "280px",
+            "borderRadius": "16px",
+        })
+        style = el.get("style", "")
+        self.assertIn("padding: 32px;", style)
+        self.assertIn("max-width: 960px;", style)
+        self.assertIn("min-height: 280px;", style)
+        self.assertIn("border-radius: 16px;", style)
+        self.assertIn("box-sizing: border-box;", style)
+        self.assertIn("margin-left: auto;", style)
+
+    def test_background_image_and_overlay(self):
+        el = _el('<section data-edit="hero.box">x</section>')
+        _apply_element_styles(el, {
+            "bgMode": "image",
+            "bgImage": "https://cdn.example.com/hero.jpg",
+            "bgOverlay": "40",
+            "bgSize": "cover",
+        })
+        style = el.get("style", "")
+        self.assertIn("background-image:", style)
+        self.assertIn("url(\"https://cdn.example.com/hero.jpg\")", style)
+        self.assertIn("rgba(0,0,0,0.40)", style)
+        self.assertIn("background-size: cover;", style)
+        self.assertIn("min-height: 220px;", style)
+        self.assertIn("padding: 32px 20px;", style)
+        self.assertIsNone(el.find("div", class_="cms-bg-fx"))
+
+    def test_background_image_grows_text_line_into_cell(self):
+        el = _el(
+            '<div data-edit="counter.n1Value" style="font-size:2.5rem;">200+</div>'
+        )
+        _apply_element_styles(el, {
+            "bgMode": "image",
+            "bgImage": "https://cdn.example.com/metric.jpg",
+        })
+        style = el.get("style", "")
+        self.assertIn("min-height: 220px;", style)
+        self.assertIn("padding: 32px 20px;", style)
+        self.assertIn("width: 100%;", style)
+        self.assertIn("background-size: cover;", style)
+
+    def test_background_opacity_uses_fx_layer(self):
+        soup = BeautifulSoup('<html><head></head><body><section data-edit="hero.box">Hello</section></body></html>', "lxml")
+        el = soup.find(attrs={"data-edit": True})
+        _apply_element_styles(el, {
+            "bgMode": "image",
+            "bgImage": "https://cdn.example.com/hero.jpg",
+            "bgOpacity": "60",
+            "bgSize": "cover",
+        })
+        fx = el.find("div", class_="cms-bg-fx")
+        self.assertIsNotNone(fx)
+        self.assertIn("cms-bg-fx-host", el.get("class") or [])
+        self.assertIn('url("https://cdn.example.com/hero.jpg")', fx.get("style", ""))
+        self.assertIn("opacity: 0.60", fx.get("style", ""))
+        self.assertNotIn("background-image", el.get("style", "") or "")
+        self.assertIsNotNone(soup.find("style", attrs={"data-cms-bg-fx": True}))
+
+    def test_background_blur_clips_photo_only(self):
+        soup = BeautifulSoup('<html><head></head><body><section data-edit="hero.box">Hello</section></body></html>', "lxml")
+        el = soup.find(attrs={"data-edit": True})
+        _apply_element_styles(el, {
+            "bgMode": "image",
+            "bgImage": "https://cdn.example.com/hero.jpg",
+            "bgBlur": "8",
+        })
+        fx = el.find("div", class_="cms-bg-fx")
+        self.assertIsNotNone(fx)
+        self.assertIn("cms-bg-fx-clip", el.get("class") or [])
+        self.assertIn("blur(8px)", fx.get("style", ""))
+        self.assertNotIn("filter:", el.get("style", "") or "")
+
+    def test_background_gradient(self):
+        el = _el('<section data-edit="hero.box">x</section>')
+        _apply_element_styles(el, {
+            "bgMode": "gradient",
+            "bgGradient": "180deg,#111111,#2563eb",
+        })
+        self.assertIn("linear-gradient(180deg, #111111, #2563eb)", el.get("style", ""))
+
+    def test_javascript_background_image_is_skipped(self):
+        el = _el('<section data-edit="hero.box">x</section>')
+        _apply_element_styles(el, {
+            "bgMode": "image",
+            "bgImage": "javascript:alert(1)",
+        })
+        self.assertNotIn("background-image", el.get("style", ""))
+
+    def test_block_style_targets_instance_wrapper(self):
+        soup = BeautifulSoup(
+            '<body><section data-instance-id="blk_abcd1234"><h1 data-edit="blk_abcd1234.title">Hi</h1></section></body>',
+            "lxml",
+        )
+        _apply_styles(soup, {"blk_abcd1234.__block": {"padding": "24px", "bgColor": "#0a0a14"}})
+        wrap = soup.find(attrs={"data-instance-id": "blk_abcd1234"})
+        self.assertIn("padding: 24px;", wrap.get("style", ""))
+        self.assertIn("background-color: #0a0a14;", wrap.get("style", ""))
+        self.assertEqual(soup.find(attrs={"data-edit": "blk_abcd1234.title"}).get("style", ""), "")
+
+    def test_region_style_targets_direct_child_container(self):
+        soup = BeautifulSoup(
+            '<body><section data-instance-id="blk_abcd1234">'
+            '<div data-region="col1">A</div>'
+            '<div data-region="col2">B</div>'
+            "</section></body>",
+            "lxml",
+        )
+        _apply_styles(soup, {
+            "blk_abcd1234.__region.col1": {
+                "bgMode": "image",
+                "bgImage": "https://cdn.example.com/col.jpg",
+            }
+        })
+        col1 = soup.find(attrs={"data-region": "col1"})
+        col2 = soup.find(attrs={"data-region": "col2"})
+        wrap = soup.find(attrs={"data-instance-id": "blk_abcd1234"})
+        self.assertIn('url("https://cdn.example.com/col.jpg")', col1.get("style", ""))
+        self.assertNotIn("background-image", col2.get("style", "") or "")
+        self.assertNotIn("background-image", wrap.get("style", "") or "")
+
+    def test_region_style_skips_nested_same_name(self):
+        soup = BeautifulSoup(
+            '<body><div data-instance-id="blk_rowouter">'
+            '<div data-region="col1">'
+            '<div data-instance-id="blk_rowinner"><div data-region="col1">inner</div></div>'
+            "</div></div></body>",
+            "lxml",
+        )
+        _apply_styles(soup, {
+            "blk_rowouter.__region.col1": {"bgColor": "#111111"},
+        })
+        outer = soup.find(attrs={"data-instance-id": "blk_rowouter"}).find(
+            attrs={"data-region": "col1"}, recursive=False
+        )
+        inner = soup.find(attrs={"data-instance-id": "blk_rowinner"}).find(
+            attrs={"data-region": "col1"}
+        )
+        self.assertIn("background-color: #111111;", outer.get("style", ""))
+        self.assertNotIn("background-color", inner.get("style", "") or "")
 
 
 class ApplyGlobalStylesTests(SimpleTestCase):
@@ -337,3 +498,122 @@ class PreviewBridgeStyleTests(SimpleTestCase):
         self.assertIn("apply-styles", html)
         self.assertIn("apply-global", html)
         self.assertIn("cmsEnsureFont", html)
+
+
+class UrlFieldSanitizeTests(SimpleTestCase):
+    """Typed URL field values are scheme-checked on render (E7)."""
+
+    def _render(self, body_html, content):
+        template = "<html><head></head><body>" + body_html + "</body></html>"
+        return BeautifulSoup(render_site(template, content), "lxml")
+
+    def test_javascript_link_rejected_keeps_default(self):
+        soup = self._render(
+            '<a data-edit="hero.cta" data-type="link" href="/ok">Go</a>',
+            {"hero": {"cta": "javascript:alert(1)"}},
+        )
+        self.assertEqual(soup.find("a").get("href"), "/ok")
+
+    def test_https_link_applied(self):
+        soup = self._render(
+            '<a data-edit="hero.cta" data-type="link" href="/ok">Go</a>',
+            {"hero": {"cta": "https://example.com"}},
+        )
+        self.assertEqual(soup.find("a").get("href"), "https://example.com")
+
+    def test_mailto_and_anchor_and_tel_allowed(self):
+        for value in ("mailto:a@b.com", "#section", "tel:+123", "/rel/path"):
+            soup = self._render(
+                '<a data-edit="s.f" data-type="link" href="#">x</a>',
+                {"s": {"f": value}},
+            )
+            self.assertEqual(soup.find("a").get("href"), value)
+
+    def test_javascript_image_src_rejected(self):
+        soup = self._render(
+            '<img data-edit="hero.img" data-type="image" src="/ok.png">',
+            {"hero": {"img": "javascript:alert(1)"}},
+        )
+        self.assertEqual(soup.find("img").get("src"), "/ok.png")
+
+    def test_data_image_allowed_but_data_html_rejected(self):
+        ok = self._render(
+            '<img data-edit="s.f" data-type="image" src="/x.png">',
+            {"s": {"f": "data:image/png;base64,AAAA"}},
+        )
+        self.assertEqual(ok.find("img").get("src"), "data:image/png;base64,AAAA")
+        bad = self._render(
+            '<img data-edit="s.f" data-type="image" src="/x.png">',
+            {"s": {"f": "data:text/html,<script>alert(1)</script>"}},
+        )
+        self.assertEqual(bad.find("img").get("src"), "/x.png")
+
+    def test_unsafe_color_field_rejected(self):
+        soup = self._render(
+            '<span data-edit="s.f" data-type="color">x</span>',
+            {"s": {"f": "red; } body { display:none"}},
+        )
+        self.assertNotIn("display:none", soup.find("span").get("style", ""))
+
+
+class BrandTokenSanitizeTests(SimpleTestCase):
+    """Brand token values can't break out of the :root rule (E6)."""
+
+    def _css(self, brand):
+        template = (
+            "<html><head><style data-tokens>:root { --primary: #000; }</style>"
+            "</head><body><h1>H</h1></body></html>"
+        )
+        soup = BeautifulSoup(render_site(template, {"brand": brand}), "lxml")
+        return soup.find("style", attrs={"data-tokens": True}).string
+
+    def test_safe_color_applied(self):
+        self.assertIn("--primary: #ff0000;", self._css({"primary": "#ff0000"}))
+
+    def test_breakout_value_keeps_default(self):
+        css = self._css({"primary": "#fff; } body { display:none; } :root{"})
+        self.assertNotIn("display:none", css)
+        self.assertIn("--primary: #000;", css)
+
+
+class GlobalStyleInjectionTests(SimpleTestCase):
+    def _css(self, g):
+        soup = BeautifulSoup(
+            "<html><head></head><body><h1>H</h1></body></html>", "lxml")
+        _apply_global_styles(soup, g)
+        block = soup.find("style", attrs={"data-cms-global": True})
+        return block.string if block else ""
+
+    def test_textcolor_breakout_dropped(self):
+        css = self._css({"textColor": "#fff} body{display:none}"})
+        self.assertNotIn("display:none", css)
+
+    def test_font_family_stripped_of_injection(self):
+        css = self._css({"fontFamily": "Inter;}body{display:none"})
+        self.assertNotIn("display:none", css)
+
+
+class CodeFieldPreviewTests(SimpleTestCase):
+    """Code fields run raw on the public site but are inert in preview (E1)."""
+
+    _CODE_TEMPLATE = (
+        "<html><head></head><body>"
+        '<div data-edit="hero.code" data-type="code"></div>'
+        "</body></html>"
+    )
+    _PAYLOAD = {"hero": {"code": "<script>window.__pwned=1</script>"}}
+
+    def test_public_render_keeps_raw_script(self):
+        html = render_site(self._CODE_TEMPLATE, self._PAYLOAD, preview=False)
+        self.assertIn("<script>window.__pwned=1</script>", html)
+
+    def test_preview_render_escapes_code(self):
+        html = render_site(self._CODE_TEMPLATE, self._PAYLOAD, preview=True)
+        # The code field's element carries the value as escaped text, not a
+        # live <script> that would run inside the authenticated dashboard iframe.
+        soup = BeautifulSoup(html, "lxml")
+        code_el = soup.find(attrs={"data-edit": "hero.code"})
+        self.assertIsNone(code_el.find("script"))
+        self.assertIn("window.__pwned=1", code_el.get_text())
+        # The live-apply bridge sets code via textContent (inert), never innerHTML.
+        self.assertNotIn("el.innerHTML = value", html)

@@ -1,3 +1,4 @@
+import io
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -6,6 +7,14 @@ from django.test import TestCase, override_settings
 
 from core.models import Template, Tenant
 from core.services import iceberg_media
+
+
+def _image_bytes(w, h, fmt="PNG", color=(200, 30, 30)):
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), color).save(buf, format=fmt)
+    return buf.getvalue()
 
 IB = dict(
     ICEBERG_API_URL="https://api.test",
@@ -70,6 +79,65 @@ class UploadImageTests(TestCase):
         self.assertEqual(result["secure_url"], f"https://cdn.test/t1/{key}")
         self.assertEqual(result["public_id"], key)
         self.assertEqual(result["bytes"], upload.size)
+
+
+class OptimizeImageTests(TestCase):
+    def _read(self, fileobj):
+        fileobj.seek(0)
+        return fileobj.read()
+
+    @override_settings(MEDIA_IMAGE_MAX_DIMENSION=2000)
+    def test_downscales_oversize_image(self):
+        from PIL import Image
+
+        upload = SimpleUploadedFile(
+            "big.png", _image_bytes(3000, 1500), content_type="image/png"
+        )
+        fileobj, size, content_type = iceberg_media.optimize_image_upload(upload)
+        self.assertEqual(content_type, "image/png")
+        out = Image.open(io.BytesIO(self._read(fileobj)))
+        self.assertEqual(max(out.size), 2000)   # longest edge capped
+        self.assertEqual(out.size, (2000, 1000))  # aspect ratio preserved
+        self.assertEqual(size, len(self._read(fileobj)))
+
+    @override_settings(MEDIA_IMAGE_MAX_DIMENSION=2000)
+    def test_recompresses_jpeg_smaller(self):
+        # A large, noisy-ish JPEG should come back smaller after downscale+recompress.
+        raw = _image_bytes(4000, 3000, fmt="JPEG")
+        upload = SimpleUploadedFile("photo.jpg", raw, content_type="image/jpeg")
+        fileobj, size, content_type = iceberg_media.optimize_image_upload(upload)
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertLess(size, len(raw))
+
+    @override_settings(MEDIA_IMAGE_MAX_DIMENSION=2000)
+    def test_small_image_not_upscaled(self):
+        from PIL import Image
+
+        upload = SimpleUploadedFile(
+            "small.png", _image_bytes(400, 300), content_type="image/png"
+        )
+        fileobj, size, content_type = iceberg_media.optimize_image_upload(upload)
+        out = Image.open(io.BytesIO(self._read(fileobj)))
+        self.assertEqual(out.size, (400, 300))  # never enlarged
+
+    def test_invalid_bytes_fall_back_to_original(self):
+        upload = SimpleUploadedFile("x.png", b"not-an-image", content_type="image/png")
+        fileobj, size, content_type = iceberg_media.optimize_image_upload(upload)
+        self.assertEqual(self._read(fileobj), b"not-an-image")
+        self.assertEqual(size, len(b"not-an-image"))
+
+    @override_settings(MEDIA_IMAGE_MAX_DIMENSION=2000)
+    def test_animated_gif_passes_through_untouched(self):
+        from PIL import Image
+
+        frames = [Image.new("RGB", (2500, 100), (i, 0, 0)) for i in range(3)]
+        buf = io.BytesIO()
+        frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:])
+        raw = buf.getvalue()
+        upload = SimpleUploadedFile("anim.gif", raw, content_type="image/gif")
+        fileobj, size, content_type = iceberg_media.optimize_image_upload(upload)
+        self.assertEqual(self._read(fileobj), raw)  # animation preserved
+        self.assertEqual(content_type, "image/gif")
 
 
 @override_settings(**IB)

@@ -42,7 +42,9 @@ class AccountServiceTests(TestCase):
         # would win over the template forever. See
         # core.tests.test_sparse_content_overrides.
         self.assertEqual(tenant.content, {})
-        self.assertTrue(tenant.is_published)
+        # New sites default to draft — the operator/client publishes on purpose
+        # once content is ready (A6).
+        self.assertFalse(tenant.is_published)
         self.assertTrue(owner.check_password(password))
         self.assertFalse(owner.is_staff)
         self.assertTrue(

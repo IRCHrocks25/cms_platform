@@ -1,9 +1,52 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import User
+from django.contrib import messages
+from django.db.models import ProtectedError
 
 from .models import (
-    Template, Tenant, TenantMembership, MediaAsset, ContentVersion, BlogPost,
-    Page, AnnotationJob, EmbeddableAssistant, GhlAgencyInstall, GhlInstall,
+    BlockType, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
+    BlogPost, Page, AnnotationJob, EmbeddableAssistant, GhlAgencyInstall,
+    GhlInstall,
 )
+
+
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
+
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    """Default User admin plus a clear error when the user still owns a site.
+
+    Tenant.owner is PROTECT (A2): a raw delete raises ProtectedError. Catching
+    it here tells the operator to delete or reassign the site first instead of
+    a generic 500.
+    """
+
+    def delete_model(self, request, obj):
+        try:
+            super().delete_model(request, obj)
+        except ProtectedError:
+            self.message_user(
+                request,
+                f"Cannot delete {obj.username}: they still own one or more "
+                "sites. Delete or reassign those sites first.",
+                level=messages.ERROR,
+            )
+
+    def delete_queryset(self, request, queryset):
+        try:
+            super().delete_queryset(request, queryset)
+        except ProtectedError:
+            self.message_user(
+                request,
+                "Cannot delete users who still own sites. Delete or reassign "
+                "those sites first.",
+                level=messages.ERROR,
+            )
 
 
 @admin.register(Template)
@@ -14,6 +57,31 @@ class TemplateAdmin(admin.ModelAdmin):
     # versioning, the field-loss guard, the MCP if_match check and the no-op
     # detection. core/services/templates.py is the only supported write path.
     readonly_fields = ("html_source", "schema", "created_at", "updated_at")
+    filter_horizontal = ("allowed_block_types",)
+
+
+@admin.register(BlockType)
+class BlockTypeAdmin(admin.ModelAdmin):
+    list_display = ("label", "key", "category", "is_active", "updated_at")
+    list_filter = ("is_active", "category")
+    search_fields = ("key", "label", "category")
+    readonly_fields = ("schema", "created_at", "updated_at")
+    actions = ("annotate_with_ai",)
+
+    @admin.action(description="Annotate HTML with AI (Phase 4 fragment annotator)")
+    def annotate_with_ai(self, request, queryset):
+        from core.services.annotator import AnnotatorError, annotate_fragment
+
+        ok = 0
+        for block in queryset:
+            try:
+                block.html_source = annotate_fragment(block.html_source)
+                block.save()  # re-derives schema from the annotated fragment
+                ok += 1
+            except AnnotatorError as exc:
+                self.message_user(request, f"{block.key}: {exc}", level="error")
+        if ok:
+            self.message_user(request, f"Annotated {ok} block(s).")
 
 
 class TenantMembershipInline(admin.TabularInline):
@@ -80,17 +148,33 @@ class EmbeddableAssistantAdmin(admin.ModelAdmin):
     search_fields = ("name", "slug", "brand", "brand_full")
 
 
+@admin.action(description="whether an OAuth token is present")
+def _has_token(obj):
+    # Never surface the live OAuth tokens in the admin. Showing whether one
+    # exists is enough for operators; the tokens themselves are excluded from
+    # the form entirely (A11).
+    return bool(getattr(obj, "access_token", ""))
+
+
+_has_token.boolean = True
+_has_token.short_description = "Has token"
+
+
 @admin.register(GhlAgencyInstall)
 class GhlAgencyInstallAdmin(admin.ModelAdmin):
-    list_display = ("company_id", "company_name", "expires_at", "updated_at")
+    list_display = ("company_id", "company_name", _has_token, "expires_at", "updated_at")
     search_fields = ("company_id", "company_name")
-    readonly_fields = ("access_token", "refresh_token", "available_locations",
-                       "installed_at", "updated_at")
+    # access_token / refresh_token are deliberately NOT in the form — a masked
+    # "has token" column is all operators need (A11).
+    exclude = ("access_token", "refresh_token")
+    readonly_fields = ("available_locations", "installed_at", "updated_at")
 
 
 @admin.register(GhlInstall)
 class GhlInstallAdmin(admin.ModelAdmin):
-    list_display = ("location_id", "location_name", "tenant", "agency", "status", "updated_at")
+    list_display = ("location_id", "location_name", "tenant", "agency", _has_token,
+                    "status", "updated_at")
     search_fields = ("location_id", "location_name")
     list_filter = ("status",)
-    readonly_fields = ("access_token", "refresh_token", "installed_at", "updated_at")
+    exclude = ("access_token", "refresh_token")
+    readonly_fields = ("installed_at", "updated_at")

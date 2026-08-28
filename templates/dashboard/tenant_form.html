@@ -61,6 +61,9 @@
                 {{ template.name }} ({{ template.schema.sections|length }} sections)
               </option>
             {% endfor %}
+            <option value="__blocks__" {% if form_data.template == "__blocks__" %}selected{% endif %}>
+              ✦ Build with blocks (blank site — no HTML)
+            </option>
             <option value="__new__" {% if form_data.template == "__new__" %}selected{% endif %}>
               + Create new template inline…
             </option>
@@ -86,9 +89,15 @@
                 The template will be created and assigned to this site in one step.
               </p>
             </div>
-            <a href="#" id="use-saved-template-link" class="field-link text-sm nowrap">
-              Use a saved template instead →
-            </a>
+            <div class="inline-template-switch text-sm">
+              <a href="#" id="to-blocks-template-link" class="field-link nowrap">
+                Build with blocks instead (no HTML) →
+              </a>
+              <span aria-hidden="true"> · </span>
+              <a href="#" id="use-saved-template-link" class="field-link nowrap">
+                Use a saved template instead →
+              </a>
+            </div>
           </div>
 
           <div class="field">
@@ -143,6 +152,31 @@
                 <button type="button" id="preview-refresh" class="btn btn-ghost btn-sm">Refresh</button>
               </div>
               <iframe id="preview-iframe" class="source-preview-frame source-preview-frame-compact" title="New template preview"></iframe>
+            </div>
+          </div>
+        </div>
+
+        {# ---- Build-with-blocks panel (revealed when "__blocks__" is chosen) ---- #}
+        <div id="blocks-template-block" class="inline-template-panel"
+             {% if form_data.template != "__blocks__" %}hidden{% endif %}>
+          <div class="row-between inline-template-head">
+            <div>
+              <h4 class="inline-template-title">Build with blocks</h4>
+              <p class="inline-template-copy">
+                Creates a blank site with our full block library attached. The client
+                builds every page from the block palette — headlines, images, forms,
+                pricing, FAQs and more — with no HTML. You can rename or tweak the
+                template later.
+              </p>
+            </div>
+            <div class="inline-template-switch text-sm">
+              <a href="#" id="blocks-to-html-link" class="field-link nowrap">
+                Paste annotated HTML instead →
+              </a>
+              <span aria-hidden="true"> · </span>
+              <a href="#" id="blocks-use-saved-link" class="field-link nowrap">
+                Use a saved template instead →
+              </a>
             </div>
           </div>
         </div>
@@ -314,29 +348,39 @@
       var select = document.getElementById("id_template");
       var newBlock = document.getElementById("new-template-block");
       var savedBlock = document.getElementById("saved-template-block");
+      var blocksBlock = document.getElementById("blocks-template-block");
       var nameInput = document.getElementById("id_new_template_name");
       var htmlInput = document.getElementById("id_new_template_html");
       var useSavedLink = document.getElementById("use-saved-template-link");
       var backToNewLink = document.getElementById("back-to-new-template-link");
+      var toBlocksLink = document.getElementById("to-blocks-template-link");
+      var blocksToHtmlLink = document.getElementById("blocks-to-html-link");
+      var blocksUseSavedLink = document.getElementById("blocks-use-saved-link");
       if (!select || !newBlock || !savedBlock) return;
+
+      function show(el, on) {
+        if (!el) return;
+        if (on) el.removeAttribute("hidden");
+        else el.setAttribute("hidden", "");
+      }
 
       function sync() {
         var isNew = select.value === "__new__";
-        if (isNew) {
-          newBlock.removeAttribute("hidden");
-          savedBlock.setAttribute("hidden", "");
-          // Template name is OPTIONAL in the inline flow; the server
-          // falls back to the site name. Only the HTML is mandatory.
-          if (nameInput) nameInput.removeAttribute("required");
-          if (htmlInput) htmlInput.setAttribute("required", "required");
-          select.removeAttribute("required");
-        } else {
-          newBlock.setAttribute("hidden", "");
-          savedBlock.removeAttribute("hidden");
-          if (nameInput) nameInput.removeAttribute("required");
-          if (htmlInput) htmlInput.removeAttribute("required");
-          select.setAttribute("required", "required");
+        var isBlocks = select.value === "__blocks__";
+        show(newBlock, isNew);
+        show(blocksBlock, isBlocks);
+        // Saved-template dropdown is the fallback surface — shown only when
+        // neither inline mode is active.
+        show(savedBlock, !isNew && !isBlocks);
+        // Template name is optional in the inline HTML flow; the server
+        // falls back to the site name. Only the HTML is mandatory there.
+        if (nameInput) nameInput.removeAttribute("required");
+        if (htmlInput) {
+          if (isNew) htmlInput.setAttribute("required", "required");
+          else htmlInput.removeAttribute("required");
         }
+        if (isNew || isBlocks) select.removeAttribute("required");
+        else select.setAttribute("required", "required");
       }
 
       select.addEventListener("change", sync);
@@ -351,8 +395,31 @@
           if (select) select.focus();
         });
       }
+      if (blocksUseSavedLink) {
+        blocksUseSavedLink.addEventListener("click", function (e) {
+          e.preventDefault();
+          select.value = "";
+          sync();
+          if (select) select.focus();
+        });
+      }
       if (backToNewLink) {
         backToNewLink.addEventListener("click", function (e) {
+          e.preventDefault();
+          select.value = "__new__";
+          sync();
+          if (nameInput) nameInput.focus();
+        });
+      }
+      if (toBlocksLink) {
+        toBlocksLink.addEventListener("click", function (e) {
+          e.preventDefault();
+          select.value = "__blocks__";
+          sync();
+        });
+      }
+      if (blocksToHtmlLink) {
+        blocksToHtmlLink.addEventListener("click", function (e) {
           e.preventDefault();
           select.value = "__new__";
           sync();

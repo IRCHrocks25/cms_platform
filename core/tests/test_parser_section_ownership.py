@@ -52,3 +52,28 @@ class NestedSectionOwnershipTests(SimpleTestCase):
 
         self.assertEqual([section["id"] for section in schema["sections"]], ["hero"])
         self.assertEqual(schema["defaults"], {"hero": {"title": "First"}})
+
+    def test_text_anchor_exposes_href_companion(self):
+        schema = build_schema(
+            "<header data-section='nav' data-group='Global'>"
+            "<a data-edit='nav.link1' data-type='text' data-label='Services' "
+            "href='#about'>Services</a>"
+            "</header>"
+        )
+        fields = schema["sections"][0]["fields"]
+        self.assertEqual([f["id"] for f in fields], ["nav.link1", "nav.link1_href"])
+        self.assertEqual(fields[1]["type"], "link")
+        self.assertEqual(fields[1]["default"], "#about")
+        self.assertEqual(fields[1]["applies_to"], "nav.link1")
+        self.assertEqual(schema["defaults"]["nav"]["link1_href"], "#about")
+
+    def test_typed_link_does_not_get_href_companion(self):
+        schema = build_schema(
+            "<footer data-section='footer'>"
+            "<a data-edit='footer.go' data-type='link' href='https://x.com'>X</a>"
+            "</footer>"
+        )
+        self.assertEqual(
+            [f["id"] for f in schema["sections"][0]["fields"]],
+            ["footer.go"],
+        )

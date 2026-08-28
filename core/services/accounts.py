@@ -41,7 +41,7 @@ def create_tenant_account(
     template=None,
     html=None,
     new_template=None,
-    is_published=True,
+    is_published=False,
 ):
     """Create a tenant, owner login, and owner membership atomically.
 
@@ -57,8 +57,10 @@ def create_tenant_account(
     The generated password is returned to the caller and is never persisted
     outside Django's password hash.
 
-    ``is_published`` defaults to True for the dashboard new-client flow.
-    MCP ``create_client_account`` passes False so chat-created sites stay draft.
+    ``is_published`` defaults to False so a brand-new client site starts as a
+    draft — the operator (or client) publishes deliberately once content is
+    ready, matching the "Publish, then visit public" smoke test. MCP
+    ``create_client_account`` already passed False (A6).
 
     If ``custom_domain`` is supplied, a real (unverified) ``CustomDomain`` row
     is created for it via ``core.services.custom_domains.add_custom_domain``,

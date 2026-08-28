@@ -147,6 +147,35 @@ class ContentVersionServiceTests(TestCase):
         newest = self.tenant.versions.order_by("-saved_at").first()
         self.assertEqual(newest.snapshot, {"hero": {"title": "B"}})
 
+    def test_pop_undo_walks_back_through_history(self):
+        """Linear undo: repeated pop-restores step back A<-B<-C instead of
+        toggling between the last two states (the pre-fix bug)."""
+        cv.save_tenant_content(self.tenant, {"hero": {"title": "B"}}, user=self.user)
+        cv.save_tenant_content(self.tenant, {"hero": {"title": "C"}}, user=self.user)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "C"}})
+
+        def undo():
+            newest = self.tenant.versions.order_by("-saved_at").first()
+            cv.restore_tenant_content(self.tenant, newest, user=self.user, pop=True)
+            self.tenant.refresh_from_db()
+
+        undo()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "B"}})
+        undo()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "A"}})
+        # History is consumed as we walk back — no fresh redo points pile up.
+        self.assertEqual(self.tenant.versions.count(), 0)
+
+    def test_pop_undo_does_not_create_redo_point(self):
+        cv.save_tenant_content(self.tenant, {"hero": {"title": "B"}}, user=self.user)
+        version = self.tenant.versions.get()
+        cv.restore_tenant_content(self.tenant, version, user=self.user, pop=True)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, {"hero": {"title": "A"}})
+        # pop consumed the only snapshot and pushed nothing new.
+        self.assertEqual(self.tenant.versions.count(), 0)
+
     @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
     def test_restore_refuses_deleted_or_foreign_embed_form(self, list_forms):
         template = self.tenant.template

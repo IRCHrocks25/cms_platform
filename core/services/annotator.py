@@ -1183,6 +1183,34 @@ def annotate_html(raw_html: str) -> str:
     return annotate_html_result(raw_html).html
 
 
+def annotate_fragment(raw_html: str) -> str:
+    """Annotate a single HTML fragment into an insertable *block* fragment.
+
+    Runs the standard document annotator, then extracts the first editable
+    section and promotes it to a ``data-block`` wrapper so it can seed a
+    :class:`~core.models.BlockType`. Field ids stay ``<key>.<field>`` — exactly
+    what ``core.parser.build_block_schema`` expects. Raises ``AnnotatorError``
+    when no editable section comes back (same diagnostics as ``annotate_html``).
+    """
+    annotated = annotate_html(raw_html)
+    soup = BeautifulSoup(annotated, "html.parser")
+    wrapper = None
+    for section in soup.find_all(attrs={"data-section": True}):
+        if (section.get("data-section") or "").strip() != "brand":
+            wrapper = section
+            break
+    if wrapper is None:
+        raise AnnotatorError("AI produced no editable block from that fragment.")
+
+    key = (wrapper.get("data-section") or "").strip()
+    # Promote section -> block so the palette can group + insert it. The parser
+    # accepts either attribute, but data-block is the canonical block marker.
+    wrapper["data-block"] = key
+    if not (wrapper.get("data-category") or "").strip():
+        wrapper["data-category"] = "General"
+    return str(wrapper)
+
+
 def _strip_code_fences(text: str) -> str:
     """If the model wrapped output in ```...```, peel it off (defensive)."""
     stripped = text.strip()

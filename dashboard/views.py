@@ -107,6 +107,90 @@ STARTER_TEMPLATE_HTML = """\
 """
 
 
+# A blank *block-shell* starter: editable header/footer chrome + a `data-region`
+# where the client drops blocks + brand tokens. Because it has a `data-region`,
+# `is_block_shell` is True, so assigning it to a site turns on the block editor
+# and (with the block library attached) lets the client build the whole site
+# from our palette instead of anyone pasting HTML.
+BLOCK_SHELL_STARTER_HTML = """\
+<header class="site-header" data-section="header" data-label="Header" data-group="Header">
+  <div class="site-header-inner">
+    <div class="site-header-zone" data-header-zone="left">
+      <div class="site-header-brand" data-chrome-piece="brand">
+        <a class="site-brand" data-edit="header.brand" data-type="text" data-label="Site name" href="/">Your brand</a>
+        <div class="site-header-brand-extra" data-region="header-left"></div>
+      </div>
+    </div>
+    <div class="site-header-zone" data-header-zone="center">
+      <nav class="site-nav" data-chrome-piece="nav">
+        <div class="site-nav-pages" data-nav-pages></div>
+        <div class="site-nav-links" data-region="header-center"></div>
+      </nav>
+    </div>
+    <div class="site-header-zone" data-header-zone="right">
+      <div class="site-header-actions" data-chrome-piece="actions" data-region="header-right"></div>
+    </div>
+  </div>
+</header>
+<main class="site-main" data-region="main"></main>
+<footer class="site-footer" data-section="footer" data-label="Footer" data-group="Footer">
+  <div class="site-footer-row">
+    <div class="site-footer-col" data-region="footer-left"></div>
+    <div class="site-footer-col site-footer-col--center">
+      <div data-region="footer-center"></div>
+      <span data-edit="footer.text" data-type="text" data-label="Footer text">© Your company. All rights reserved.</span>
+    </div>
+    <div class="site-footer-col" data-region="footer-right"></div>
+  </div>
+</footer>
+
+<style data-tokens>
+  :root { --primary: #2563eb; --bg: #ffffff; --text: #172033; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .site-header { width: 100%; border-bottom: 1px solid #e5e7eb; background: var(--bg); padding: 0; }
+  .site-header-inner {
+    width: 100%; max-width: 1120px; margin: 0 auto; padding: 14px 24px;
+    display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+    align-items: center; gap: 16px; min-height: 64px; box-sizing: border-box;
+  }
+  .site-header-zone { display: flex; align-items: center; gap: 16px; min-width: 0; min-height: 36px; }
+  .site-header-zone[data-header-zone="left"] { justify-content: flex-start; }
+  .site-header-zone[data-header-zone="center"] { justify-content: center; }
+  .site-header-zone[data-header-zone="right"] { justify-content: flex-end; }
+  .site-header-brand { display: flex; align-items: center; gap: 10px; }
+  .site-brand { font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none; white-space: nowrap; }
+  .site-header-logo { display: block; height: 40px; width: auto; max-width: 200px; object-fit: contain; }
+  .site-header-brand.hide-name .site-brand,
+  .site-header-brand.hide-name [data-edit$=".brand"],
+  .site-brand.hide-name { display: none !important; }
+  .site-header-brand.has-logo:not(.hide-name) { display: flex; align-items: center; gap: 10px; }
+  .site-nav, .site-nav-pages, .site-nav-links {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px 18px; min-width: 0;
+  }
+  .site-nav { justify-content: center; }
+  .site-nav a, .site-nav-links a { color: inherit; text-decoration: none; font-weight: 600; font-size: 15px; line-height: 1.2; padding: 6px 8px; }
+  .site-header [data-instance-id] { padding: 2px 4px; }
+  .site-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .site-header-brand-extra:empty { display: none; }
+  .site-header [data-instance-id] { display: inline-flex; align-items: center; }
+  .site-header [data-instance-id] > div { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  .site-header-actions [data-edit$=".subtext"]:empty { display: none; }
+  .site-main { min-height: 120px; }
+  .site-footer { padding: 32px 24px; max-width: 1120px; margin: auto; }
+  .site-footer-row {
+    display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.3fr) minmax(0,1fr);
+    gap: 16px 24px; align-items: center; width: 100%;
+  }
+  .site-footer-col { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+  .site-footer-col--center { justify-content: center; flex-direction: column; text-align: center; }
+  .site-footer-col > [data-instance-id] > div,
+  [data-region^="footer"] > [data-instance-id] > div {
+    max-width: none !important; padding-left: 0 !important; padding-right: 0 !important; margin: 0 !important;
+  }
+</style>
+"""
+
+
 def _warn_ignored_submitted_field_markers(request, html_source, schema):
     ignored = template_svc.ignored_submitted_field_markers(html_source, schema)
     if not ignored:
@@ -209,16 +293,24 @@ def template_list(request):
 @agency_operator_required
 def template_create(request):
     if request.method == "POST":
+        # "blocks" => start from a blank block shell and attach the block
+        # library so the client builds the whole site from our palette.
+        # "paste"  => the classic annotated-HTML path.
+        build_mode = (request.POST.get("build_mode") or "paste").strip()
+        blocks_mode = build_mode == "blocks"
         name = (request.POST.get("name") or "").strip()
         description = (request.POST.get("description") or "").strip()
-        html_source = request.POST.get("html_source") or ""
+        html_source = (
+            BLOCK_SHELL_STARTER_HTML if blocks_mode
+            else (request.POST.get("html_source") or "")
+        )
 
-        if not name or not html_source.strip():
+        if not name or (not blocks_mode and not html_source.strip()):
             messages.error(request, "Enter a template name and HTML source.")
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST, "html_value": html_source},
+                {"form_data": request.POST, "html_value": request.POST.get("html_source") or ""},
             )
 
         if len(name) > 120:
@@ -226,28 +318,57 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST, "html_value": html_source},
+                {"form_data": request.POST, "html_value": request.POST.get("html_source") or ""},
                 status=400,
             )
 
-        template = Template.objects.create(
-            name=name,
-            description=description,
-            html_source=html_source,
-        )
-        if template.has_editable_schema:
-            template.editing_mode = Template.EDITING_EDITABLE
-            template.save(update_fields=["editing_mode", "updated_at"])
-        template_svc.save_template_version(
-            template,
-            template.html_source,
-            user=request.user,
-            label="Initial",
-        )
-        _warn_ignored_submitted_field_markers(
-            request, template.html_source, template.schema
-        )
-        messages.success(request, f"Template “{template.name}” created.")
+        with transaction.atomic():
+            template = Template.objects.create(
+                name=name,
+                description=description,
+                html_source=html_source,
+            )
+            if blocks_mode:
+                # Block sites are client-editable and get the full palette.
+                from core.management.commands.seed_builder_blocks import (
+                    seed_block_types,
+                )
+
+                template.editing_mode = Template.EDITING_EDITABLE
+                template.save(update_fields=["editing_mode", "updated_at"])
+                block_types, _created, _updated = seed_block_types()
+                template.allowed_block_types.add(*block_types)
+            else:
+                # Honor the form's Client-editing choice. Blocks mode still
+                # forces editable (the palette is the product); a paste with
+                # annotated HTML used to ignore "Raw" and always release
+                # editing (A7).
+                mode = (request.POST.get("editing_mode") or "").strip()
+                if mode in {Template.EDITING_RAW, Template.EDITING_EDITABLE}:
+                    template.editing_mode = mode
+                    template.save(update_fields=["editing_mode", "updated_at"])
+                elif template.has_editable_schema:
+                    template.editing_mode = Template.EDITING_EDITABLE
+                    template.save(update_fields=["editing_mode", "updated_at"])
+            template_svc.save_template_version(
+                template,
+                template.html_source,
+                user=request.user,
+                label="Initial",
+            )
+
+        if blocks_mode:
+            messages.success(
+                request,
+                f"Block site “{template.name}” created with the full block "
+                "library. Assign it to a client site, then build pages from the "
+                "block palette — no HTML needed.",
+            )
+        else:
+            _warn_ignored_submitted_field_markers(
+                request, template.html_source, template.schema
+            )
+            messages.success(request, f"Template “{template.name}” created.")
         return redirect("dashboard:template_detail", pk=template.pk)
 
     return render(
@@ -259,6 +380,7 @@ def template_create(request):
                 "description": "",
                 "html_source": STARTER_TEMPLATE_HTML,
                 "editing_mode": Template.EDITING_EDITABLE,
+                "build_mode": "blocks",
             },
             "html_value": STARTER_TEMPLATE_HTML,
         },
@@ -923,6 +1045,11 @@ def tenant_create(request):
 
     errors = []
     inline_new_template = template_id == "__new__"
+    # "Build with blocks": create a blank block-shell template + attach the full
+    # block library, so the client builds the whole site from the palette. No
+    # HTML paste, no annotation.
+    blocks_new_template = template_id == "__blocks__"
+    make_new_template = inline_new_template or blocks_new_template
 
     if not name:
         errors.append("Site name is required.")
@@ -948,6 +1075,12 @@ def tenant_create(request):
             new_template_name = name or "Site template"
         if not new_template_html.strip():
             errors.append("New template HTML is required.")
+    elif blocks_new_template:
+        # Blank block site — no HTML required; the shell + library make it fully
+        # client-buildable. Name falls back to the site name.
+        if not new_template_name:
+            new_template_name = name or "Site template"
+        new_template_html = BLOCK_SHELL_STARTER_HTML
     else:
         try:
             template = Template.objects.get(pk=template_id)
@@ -979,23 +1112,33 @@ def tenant_create(request):
         )
 
     try:
-        tenant, user, password = create_tenant_account(
-            name=name,
-            subdomain=subdomain,
-            custom_domain=custom_domain,
-            template=template,
-            username=client_username,
-            email=client_email,
-            new_template=(
-                {
-                    "name": new_template_name,
-                    "description": new_template_description,
-                    "html_source": new_template_html,
-                }
-                if inline_new_template
-                else None
-            ),
-        )
+        # Palette attach lives in the same outer transaction as tenant create
+        # so a seed failure cannot leave a login with an empty palette (A12).
+        with transaction.atomic():
+            tenant, user, password = create_tenant_account(
+                name=name,
+                subdomain=subdomain,
+                custom_domain=custom_domain,
+                template=template,
+                username=client_username,
+                email=client_email,
+                new_template=(
+                    {
+                        "name": new_template_name,
+                        "description": new_template_description,
+                        "html_source": new_template_html,
+                    }
+                    if make_new_template
+                    else None
+                ),
+            )
+            if blocks_new_template:
+                from core.management.commands.seed_builder_blocks import (
+                    seed_block_types,
+                )
+
+                block_types, _created, _updated = seed_block_types()
+                tenant.template.allowed_block_types.add(*block_types)
     except template_svc.CrossTenantTemplateError as exc:
         messages.error(request, str(exc))
         return render(
@@ -1038,7 +1181,10 @@ def tenant_create(request):
 @require_GET
 def check_subdomain(request):
     """JSON endpoint: GET /dashboard/sites/check-subdomain/?value=..."""
-    value = (request.GET.get("value") or "").strip()
+    # Lowercase first, exactly like the submit path (tenant_create) does, so the
+    # live AJAX check and the actual creation agree — "MySite" is available, not
+    # "invalid" (A13).
+    value = (request.GET.get("value") or "").strip().lower()
     if not value:
         return JsonResponse({"available": False, "reason": "invalid"})
     reason = _validate_subdomain(value)
@@ -1102,8 +1248,13 @@ def _stash_credentials_in_session(request, user, password):
     return token
 
 
-def _pop_credentials_from_session(request, token):
-    """Return the credentials dict and remove it. Returns None if missing/expired."""
+def _pop_credentials_from_session(request, token, *, allowed_user_ids=None):
+    """Return the credentials dict and remove it. Returns None if missing/expired.
+
+    ``allowed_user_ids`` (when given) binds the token to a specific user (or set
+    of users): a token minted for one user can't be revealed on a different
+    user's / site's credentials page even if the operator lands there with the
+    token in the URL (A9)."""
     bucket = request.session.get(SESSION_CREDS_KEY) or {}
     payload = bucket.pop(token, None)
     if payload is None:
@@ -1115,6 +1266,8 @@ def _pop_credentials_from_session(request, token):
     except (KeyError, ValueError):
         return None
     if timezone.now() > expires_at:
+        return None
+    if allowed_user_ids is not None and payload.get("user_id") not in set(allowed_user_ids):
         return None
     return payload
 
@@ -1132,7 +1285,16 @@ def site_created(request, pk):
     """
     tenant = get_object_or_404(Tenant, pk=pk)
     token = request.GET.get("token") or ""
-    payload = _pop_credentials_from_session(request, token) if token else None
+    # Credentials shown here belong to the site's owner or one of its members
+    # (member-add also lands here). Bind the token to that set so a token minted
+    # for another user can't be revealed on this site's page (A9).
+    allowed_ids = {tenant.owner_id} | set(
+        tenant.memberships.values_list("user_id", flat=True)
+    )
+    payload = (
+        _pop_credentials_from_session(request, token, allowed_user_ids=allowed_ids)
+        if token else None
+    )
     urls = build_tenant_url_bundle(request, tenant)
 
     return render(
@@ -1163,7 +1325,11 @@ site_credentials = site_created
 def user_credentials(request, pk):
     user = get_object_or_404(User, pk=pk)
     token = request.GET.get("token") or ""
-    payload = _pop_credentials_from_session(request, token) if token else None
+    # The token must have been minted for this exact user (A9).
+    payload = (
+        _pop_credentials_from_session(request, token, allowed_user_ids={user.pk})
+        if token else None
+    )
 
     return render(
         request,
@@ -1435,6 +1601,16 @@ def tenant_member_remove(request, pk, membership_id):
     membership = get_object_or_404(
         TenantMembership, pk=membership_id, tenant=tenant
     )
+    # The owner's own membership is load-bearing (Tenant.owner is required and
+    # now PROTECTed). Removing it would leave the site with an owner who has no
+    # membership row — confusing and inconsistent with the Team self-serve copy.
+    if membership.user_id == tenant.owner_id:
+        messages.error(
+            request,
+            "You can't remove the site owner. Transfer ownership or delete the "
+            "site instead.",
+        )
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
     username = membership.user.username
     membership.delete()
     messages.success(request, f"Removed {username} from this site.")
@@ -1564,13 +1740,41 @@ def user_create_login(request, pk):
     )
 
 
+def _may_target_user(actor, target) -> bool:
+    """A superuser can be acted on (reset/deactivate/activate) only by another
+    superuser. Non-superuser staff manage clients, not each other's admins (A4)."""
+    return (not target.is_superuser) or actor.is_superuser
+
+
+def _flush_user_sessions(user) -> int:
+    """Delete every active session belonging to ``user`` so a password reset or
+    deactivation logs them out everywhere (C4). Django stores the user id inside
+    the encoded session, so we decode candidates and match. Fine at current
+    scale; revisit with a session-key index if the table grows large."""
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone
+
+    uid = str(user.pk)
+    killed = 0
+    for session in Session.objects.filter(expire_date__gte=timezone.now()):
+        if session.get_decoded().get("_auth_user_id") == uid:
+            session.delete()
+            killed += 1
+    return killed
+
+
 @agency_operator_required
 @require_POST
 def user_reset_password(request, pk):
     user_obj = get_object_or_404(User, pk=pk)
+    if not _may_target_user(request.user, user_obj):
+        return HttpResponseForbidden("Only a superuser can reset another superuser.")
     password = generate_password()
     user_obj.set_password(password)
     user_obj.save(update_fields=["password"])
+    # Reset invalidates the old credential everywhere — kill live sessions so a
+    # compromised session can't outlive the reset (C4).
+    _flush_user_sessions(user_obj)
     token = _stash_credentials_in_session(request, user_obj, password)
     return redirect(
         f"{reverse('dashboard:user_credentials', args=[user_obj.pk])}?token={token}"
@@ -1584,8 +1788,12 @@ def user_deactivate(request, pk):
     if user_obj.pk == request.user.pk:
         messages.error(request, "You can't deactivate your own account.")
         return redirect("dashboard:user_detail", pk=user_obj.pk)
+    if not _may_target_user(request.user, user_obj):
+        return HttpResponseForbidden("Only a superuser can deactivate another superuser.")
     user_obj.is_active = False
     user_obj.save(update_fields=["is_active"])
+    # Deactivation should take effect immediately, not at natural expiry (C4).
+    _flush_user_sessions(user_obj)
     messages.success(request, f"Deactivated {user_obj.username}.")
     return redirect("dashboard:user_detail", pk=user_obj.pk)
 
@@ -1594,6 +1802,8 @@ def user_deactivate(request, pk):
 @require_POST
 def user_activate(request, pk):
     user_obj = get_object_or_404(User, pk=pk)
+    if not _may_target_user(request.user, user_obj):
+        return HttpResponseForbidden("Only a superuser can activate another superuser.")
     user_obj.is_active = True
     user_obj.save(update_fields=["is_active"])
     messages.success(request, f"Activated {user_obj.username}.")
@@ -1619,6 +1829,14 @@ def user_remove_membership(request, pk, membership_id):
     membership = get_object_or_404(
         TenantMembership, pk=membership_id, user=user_obj
     )
+    # Same rule as tenant_member_remove: never strip the owner's own membership.
+    if membership.user_id == membership.tenant.owner_id:
+        messages.error(
+            request,
+            "You can't remove a site owner from their own site. Transfer "
+            "ownership or delete the site instead.",
+        )
+        return redirect("dashboard:user_detail", pk=user_obj.pk)
     tenant_name = membership.tenant.name
     membership.delete()
     messages.success(
@@ -1808,7 +2026,15 @@ def team_member_create_self(request):
 def team_credentials_self(request):
     """One-time credential reveal for a client-created login."""
     token = request.GET.get("token") or ""
-    payload = _pop_credentials_from_session(request, token) if token else None
+    # Bind to this tenant's owner/members so a stray token can't reveal another
+    # site's credentials here (A9).
+    allowed_ids = {request.tenant.owner_id} | set(
+        request.tenant.memberships.values_list("user_id", flat=True)
+    )
+    payload = (
+        _pop_credentials_from_session(request, token, allowed_user_ids=allowed_ids)
+        if token else None
+    )
     return render(
         request,
         "dashboard/credentials.html",
@@ -1878,12 +2104,14 @@ def _page_nav_urls(scope, tenant):
         return {
             "list": reverse("dashboard:page_list_self"),
             "new": reverse("dashboard:page_create_self"),
+            "nav_order": reverse("dashboard:page_nav_reorder_self"),
             "home": reverse("dashboard:tenant_home"),
             "blog": reverse("dashboard:blog_list_self"),
         }
     return {
         "list": reverse("dashboard:page_list", args=[tenant.pk]),
         "new": reverse("dashboard:page_create", args=[tenant.pk]),
+        "nav_order": reverse("dashboard:page_nav_reorder", args=[tenant.pk]),
         "home": reverse("dashboard:tenant_editor", args=[tenant.pk]),
         "blog": reverse("dashboard:blog_list", args=[tenant.pk]),
     }
@@ -1895,36 +2123,57 @@ def _page_row_urls(request, scope, tenant, page):
             "edit": reverse("dashboard:page_editor_self", args=[page.pk]),
             "publish": reverse("dashboard:page_publish_self", args=[page.pk]),
             "delete": reverse("dashboard:page_delete_self", args=[page.pk]),
+            "rename": reverse("dashboard:page_rename_self", args=[page.pk]),
             # Client is already on the tenant host, so a relative slug link stays there.
             "live": f"/{page.slug}/",
         }
-    return {
+    urls = {
         "edit": reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
-        "edit_html": reverse("dashboard:page_edit_html", args=[tenant.pk, page.pk]),
         "publish": reverse("dashboard:page_publish", args=[tenant.pk, page.pk]),
         "delete": reverse("dashboard:page_delete", args=[tenant.pk, page.pk]),
+        "rename": reverse("dashboard:page_rename", args=[tenant.pk]),
         # Agency host: link to the client's canonical tenant host, not the apex
         # `/site/<sub>/` fallback, so the page opens on <sub>.<base>/<slug>/.
         "live": f"{tenant_public_url(request, tenant)}{page.slug}/",
     }
+    # Shared-shell pages reuse the site template — Edit HTML would rewrite
+    # home + every sibling. Only offer the action when this page owns its
+    # own template (classic paste-HTML pages) (A1).
+    if page.template_id and page.template_id != tenant.template_id:
+        urls["edit_html"] = reverse(
+            "dashboard:page_edit_html", args=[tenant.pk, page.pk]
+        )
+    return urls
 
 
 def _user_can_manage_pages(request):
-    """Adding/removing pages is structural and restricted to agency staff.
+    """Page create / rename / delete / nav-order.
 
-    Clients (non-staff tenant members) can edit and publish existing pages
-    but cannot change the page structure. This is the same locked-structure
-    promise as sections: clients literally cannot break their site.
+    Agency staff always may. Tenant members (clients) may too when their site
+    runs on a block *shell* — the Phase-2 relaxation of the locked-structure
+    promise. Clients compose pages from the curated block palette on the shared
+    shell, so they still cannot author raw HTML or invent layout; they only
+    stack agency-designed sections. Sites still on a classic (non-shell)
+    template stay agency-managed, because adding a client page there would need
+    pasted HTML. Caps are enforced at create time.
     """
-    return request.user.is_staff or request.user.is_superuser
+    if request.user.is_staff or request.user.is_superuser:
+        return True
+    tpl = getattr(getattr(request, "tenant", None), "template", None)
+    return bool(tpl and tpl.is_block_shell)
 
 
 def _page_list(request, tenant, scope):
+    from core.services import blocks as _blocks
+
     can_manage = _user_can_manage_pages(request)
     pages = [
         {"obj": p, "urls": _page_row_urls(request, scope, tenant, p)}
         for p in tenant.pages.all()
     ]
+    # A block shell lets clients compose pages from the palette (no HTML paste).
+    # The template shows the simplified "New page" card when this is true.
+    is_shell = bool(tenant.template and tenant.template.is_block_shell)
     return render(
         request,
         "dashboard/page_list.html",
@@ -1934,6 +2183,9 @@ def _page_list(request, tenant, scope):
             "pages": pages,
             "nav_urls": _page_nav_urls(scope, tenant),
             "can_manage_pages": can_manage,
+            "is_block_shell": is_shell,
+            "page_cap": _blocks.MAX_PAGES_PER_TENANT,
+            "at_page_cap": tenant.pages.count() >= _blocks.MAX_PAGES_PER_TENANT,
             # Don't leak the agency template catalog to clients.
             "templates": (
                 _templates_available(tenant=tenant) if can_manage else []
@@ -1963,6 +2215,11 @@ def _page_create(request, tenant, scope):
         errors.append(f"This site already has a page at /{slug}/.")
     if not html_source.strip():
         errors.append("Paste the page HTML.")
+    from core.services import blocks as _blocks
+    if tenant.pages.count() >= _blocks.MAX_PAGES_PER_TENANT:
+        errors.append(
+            f"This site has reached the maximum of {_blocks.MAX_PAGES_PER_TENANT} pages."
+        )
 
     if errors:
         for e in errors:
@@ -1993,6 +2250,146 @@ def _page_create(request, tenant, scope):
     return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
 
 
+def _page_create_shared(request, tenant, scope):
+    """Client-safe page creation — no HTML paste.
+
+    The new page shares the site's block *shell* template and starts empty (or
+    copies the home page's blocks), so a client composes it entirely from the
+    curated palette. This is what lets us relax "clients can't add pages"
+    without also relaxing "clients can't author HTML / invent layout".
+    """
+    from django.db.models import Max
+
+    from core.services import blocks as _blocks
+
+    nav = _page_nav_urls(scope, tenant)
+    shell = tenant.template
+    if not (shell and shell.is_block_shell):
+        messages.error(
+            request,
+            "Your agency hasn't enabled add-your-own pages for this site yet.",
+        )
+        return redirect(nav["list"])
+    if tenant.pages.count() >= _blocks.MAX_PAGES_PER_TENANT:
+        messages.error(
+            request,
+            f"This site has reached the maximum of {_blocks.MAX_PAGES_PER_TENANT} pages.",
+        )
+        return redirect(nav["list"])
+
+    title = (request.POST.get("title") or "").strip()
+    slug = slugify(request.POST.get("slug") or title)[:80]
+    start_from = request.POST.get("start_from") or "blank"
+
+    errors = []
+    if not title:
+        errors.append("A page title is required.")
+    elif len(title) > 120:
+        errors.append("Page title must be 120 characters or fewer.")
+    if not slug:
+        errors.append("A URL slug is required.")
+    elif slug in RESERVED_PAGE_SLUGS:
+        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+    elif tenant.pages.filter(slug=slug).exists():
+        errors.append(f"This site already has a page at /{slug}/.")
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect(nav["list"])
+
+    # "Start from" can copy the block set from the home page or any existing
+    # page (cross-page reuse), always with fresh instance ids so the pages stay
+    # independent. `start_from` is "blank" | "copy_home" | "copy_page:<pk>".
+    source_regions = {}
+    if start_from == "copy_home":
+        source_regions = (tenant.content or {}).get("regions") or {}
+    elif start_from.startswith("copy_page:"):
+        try:
+            src = tenant.pages.get(pk=int(start_from.split(":", 1)[1]))
+            source_regions = (src.content or {}).get("regions") or {}
+        except (ValueError, Page.DoesNotExist):
+            source_regions = {}
+    # Deep-clone each source block (recursing into column children) with fresh
+    # ids so a home page built from layout rows copies its nested content too,
+    # and the two pages stay independent (C2). Header/footer extras copy too.
+    copied = {}
+    for slot, items in (source_regions or {}).items():
+        cloned_list = [
+            cloned
+            for cloned in (_blocks.clone_instance_tree(b) for b in (items or []))
+            if cloned is not None
+        ]
+        copied[slot] = cloned_list
+    if "main" not in copied:
+        copied["main"] = []
+    content = {"regions": copied}
+
+    next_order = (tenant.pages.aggregate(m=Max("nav_order"))["m"] or 0) + 1
+    page = Page.objects.create(
+        tenant=tenant, template=shell, title=title, slug=slug,
+        content=content, nav_order=next_order,
+    )
+    messages.success(request, f"Page “{page.title}” created — start adding sections.")
+    if scope == "tenant":
+        return redirect("dashboard:page_editor_self", page_pk=page.pk)
+    return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
+
+
+def _page_rename(request, tenant, scope, page_pk):
+    page = _get_tenant_page(tenant, page_pk)
+    nav = _page_nav_urls(scope, tenant)
+    title = (request.POST.get("title") or "").strip()
+    slug = slugify(request.POST.get("slug") or title)[:80]
+
+    errors = []
+    if not title:
+        errors.append("A page title is required.")
+    elif len(title) > 120:
+        errors.append("Page title must be 120 characters or fewer.")
+    if not slug:
+        errors.append("A URL slug is required.")
+    elif slug in RESERVED_PAGE_SLUGS:
+        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+    elif tenant.pages.filter(slug=slug).exclude(pk=page.pk).exists():
+        errors.append(f"This site already has a page at /{slug}/.")
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return redirect(nav["list"])
+
+    page.title = title
+    page.slug = slug
+    page.save(update_fields=["title", "slug", "updated_at"])
+    messages.success(request, f"Page renamed to “{page.title}”.")
+    return redirect(nav["list"])
+
+
+def _page_nav_reorder(request, tenant, scope):
+    """Persist menu order + visibility from the Pages UI. Body (JSON):
+    ``{"order": [{"id": 3, "show_in_nav": true}, ...]}`` — array position is the
+    new ``nav_order``."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+    order = payload.get("order")
+    if not isinstance(order, list):
+        return JsonResponse({"ok": False, "error": "order must be a list"}, status=400)
+
+    pages = {p.pk: p for p in tenant.pages.all()}
+    for i, item in enumerate(order):
+        if not isinstance(item, dict):
+            continue
+        page = pages.get(item.get("id"))
+        if page is None:
+            continue
+        page.nav_order = i
+        if "show_in_nav" in item:
+            page.show_in_nav = bool(item.get("show_in_nav"))
+        page.save(update_fields=["nav_order", "show_in_nav"])
+    return JsonResponse({"ok": True})
+
+
 def _page_delete(request, tenant, scope, page_pk):
     page = _get_tenant_page(tenant, page_pk)
     title = page.title
@@ -2012,7 +2409,33 @@ def page_list(request, pk):
 @agency_operator_required
 @require_POST
 def page_create(request, pk):
-    return _page_create(request, get_object_or_404(Tenant, pk=pk), "agency")
+    tenant = get_object_or_404(Tenant, pk=pk)
+    # Block-shell sites compose pages from the palette (no HTML). Staff can
+    # still paste raw HTML for a classic per-page template by submitting
+    # html_source (the import flow and non-shell sites use that path).
+    if not request.POST.get("html_source") and tenant.template and tenant.template.is_block_shell:
+        return _page_create_shared(request, tenant, "agency")
+    return _page_create(request, tenant, "agency")
+
+
+@agency_operator_required
+@require_POST
+def page_rename(request, pk):
+    raw = request.POST.get("page_pk")
+    try:
+        page_pk = int(raw)
+    except (TypeError, ValueError):
+        messages.error(request, "Which page are you renaming?")
+        return redirect("dashboard:page_list", pk=pk)
+    return _page_rename(
+        request, get_object_or_404(Tenant, pk=pk), "agency", page_pk,
+    )
+
+
+@agency_operator_required
+@require_POST
+def page_nav_reorder(request, pk):
+    return _page_nav_reorder(request, get_object_or_404(Tenant, pk=pk), "agency")
 
 
 def _annotate_template_in_background(
@@ -2058,6 +2481,21 @@ def _annotate_template_in_background(
         return
     try:
         template = Template.objects.get(pk=template_id)
+        # If the operator already saved a newer HTML (or another process
+        # wrote the row), do not clobber it with the original fetch (A8).
+        if (template.html_source or "") != (raw_html or ""):
+            logger.info(
+                "Sibling annotation skipped for template=%s: HTML changed "
+                "since import.",
+                template_id,
+            )
+            update_job(
+                status=AnnotationJob.STATUS_DONE,
+                result_html=template.html_source,
+                sections={"items": [], "reconciled_fields": 0, "skipped": "html_changed"},
+            )
+            connection.close()
+            return
         # Annotation usually adds fields; allow loss so a partial model
         # rewrite cannot leave the row stuck mid-import.
         result = template_svc.save_template_version(
@@ -2174,6 +2612,8 @@ def page_import_siblings(request, pk):
 
     created: list[dict] = []
     skipped: list[dict] = []
+    from core.services import blocks as _blocks
+    pages_left = max(0, _blocks.MAX_PAGES_PER_TENANT - tenant.pages.count())
 
     for sibling in siblings:
         slug = sibling["slug"][:80]
@@ -2184,6 +2624,9 @@ def page_import_siblings(request, pk):
             continue
         if tenant.pages.filter(slug=slug).exists():
             skipped.append({"slug": slug, "reason": "page already exists"})
+            continue
+        if pages_left <= 0:
+            skipped.append({"slug": slug, "reason": "page cap reached"})
             continue
 
         try:
@@ -2225,6 +2668,7 @@ def page_import_siblings(request, pk):
                 "dashboard:template_annotate_status", args=[annotation_job.id]
             ),
         })
+        pages_left -= 1
 
     return JsonResponse({"created": created, "skipped": skipped})
 
@@ -2244,6 +2688,15 @@ def page_edit_html(request, pk, page_pk):
     schema so new fields appear in the content editor immediately."""
     tenant = get_object_or_404(Tenant, pk=pk)
     page = _get_tenant_page(tenant, page_pk)
+    # Shared-shell pages reuse Tenant.template. Saving HTML here would rewrite
+    # home + every sibling. Operators edit the site template instead (A1).
+    if page.template_id and tenant.template_id and page.template_id == tenant.template_id:
+        messages.error(
+            request,
+            f"“{page.title}” shares the site shell. Edit the site template "
+            f"to change header/footer HTML — this action would affect every page.",
+        )
+        return redirect("dashboard:template_detail", pk=tenant.template.pk)
     if request.method == "POST":
         new_html = request.POST.get("html_source") or ""
         if not new_html.strip():
@@ -2350,11 +2803,31 @@ def page_list_self(request):
 @tenant_member_required
 @require_POST
 def page_create_self(request):
-    # Structural change: clients can't add pages; only agency staff can.
     if not _user_can_manage_pages(request):
         messages.error(request, "Adding pages is managed by your agency. Get in touch and they'll set it up.")
         return redirect("dashboard:page_list_self")
-    return _page_create(request, request.tenant, "tenant")
+    # Staff may still paste raw HTML; clients always go through the curated
+    # shared-shell flow (no HTML, blocks only).
+    if request.POST.get("html_source") and (request.user.is_staff or request.user.is_superuser):
+        return _page_create(request, request.tenant, "tenant")
+    return _page_create_shared(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+@require_POST
+def page_rename_self(request, page_pk):
+    if not _user_can_manage_pages(request):
+        messages.error(request, "Renaming pages is managed by your agency.")
+        return redirect("dashboard:page_list_self")
+    return _page_rename(request, request.tenant, "tenant", page_pk)
+
+
+@tenant_member_required
+@require_POST
+def page_nav_reorder_self(request):
+    if not _user_can_manage_pages(request):
+        return JsonResponse({"ok": False, "error": "not allowed"}, status=403)
+    return _page_nav_reorder(request, request.tenant, "tenant")
 
 
 @tenant_member_required
@@ -2426,28 +2899,113 @@ def _render_editor(request, tenant, *, scope, page=None):
     brand_section = next((s for s in sections if s.get("id") == "brand"), None)
     # The "Navigation" tab gathers the site chrome, both the header nav and the
     # footer, so they live apart from the page-body content sections.
-    nav_groups = {"header", "footer"}
+    nav_groups = {"header", "footer", "global"}
+    chrome_ids = {"nav", "footer", "header"}
     nav_sections = [
         s for s in sections
-        if s.get("id") != "brand" and (s.get("group") or "").lower() in nav_groups
+        if s.get("id") != "brand" and (
+            (s.get("group") or "").lower() in nav_groups
+            or (s.get("id") or "").lower() in chrome_ids
+        )
     ]
     nav_ids = {s.get("id") for s in nav_sections}
     # Within the Navigation tab, split into Header / Footer sub-tabs.
-    header_sections = [s for s in nav_sections if (s.get("group") or "").lower() == "header"]
-    footer_sections = [s for s in nav_sections if (s.get("group") or "").lower() == "footer"]
+    footer_sections = [
+        s for s in nav_sections
+        if (s.get("id") or "").lower() == "footer"
+        or (s.get("group") or "").lower() == "footer"
+    ]
+    header_sections = [s for s in nav_sections if s not in footer_sections]
     content_sections = [
         s for s in sections
         if s.get("id") != "brand" and s.get("id") not in nav_ids
     ]
+
+    # Block-instance mode: when the template is a shell (has a data-region
+    # slot), the Content tab is driven by the ordered block INSTANCES the client
+    # placed, not the shell's own (chrome-only) sections. Each instance becomes
+    # a form "section" whose field ids are the per-instance `instanceId.field`,
+    # so the existing field.html + editor.js binding works unchanged.
+    block_mode = bool(tpl and tpl.is_block_shell)
+    palette: list = []
+    block_defaults: dict = {}
+    region_name = "main"
+    if block_mode:
+        from core.services import blocks as _blocks
+
+        palette = _blocks.palette_for_template(tpl)
+        catalog = _blocks.catalog_for_template(tpl)
+        block_defaults = {
+            key: (entry["schema"].get("defaults") or {})
+            for key, entry in catalog.items()
+        }
+        regions = (editable.content or {}).get("regions") or {}
+        shell_regions = _blocks.shell_region_names(tpl.html_source)
+        instance_sections: list = []
+        _region_group = {
+            "header": "Header", "header-left": "Header", "header-center": "Header",
+            "header-right": "Header", "nav": "Header",
+            "footer": "Footer", "footer-left": "Footer", "footer-center": "Footer",
+            "footer-right": "Footer",
+        }
+
+        def _walk(inst_list, depth, parent_id, region, group):
+            # Depth-first so a block dropped into a column appears right after
+            # its row in the form list. Each nested instance still binds via
+            # `<instanceId>.<field>`, so field.html + editor.js work unchanged.
+            for inst in inst_list or []:
+                entry = catalog.get(inst.get("type"))
+                if not entry:
+                    continue
+                fields = []
+                for field in entry["schema"].get("fields", []):
+                    fentry = dict(field)
+                    fentry["id"] = f"{inst['id']}.{field['id']}"
+                    fields.append(fentry)
+                slot_names = entry.get("regions") or []
+                instance_sections.append({
+                    "id": inst["id"],
+                    "label": entry.get("label") or inst.get("type"),
+                    "icon": entry.get("icon") or "square",
+                    "group": group,
+                    "fields": fields,
+                    "is_instance": True,
+                    "block_type": inst.get("type"),
+                    "depth": depth,
+                    "parent_id": parent_id,
+                    "region": region,
+                    "is_layout": bool(slot_names),
+                })
+                children = inst.get("children") or {}
+                for name in slot_names:
+                    _walk(children.get(name) or [], depth + 1, inst["id"], name, group)
+
+        for slot in shell_regions:
+            if slot in _blocks._HEADER_SLOTS or slot.startswith("header"):
+                continue
+            _walk(
+                regions.get(slot) or [],
+                0,
+                None,
+                slot,
+                _region_group.get(slot, "Sections"),
+            )
+        content_sections = instance_sections
+        _blocks.ensure_header(content)
 
     grouped: dict[str, list] = {}
     for section in content_sections:
         grouped.setdefault(section.get("group", "Sections"), []).append(section)
 
     # Layout mode is driven by how many entries land in the section nav.
-    layout_mode = "compact" if len(content_sections) <= 6 else (
-        "standard" if len(content_sections) <= 15 else "dense"
-    )
+    # Block pages keep the Layers sidebar even when the canvas is empty —
+    # compact (sidebar hidden) is for classic locked templates only.
+    if block_mode:
+        layout_mode = "standard" if len(content_sections) <= 15 else "dense"
+    else:
+        layout_mode = "compact" if len(content_sections) <= 6 else (
+            "standard" if len(content_sections) <= 15 else "dense"
+        )
 
     # Image/video uploads create per-tenant MediaAssets (page-independent), so
     # the page editor reuses the tenant-scoped upload/video endpoints. Version
@@ -2473,7 +3031,9 @@ def _render_editor(request, tenant, *, scope, page=None):
             preview_url = reverse("dashboard:page_preview_self", args=[page.pk])
             save_url = reverse("dashboard:page_save_self", args=[page.pk])
             publish_url = reverse("dashboard:page_publish_self", args=[page.pk])
-            versions_url = version_restore_url = ""
+            # Undo now covers inner pages too (per-page ContentVersion bucket).
+            versions_url = reverse("dashboard:page_versions_self", args=[page.pk])
+            version_restore_url = reverse("dashboard:page_version_restore_self", args=[page.pk])
             live_url = f"/{page.slug}/"
     else:
         ghl_forms_url = reverse("dashboard:tenant_ghl_forms", args=[tenant.pk])
@@ -2541,6 +3101,14 @@ def _render_editor(request, tenant, *, scope, page=None):
         {
             "tenant": tenant,
             "editing_page": page,
+            # True only when this inner page has its own Template. Shared-shell
+            # pages must not offer Edit HTML (A1).
+            "page_owns_template": bool(
+                page
+                and page.template_id
+                and tenant.template_id
+                and page.template_id != tenant.template_id
+            ),
             "target_title": (page.title if page else tenant.name),
             "target_subtitle": (
                 f"{page.template.name} · /{page.slug}/" if page
@@ -2558,7 +3126,11 @@ def _render_editor(request, tenant, *, scope, page=None):
             "theme_tokens": theme_tokens,
             "link_targets": link_targets,
             "grouped_sections": grouped,
-            "content_json": json.dumps(content),
+            # Passed as Python objects and emitted via Django's ``json_script``
+            # in the template (see editor.html). ``json_script`` escapes
+            # ``<``/``>``/``&`` so a field value like ``</script>`` can't break
+            # out of the bootstrap script (E2).
+            "content": content,
             "layout_mode": layout_mode,
             "preview_url": preview_url,
             "save_url": save_url,
@@ -2578,17 +3150,38 @@ def _render_editor(request, tenant, *, scope, page=None):
             "client_editable": client_editable,
             "embed_warnings": embed_warnings,
             "nav_section": "pages" if scope == "tenant" and page else "editor",
+            "block_mode": block_mode,
+            "palette": palette,
+            "block_defaults": block_defaults,
+            "region_name": region_name,
+            "shell_regions": (
+                _blocks.shell_region_names(tpl.html_source) if block_mode else ["main"]
+            ),
+            "max_block_depth": _blocks.MAX_BLOCK_DEPTH if block_mode else 0,
+            "header_pages": (
+                _blocks.editor_header_pages(tenant) if block_mode else []
+            ),
         },
     )
 
 
 def _render_preview(editable):
-    content = merge_with_defaults(editable.template.schema, editable.content)
-    html = render_site(editable.template.html_source, content, preview=True)
+    from core.services import blocks
+    tenant = editable if isinstance(editable, Tenant) else editable.tenant
+    html = blocks.render_content(
+        editable.template, editable.content, preview=True,
+        nav_pages=blocks.nav_pages_for(tenant),
+    )
     return HttpResponse(html)
 
 
-_ALLOWED_STYLE_KEYS = {"color", "bgColor", "fontSize", "fontFamily", "fontWeight", "align"}
+_ALLOWED_STYLE_KEYS = {
+    "color", "bgColor", "fontSize", "fontFamily", "fontWeight", "align",
+    "lineHeight", "letterSpacing", "textTransform",
+    "padding", "margin", "width", "maxWidth", "minHeight", "borderRadius",
+    "bgMode", "bgImage", "bgGradient", "bgSize", "bgPosition", "bgOverlay",
+    "bgOpacity", "bgBlur",
+}
 _ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"}
 
 
@@ -2596,6 +3189,51 @@ def _clean_style_value(value):
     if isinstance(value, bool):
         return value
     return str(value)[:120]
+
+
+def _safe_style_key_value(key, value):
+    """Validate one _styles/_global value against the same allowlists the
+    renderer applies, so unsafe CSS never reaches the DB. Returns the cleaned
+    string, or None if it should be dropped (E6)."""
+    from core.renderer import (
+        _SAFE_STYLE_TOKEN_RE,
+        _safe_css_value,
+        _safe_gradient_value,
+        _safe_blur,
+        _safe_opacity,
+        _safe_overlay,
+        _safe_url_value,
+        _sanitize_font_family,
+    )
+
+    if key == "bgImage":
+        raw = str(value)[:2000].strip()
+        return _safe_url_value(raw, allow_data_image=True) or None
+    if key == "bgGradient":
+        return _safe_gradient_value(str(value)[:80])
+    if key == "bgOverlay":
+        amount = _safe_overlay(value)
+        return str(amount) if amount is not None else None
+    if key == "bgOpacity":
+        amount = _safe_opacity(value)
+        return str(amount) if amount is not None else None
+    if key == "bgBlur":
+        amount = _safe_blur(value)
+        return str(amount) if amount is not None else None
+    if key == "bgMode":
+        mode = str(value).strip().lower()
+        return mode if mode in ("color", "image", "gradient") else None
+
+    raw = str(value)[:120].strip()
+    if not raw:
+        return None
+    if key in ("color", "bgColor", "textColor", "pageBg"):
+        return _safe_css_value(raw)
+    if key in ("fontFamily", "headingFamily"):
+        return _sanitize_font_family(raw) or None
+    # fontSize / fontWeight / align / baseSize / lineHeight / letterSpacing /
+    # textTransform / layout lengths: numbers and keywords only.
+    return raw if _SAFE_STYLE_TOKEN_RE.match(raw) else None
 
 
 def _normalize_styles(content: dict) -> None:
@@ -2608,13 +3246,19 @@ def _normalize_styles(content: dict) -> None:
             for element_id, style in raw_styles.items():
                 if not (isinstance(element_id, str) and "." in element_id):
                     continue
+                if ".__region." in element_id:
+                    _inst, _sep, region = element_id.partition(".__region.")
+                    if not (_inst and region and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", region)):
+                        continue
                 if not isinstance(style, dict):
                     continue
-                kept = {
-                    k: _clean_style_value(v)
-                    for k, v in style.items()
-                    if k in _ALLOWED_STYLE_KEYS and v not in (None, "")
-                }
+                kept = {}
+                for k, v in style.items():
+                    if k not in _ALLOWED_STYLE_KEYS or v in (None, ""):
+                        continue
+                    safe = _safe_style_key_value(k, v)
+                    if safe is not None:
+                        kept[k] = safe
                 if style.get("italic"):
                     kept["italic"] = True
                 if kept:
@@ -2624,27 +3268,45 @@ def _normalize_styles(content: dict) -> None:
     raw_global = content.get("_global")
     if raw_global is not None:
         if isinstance(raw_global, dict):
-            content["_global"] = {
-                k: str(v)[:120]
-                for k, v in raw_global.items()
-                if k in _ALLOWED_GLOBAL_KEYS and v not in (None, "")
-            }
+            clean_global = {}
+            for k, v in raw_global.items():
+                if k not in _ALLOWED_GLOBAL_KEYS or v in (None, ""):
+                    continue
+                safe = _safe_style_key_value(k, v)
+                if safe is not None:
+                    clean_global[k] = safe
+            content["_global"] = clean_global
         else:
             content.pop("_global", None)
 
-    # Theme-token overrides: {css-var-name: color}. Names restricted to safe
-    # CSS identifier chars; the renderer additionally validates the color value.
+    # Theme-token overrides: {css-var-name: color/length}. Names restricted to
+    # safe CSS identifier chars; values validated so a "red;}body{" can't inject
+    # site-wide CSS (E6). Anything else is dropped, not stored.
     raw_tokens = content.get("_tokens")
     if raw_tokens is not None:
+        from core.renderer import _SAFE_STYLE_TOKEN_RE, _safe_css_value
+
         clean_tokens = {}
         if isinstance(raw_tokens, dict):
             for name, value in raw_tokens.items():
                 if not isinstance(name, str) or value in (None, ""):
                     continue
                 safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", name)[:64]
-                if safe_name:
-                    clean_tokens[safe_name] = str(value)[:120]
+                raw_val = str(value)[:120].strip()
+                safe_val = _safe_css_value(raw_val) or (
+                    raw_val if _SAFE_STYLE_TOKEN_RE.match(raw_val) else None
+                )
+                if safe_name and safe_val:
+                    clean_tokens[safe_name] = safe_val
         content["_tokens"] = clean_tokens
+
+    raw_header = content.get("_header")
+    if isinstance(raw_header, dict) or isinstance(content.get("regions"), dict):
+        from core.services.blocks import ensure_header
+
+        ensure_header(content)
+    elif raw_header is not None:
+        content.pop("_header", None)
 
 
 def _save_content(request, editable):
@@ -2682,11 +3344,27 @@ def _save_content(request, editable):
     _normalize_styles(content)
 
     template = editable.template
+
+    # Block-instance regions: validate the ordered instance lists against the
+    # template's allowlisted palette, enforce the per-page cap, and mint fresh
+    # ids for anything missing/duplicated. Rejecting a non-allowlisted block
+    # type is what keeps "clients insert only curated blocks" true server-side.
+    try:
+        _normalize_regions(content, template)
+    except _BlockValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
     schema = (
         build_schema(template.html_source)
         if template and template.html_source
         else ((template.schema if template else None) or {"sections": []})
     )
+
+    # Drop scriptable URLs / unsafe colors from typed field values before they
+    # reach the DB. The renderer re-validates on every render, but keeping poison
+    # out of storage stops it leaking through the Django admin JSON view (E7).
+    _sanitize_content_field_values(content, schema)
+
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
     try:
         ghl_embed_slots.validate_embed_content_update(
@@ -2699,28 +3377,163 @@ def _save_content(request, editable):
     except ghl_embed_slots.GhlEmbedValidationError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
-    # Version history is the tenant home's rolling-10 snapshots. Inner pages
-    # don't have undo yet (backlog), so only snapshot when editing the home.
-    # Shared with MCP patch_content via core.services.content_versions.
-    if isinstance(editable, Tenant):
-        from core.services import content_versions as cv
+    # Snapshot-then-save covers the tenant home AND inner pages now (undo works
+    # everywhere). Structural block ops go through the same path, so add /
+    # remove / reorder are all undoable. Shared with MCP patch_content.
+    from core.services import content_versions as cv
 
-        cv.save_tenant_content(
-            editable,
-            content,
-            user=request.user,
-            source=cv.SOURCE_DASHBOARD,
-        )
-    else:
-        # Same rule as the home page (see content_versions.save_tenant_content):
-        # store authored overrides, let the template own the rest.
-        page_schema = getattr(editable.template, "schema", None)
-        if isinstance(page_schema, dict):
-            content = strip_defaults(page_schema, content)
-        editable.content = content
-        editable.save(update_fields=["content", "updated_at"])
+    cv.save_editable_content(
+        editable,
+        content,
+        user=request.user,
+        source=cv.SOURCE_DASHBOARD,
+    )
 
     return JsonResponse({"ok": True, "updated_at": editable.updated_at.isoformat()})
+
+
+class _BlockValidationError(Exception):
+    """Client sent an invalid regions payload (bad type / over cap)."""
+
+
+# The exact shape ``core.services.blocks.new_instance_id`` mints:
+# ``blk_`` + token_hex(4) == 8 lowercase hex chars. Accept longer hex runs too
+# in case the mint width ever grows, but nothing outside [a-f0-9].
+_INSTANCE_ID_RE = re.compile(r"^blk_[a-f0-9]{8,}$")
+
+
+def _sanitize_content_field_values(content: dict, schema: dict) -> None:
+    """Validate URL and color field values in ``content`` against the schema so
+    a scriptable ``javascript:`` href or CSS-breakout color never persists.
+
+    Unsafe values are replaced with an empty string (the field falls back to its
+    template default on render). Mirrors the renderer's per-type allowlists."""
+    from core.renderer import _safe_css_value, _safe_url_value
+
+    if not isinstance(content, dict) or not isinstance(schema, dict):
+        return
+    for section in schema.get("sections") or []:
+        sec_id = section.get("id")
+        section_data = content.get(sec_id)
+        if not isinstance(section_data, dict):
+            continue
+        for field in section.get("fields") or []:
+            ftype = field.get("type")
+            field_name = str(field.get("id", "")).split(".")[-1]
+            if field_name not in section_data:
+                continue
+            value = section_data[field_name]
+            if not isinstance(value, str) or not value:
+                continue
+            if ftype == "link":
+                safe = _safe_url_value(value, allow_anchor=True)
+            elif ftype == "image":
+                safe = _safe_url_value(value, allow_data_image=True)
+            elif ftype in ("video", "embed"):
+                safe = _safe_url_value(value)
+            elif ftype == "color":
+                safe = _safe_css_value(value) or ""
+            else:
+                continue
+            if safe is None:
+                safe = ""
+            section_data[field_name] = safe
+
+
+def _normalize_regions(content: dict, template) -> None:
+    """Validate + sanitize ``content['regions']`` in place (no-op if absent).
+
+    Rejects block types not on the template's allowlist, drops unknown instance
+    field keys, mints fresh ids for missing/duplicate ones, recurses into layout
+    blocks' column children (capped at ``MAX_BLOCK_DEPTH``), and enforces the
+    per-page block cap across every nested instance.
+    """
+    regions = content.get("regions")
+    if regions is None:
+        return
+    if not isinstance(regions, dict) or template is None:
+        content.pop("regions", None)
+        return
+
+    from core.services import blocks
+
+    catalog = blocks.catalog_for_template(template)
+    seen_ids: set[str] = set()
+    counter = {"total": 0}
+
+    def clean_instance(inst, depth):
+        if not isinstance(inst, dict):
+            return None
+        itype = inst.get("type")
+        if itype not in catalog:
+            raise _BlockValidationError("That block isn't available on this site.")
+        # Instance ids are emitted into HTML attributes and used verbatim in
+        # querySelector lookups, so restrict them to the exact shape
+        # ``new_instance_id`` mints (``blk_`` + hex). Anything else — including a
+        # crafted id carrying markup — is replaced with a fresh safe id (E14).
+        iid = str(inst.get("id") or "").strip()
+        if not _INSTANCE_ID_RE.match(iid) or iid in seen_ids:
+            iid = blocks.new_instance_id()
+        seen_ids.add(iid)
+
+        known_fields = {
+            f["id"] for f in (catalog[itype]["schema"].get("fields") or [])
+        }
+        raw_fields = inst.get("fields")
+        clean_fields = {}
+        if isinstance(raw_fields, dict):
+            for key, value in raw_fields.items():
+                if key in known_fields and isinstance(key, str):
+                    clean_fields[key] = value
+        counter["total"] += 1
+        out = {"id": iid, "type": itype, "fields": clean_fields}
+
+        # Layout blocks carry column slots; keep only children dropped into a
+        # real slot name.
+        slot_names = catalog[itype].get("regions") or []
+        raw_children = inst.get("children")
+        if slot_names and depth < blocks.MAX_BLOCK_DEPTH:
+            children: dict[str, list] = {}
+            for name in slot_names:
+                child_list = []
+                if isinstance(raw_children, dict) and isinstance(
+                    raw_children.get(name), list
+                ):
+                    for child in raw_children[name]:
+                        cleaned = clean_instance(child, depth + 1)
+                        if cleaned is not None:
+                            child_list.append(cleaned)
+                children[name] = child_list
+            out["children"] = children
+        elif slot_names and isinstance(raw_children, dict):
+            # At the depth cap. Silently dropping children here is data loss
+            # (the client sees their nested rows vanish on save), so reject the
+            # save instead and let the UI keep the pre-save state (E11).
+            for name in slot_names:
+                if isinstance(raw_children.get(name), list) and raw_children[name]:
+                    raise _BlockValidationError(
+                        "Blocks are nested too deeply to save. "
+                        "Move inner blocks up a level and try again."
+                    )
+        return out
+
+    clean: dict[str, list] = {}
+    for region_name, instances in regions.items():
+        if not isinstance(region_name, str) or not isinstance(instances, list):
+            continue
+        rname = re.sub(r"[^a-zA-Z0-9_-]", "", region_name)[:40] or "main"
+        clean_list = []
+        for inst in instances:
+            cleaned = clean_instance(inst, 0)
+            if cleaned is not None:
+                clean_list.append(cleaned)
+        clean[rname] = clean_list
+
+    if counter["total"] > blocks.MAX_BLOCKS_PER_PAGE:
+        raise _BlockValidationError(
+            f"This page can have at most {blocks.MAX_BLOCKS_PER_PAGE} sections."
+        )
+    content["regions"] = clean
 
 
 def _ghl_forms_json(tenant):
@@ -2749,8 +3562,18 @@ def _ghl_forms_json(tenant):
 
 
 def _versions_list(tenant, scope):
+    from core.services import content_versions as cv
+
     items = []
-    for v in tenant.versions.select_related("saved_by").order_by("-saved_at")[:10]:
+    # Only the client's own dashboard snapshots are offered for undo. MCP writes
+    # live in a separate bucket; surfacing them here would let "Undo" jump the
+    # client into an AI-generated state they never chose (E12).
+    versions = (
+        tenant.versions.select_related("saved_by")
+        .filter(page__isnull=True, source=cv.SOURCE_DASHBOARD)
+        .order_by("-saved_at")[:25]
+    )
+    for v in versions:
         if scope == "tenant":
             preview_url = reverse("dashboard:tenant_version_preview_self", args=[v.id])
         else:
@@ -2770,25 +3593,82 @@ def _version_restore(request, tenant):
     except json.JSONDecodeError:
         return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
 
-    version = tenant.versions.filter(id=payload.get("version_id")).first()
+    version = tenant.versions.filter(
+        page__isnull=True, id=payload.get("version_id")
+    ).first()
     if version is None:
         return JsonResponse({"ok": False, "error": "That version no longer exists."}, status=404)
 
-    # Snapshot the CURRENT content first, so the restore is itself undoable.
-    # Shared path with editor saves / MCP writes.
+    # pop=True is the editor's linear Undo (consume the snapshot, no redo point);
+    # pop=False is an arbitrary history restore (snapshot current first).
+    pop = bool(payload.get("pop"))
     from core.services import content_versions as cv
 
     try:
-        cv.restore_tenant_content(tenant, version, user=request.user)
-    except ghl_embed_slots.GhlEmbedValidationError as exc:
+        cv.restore_tenant_content(tenant, version, user=request.user, pop=pop)
+    except (ghl_embed_slots.GhlEmbedValidationError, cv.RestoreValidationError) as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     return JsonResponse({"ok": True})
 
 
 def _version_preview(tenant, version_id):
-    version = get_object_or_404(tenant.versions, id=version_id)
-    content = merge_with_defaults(tenant.template.schema, version.snapshot)
-    html = render_site(tenant.template.html_source, content, preview=True)
+    from core.services import blocks
+
+    version = get_object_or_404(
+        tenant.versions.filter(page__isnull=True), id=version_id
+    )
+    html = blocks.render_content(tenant.template, version.snapshot, preview=True)
+    return HttpResponse(html)
+
+
+# --------------------------------------------------------------------------- #
+# Per-page version history / undo (tenant self scope)                          #
+# --------------------------------------------------------------------------- #
+
+
+def _page_versions_list(page):
+    from core.services import content_versions as cv
+
+    items = []
+    # Dashboard-only, same rationale as the tenant-home list (E12).
+    _pv = page.versions.select_related("saved_by").filter(source=cv.SOURCE_DASHBOARD)
+    for v in _pv.order_by("-saved_at")[:25]:
+        items.append({
+            "id": v.id,
+            "saved_at": v.saved_at.isoformat(),
+            "saved_by": v.saved_by.username if v.saved_by else "unknown",
+            "preview_url": reverse(
+                "dashboard:page_version_preview_self", args=[page.pk, v.id]
+            ),
+        })
+    return JsonResponse({"ok": True, "versions": items})
+
+
+def _page_version_restore(request, page):
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Invalid JSON."}, status=400)
+
+    version = page.versions.filter(id=payload.get("version_id")).first()
+    if version is None:
+        return JsonResponse({"ok": False, "error": "That version no longer exists."}, status=404)
+
+    pop = bool(payload.get("pop"))
+    from core.services import content_versions as cv
+
+    try:
+        cv.restore_editable_content(page, version, user=request.user, pop=pop)
+    except (ghl_embed_slots.GhlEmbedValidationError, cv.RestoreValidationError) as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    return JsonResponse({"ok": True})
+
+
+def _page_version_preview(page, version_id):
+    from core.services import blocks
+
+    version = get_object_or_404(page.versions, id=version_id)
+    html = blocks.render_content(page.template, version.snapshot, preview=True)
     return HttpResponse(html)
 
 
@@ -2808,6 +3688,27 @@ def tenant_version_restore_self(request):
 @require_GET
 def tenant_version_preview_self(request, version_id):
     return _version_preview(request.tenant, version_id)
+
+
+@tenant_member_required
+@require_GET
+def page_versions_self(request, page_pk):
+    page = _get_tenant_page(request.tenant, page_pk)
+    return _page_versions_list(page)
+
+
+@tenant_member_required
+@require_POST
+def page_version_restore_self(request, page_pk):
+    page = _get_tenant_page(request.tenant, page_pk)
+    return _page_version_restore(request, page)
+
+
+@tenant_member_required
+@require_GET
+def page_version_preview_self(request, page_pk, version_id):
+    page = _get_tenant_page(request.tenant, page_pk)
+    return _page_version_preview(page, version_id)
 
 
 @agency_operator_required
@@ -2852,6 +3753,14 @@ def _usable_image_url(url: str) -> bool:
     if lower.startswith("data:") or lower.startswith("javascript:"):
         return False
     return True
+
+
+def _gallery_display_url(url: str) -> bool:
+    """URLs we will actually show as tiles. Legacy Cloudinary links 401 now
+    that media lives on Iceberg — listing them just produces broken images."""
+    if not _usable_image_url(url):
+        return False
+    return "res.cloudinary.com" not in url.lower()
 
 
 def _filename_from_url(url: str) -> str:
@@ -2906,6 +3815,46 @@ def _harvest_html_image_urls(html: str) -> list[str]:
     return [u.strip() for u in found if _usable_image_url(u)]
 
 
+_IMAGE_URL_EXT_RE = re.compile(
+    r"\.(?:png|jpe?g|gif|webp|svg)(?:\?|#|$)", re.IGNORECASE
+)
+_IMAGE_CONTENT_KEYS = {
+    "bgimage", "bg_image", "image", "photo", "logo", "src", "img",
+}
+
+
+def _looks_like_image_url(value: str) -> bool:
+    if not _usable_image_url(value):
+        return False
+    lower = value.lower()
+    if _IMAGE_URL_EXT_RE.search(lower):
+        return True
+    return "/image/" in lower or "/images/" in lower or "cloudinary" in lower
+
+
+def _harvest_content_image_urls(content) -> list[str]:
+    """Pick image URLs out of a page JSON blob (block fields, backgrounds)."""
+    found: list[str] = []
+
+    def walk(obj, key=""):
+        if isinstance(obj, dict):
+            for child_key, value in obj.items():
+                walk(value, str(child_key))
+            return
+        if isinstance(obj, list):
+            for value in obj:
+                walk(value, key)
+            return
+        if isinstance(obj, str) and (
+            key.lower() in _IMAGE_CONTENT_KEYS or _looks_like_image_url(obj)
+        ):
+            if _usable_image_url(obj):
+                found.append(obj.strip())
+
+    walk(content)
+    return found
+
+
 def _harvest_schema_image_urls(schema: dict, content: dict) -> list[str]:
     """Image field values after merge (covers content overrides of template defaults)."""
     image_field_ids: list[str] = []
@@ -2933,7 +3882,7 @@ def _media_gallery_list(tenant):
 
     def add(url, *, name=None, asset_id=None, nbytes=0, uploaded_at="", source="upload"):
         key = (url or "").strip()
-        if not _usable_image_url(key) or key in seen:
+        if not _gallery_display_url(key) or key in seen:
             return
         seen.add(key)
         items.append({
@@ -2968,6 +3917,8 @@ def _media_gallery_list(tenant):
             add(url, source="page")
         for url in _harvest_schema_image_urls(home_tpl.schema or {}, tenant.content or {}):
             add(url, source="page")
+    for url in _harvest_content_image_urls(tenant.content or {}):
+        add(url, source="page")
 
     # 3) Inner pages.
     for page in tenant.pages.select_related("template").all():
@@ -2977,6 +3928,8 @@ def _media_gallery_list(tenant):
         for url in _harvest_html_image_urls(tpl.html_source):
             add(url, source="page")
         for url in _harvest_schema_image_urls(tpl.schema or {}, page.content or {}):
+            add(url, source="page")
+        for url in _harvest_content_image_urls(page.content or {}):
             add(url, source="page")
 
     # 4) Social share image from site settings, if any.
@@ -3030,17 +3983,26 @@ def _media_item_mutate(request, tenant, asset_id):
         url = asset.url
         asset.delete()
         if url:
+            # Deleting an in-use image rewrites content (fields fall back to the
+            # template default). Route that through save_editable_content so it
+            # snapshots first and stays undoable — a raw .save() would silently
+            # drop the image with no way back (C3).
+            from core.services import content_versions as cv
+
             new_content, changed = _scrub_url_from_content(tenant.content or {}, url)
             if changed:
-                tenant.content = new_content
-                tenant.save(update_fields=["content", "updated_at"])
+                cv.save_editable_content(
+                    tenant, new_content, user=request.user, source=cv.SOURCE_DASHBOARD
+                )
             for page in tenant.pages.all():
                 page_content, page_changed = _scrub_url_from_content(
                     page.content or {}, url
                 )
                 if page_changed:
-                    page.content = page_content
-                    page.save(update_fields=["content", "updated_at"])
+                    cv.save_editable_content(
+                        page, page_content, user=request.user,
+                        source=cv.SOURCE_DASHBOARD,
+                    )
         return JsonResponse({"ok": True})
 
     # POST → rename
@@ -3213,18 +4175,35 @@ def tenant_site_settings_self(request):
 # --------------------------------------------------------------------------- #
 
 
+# Common two-label public suffixes. Used so ``example.co.uk`` is treated as
+# an apex (DNS name ``@``) rather than a host ``example`` (A15). Not a full
+# PSL — no extra dependency.
+_MULTI_PART_TLDS = frozenset({
+    ("co", "uk"), ("org", "uk"), ("ac", "uk"), ("gov", "uk"),
+    ("com", "au"), ("net", "au"), ("org", "au"),
+    ("co", "nz"), ("net", "nz"), ("org", "nz"),
+    ("co", "za"), ("org", "za"),
+    ("com", "br"), ("com", "mx"),
+    ("co", "jp"), ("ne", "jp"),
+    ("com", "sg"), ("com", "hk"),
+    ("co", "in"), ("com", "in"),
+})
+
+
 def _dns_name_for_domain(domain: str) -> str:
     """The record NAME to enter at the registrar: ``@`` for a root domain
-    (2 labels), else the leftmost label (``www``, ``training``, …).
-
-    TODO: handle multi-label public suffixes (e.g. ``example.co.uk`` should be
-    ``@``, not ``example``). Needs a public-suffix list; deferred for now.
+    (2 labels, or 3 when the last two are a known public suffix like
+    ``co.uk``), else the leftmost label (``www``, ``training``, …).
     """
     cleaned = (domain or "").strip().rstrip(".")
     if not cleaned:
         return "@"
     labels = cleaned.split(".")
-    if len(labels) <= 2:
+    apex_len = 3 if (
+        len(labels) >= 3
+        and tuple(label.lower() for label in labels[-2:]) in _MULTI_PART_TLDS
+    ) else 2
+    if len(labels) <= apex_len:
         return "@"
     return labels[0]
 
@@ -3245,6 +4224,23 @@ def _custom_domain_context(tenant):
         "custom_domains_pending": len(domains) - verified,
         "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
     }
+
+
+def _sync_tenant_primary_domain(tenant) -> None:
+    """Keep the vestigial ``Tenant.custom_domain`` display hint in step with the
+    CustomDomain table: the earliest verified domain (or "" when none). Routing
+    keys off the CustomDomain rows; this only feeds the site_created / detail
+    display so it must not drift after add/verify/delete (A17)."""
+    primary = (
+        tenant.custom_domains.filter(is_verified=True)
+        .order_by("created_at")
+        .values_list("domain", flat=True)
+        .first()
+        or ""
+    )
+    if tenant.custom_domain != primary:
+        tenant.custom_domain = primary
+        tenant.save(update_fields=["custom_domain", "updated_at"])
 
 
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
@@ -3269,6 +4265,7 @@ def tenant_custom_domain_add(request, pk):
     )
     if error:
         return _render_custom_domain_partial(request, tenant, error=error)
+    _sync_tenant_primary_domain(tenant)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -3283,6 +4280,7 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
     verified, resolved = custom_domains.verify_custom_domain(custom_domain)
 
     if verified:
+        _sync_tenant_primary_domain(tenant)
         return _render_custom_domain_partial(
             request, tenant,
             info="DNS verified. Your SSL certificate is issued automatically "
@@ -3312,6 +4310,7 @@ def tenant_custom_domain_delete(request, pk, domain_pk):
     # Deleting the row drops the host from the next route-syncer pass (≤20s), so
     # Traefik stops routing it. No external (Cloudflare/Railway) cleanup needed.
     custom_domain.delete()
+    _sync_tenant_primary_domain(tenant)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -3355,10 +4354,17 @@ def custom_domain_list(request):
 @agency_operator_required
 @require_POST
 def custom_domain_force_verify(request, pk):
+    # Force-verify bypasses the real HTTP-01/DNS check and immediately routes a
+    # domain — a strong override reserved for superusers (A10).
+    if not request.user.is_superuser:
+        return HttpResponseForbidden(
+            "Only a superuser can force-verify a custom domain."
+        )
     domain = get_object_or_404(CustomDomain, pk=pk)
     if not domain.is_verified:
         domain.is_verified = True
         domain.save(update_fields=["is_verified", "updated_at"])
+        _sync_tenant_primary_domain(domain.tenant)
         messages.success(request, f"“{domain.domain}” force-marked as verified.")
     else:
         messages.info(request, f"“{domain.domain}” was already verified.")
@@ -3370,7 +4376,9 @@ def custom_domain_force_verify(request, pk):
 def custom_domain_force_delete_local(request, pk):
     domain = get_object_or_404(CustomDomain, pk=pk)
     label = domain.domain
+    tenant = domain.tenant
     domain.delete()
+    _sync_tenant_primary_domain(tenant)
     messages.success(
         request,
         f"“{label}” deleted. It drops from Traefik on the next route sync (≤20s).",

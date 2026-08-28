@@ -5,6 +5,11 @@
 {% block title %}Editing {{ tenant.name }} · Locked CMS{% endblock %}
 
 {% block extra_head %}
+  {% comment %}Inter powers the builder CHROME only (--ui-font). Roboto stays the
+  brand / content typeface, so nothing user-facing on the rendered page shifts.{% endcomment %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="{% static_v 'css/editor.css' %}">
 {% endblock %}
 
@@ -20,8 +25,17 @@
         <div class="editor-bar-title">{{ target_title }}</div>
         <div class="editor-bar-sub">{{ target_subtitle }}</div>
       </div>
+      {% comment %}Visibility status. is_published is a pure visibility gate — the
+      public site renders the same canonical content, so a save on a Live page is
+      instantly public (there is no separate draft copy). The pill + its tooltip
+      make that explicit so clients aren't surprised.{% endcomment %}
+      <span class="editor-status-pill {% if target_is_published %}is-live{% else %}is-draft{% endif %}"
+            title="{% if target_is_published %}Live — visitors can see this page, and saved changes go public immediately.{% else %}Draft — only you can see this. Publish to make it visible to visitors.{% endif %}">
+        <span class="editor-status-pill-dot" aria-hidden="true"></span>
+        {% if target_is_published %}Live{% else %}Draft{% endif %}
+      </span>
       {% if page_switch|length > 1 %}
-        <select class="page-switch-select" onchange="if(this.value)window.location.href=this.value;"
+        <select class="ui-select page-switch-select" onchange="if(this.value)window.location.href=this.value;"
                 title="Switch page" aria-label="Switch page">
           {% for ps in page_switch %}
             <option value="{{ ps.url }}" {% if ps.current %}selected{% endif %}>{{ ps.label }}</option>
@@ -36,8 +50,29 @@
         <span id="save-text">All changes saved</span>
         <button type="button" class="save-retry" id="save-retry" hidden>Retry</button>
       </div>
+      {% if block_mode and versions_url and client_editable %}
+        <button type="button" class="ui-btn ui-btn--ghost" id="undo-btn" title="Undo the last change" hidden>
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+          Undo
+        </button>
+      {% endif %}
+      {% if block_mode and client_editable %}
+        <button type="button" class="ui-btn ui-btn--ghost" id="bar-add-block" title="Quick Add" aria-label="Quick Add">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      {% endif %}
+      {% if block_mode and nav_sections %}
+        <button type="button" class="ui-btn ui-btn--ghost" data-chrome-drawer="{% if header_sections %}{{ header_sections.0.id }}{% else %}{{ footer_sections.0.id }}{% endif %}" title="Header &amp; footer" aria-label="Header and footer">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M7 6h.01"/><path d="M11 6h.01"/></svg>
+        </button>
+      {% endif %}
+      {% if block_mode and theme_tokens or block_mode and brand_section %}
+        <button type="button" class="ui-btn ui-btn--ghost" data-chrome-drawer="{% if brand_section %}{{ brand_section.id }}{% else %}_tokens{% endif %}" title="Design" aria-label="Design">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
+        </button>
+      {% endif %}
       <div class="editor-tools action-menu" data-menu>
-        <button type="button" class="btn btn-secondary" id="editor-tools-trigger"
+        <button type="button" class="ui-btn ui-btn--ghost" id="editor-tools-trigger"
                 data-menu-trigger aria-haspopup="menu" aria-expanded="false"
                 aria-controls="editor-tools-menu">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
@@ -54,9 +89,12 @@
           <button type="button" id="open-settings-btn" role="menuitem" tabindex="-1" data-menu-item><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>Settings</button>
         </div>
       </div>
-      <form method="post" action="{{ publish_url }}" class="editor-publish-form">
+      <form method="post" action="{{ publish_url }}" class="editor-publish-form"
+            data-publish-action="{% if target_is_published %}unpublish{% else %}publish{% endif %}"
+            data-target-title="{{ target_title }}">
         {% csrf_token %}
-        <button type="submit" class="btn {% if target_is_published %}btn-secondary{% else %}btn-primary{% endif %}">
+        <button type="submit" class="ui-btn {% if target_is_published %}ui-btn--subtle{% else %}ui-btn--primary{% endif %}"
+                title="{% if target_is_published %}Take this page offline — visitors will get a “not found” page.{% else %}Make this page visible to visitors.{% endif %}">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
           {% if target_is_published %}Unpublish page{% else %}Publish page{% endif %}
         </button>
@@ -97,7 +135,7 @@
     <button type="button" role="tab" aria-selected="false" data-editor-view="sections">Sections</button>
   </div>
 
-  <div class="editor-shell {{ layout_mode }}{% if scope == 'tenant' and not client_editable %} is-readonly{% endif %}" id="editor-shell"
+  <div class="editor-shell {{ layout_mode }}{% if block_mode %} is-block-mode{% endif %}{% if scope == 'tenant' and not client_editable %} is-readonly{% endif %}" id="editor-shell"
        {% if scope == "tenant" and not client_editable %}aria-disabled="true"{% endif %}>
 
     <button type="button" class="sidebar-reopen" data-sidebar-toggle
@@ -107,7 +145,7 @@
 
     <aside class="editor-sidebar">
       <div class="sidebar-toolbar">
-        <span class="sidebar-toolbar-label">Sections</span>
+        <span class="sidebar-toolbar-label">{% if block_mode %}Layers{% else %}Sections{% endif %}</span>
         <button type="button" class="sidebar-mini-btn" data-sidebar-toggle
                 title="Hide sections" aria-label="Hide sections panel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
@@ -117,14 +155,56 @@
         <input type="text" id="section-search" placeholder="Jump to section…">
       </div>
 
+      {% if block_mode and client_editable %}
+        <div class="sidebar-blocks-actions">
+          <button type="button" class="btn btn-primary btn-sm btn-block" id="add-block-btn">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add section
+          </button>
+        </div>
+      {% endif %}
+
+      {% if block_mode and nav_sections %}
+        <div class="sidebar-group">
+          <div class="sidebar-group-label">Site</div>
+          {% for section in header_sections %}
+            <button type="button" class="sidebar-link" data-jump="{{ section.id }}" data-chrome="1">
+              <span class="sidebar-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+              </span>
+              <span class="sidebar-link-text">{{ section.label }}</span>
+            </button>
+          {% endfor %}
+          {% for section in footer_sections %}
+            <button type="button" class="sidebar-link" data-jump="{{ section.id }}" data-chrome="1">
+              <span class="sidebar-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
+              </span>
+              <span class="sidebar-link-text">{{ section.label }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% regroup content_sections by group as section_groups %}
       {% for group in section_groups %}
         <div class="sidebar-group">
           <div class="sidebar-group-label">{{ group.grouper }}</div>
           {% for section in group.list %}
-            <button type="button" class="sidebar-link" data-jump="{{ section.id }}">
-              <span class="sidebar-link-icon">{{ section.label|first|upper }}</span>
-              <span>{{ section.label }}</span>
+            <button type="button"
+                    class="sidebar-link{% if section.is_layout %} is-layout{% endif %}{% if section.depth %} is-nested{% endif %}"
+                    data-jump="{{ section.id }}"
+                    data-depth="{{ section.depth|default:0 }}"
+                    style="--tree-depth: {{ section.depth|default:0 }}">
+              <span class="sidebar-link-icon" aria-hidden="true">
+                {% if section.is_layout %}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></svg>
+                {% elif section.depth %}
+                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="3.2"/></svg>
+                {% else %}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+                {% endif %}
+              </span>
+              <span class="sidebar-link-text">{{ section.label }}</span>
             </button>
           {% endfor %}
         </div>
@@ -148,6 +228,9 @@
         <span class="cms-seltext-sep" aria-hidden="true"></span>
         <button type="button" class="cms-seltext-btn" data-seltext-cmd="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
         <button type="button" class="cms-seltext-btn" data-seltext-cmd="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+        <button type="button" class="cms-seltext-btn" data-seltext-cmd="link" title="Add link" aria-label="Add link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
         <select class="cms-seltext-size" data-seltext-size aria-label="Font size"></select>
         <span class="cms-seltext-sep" aria-hidden="true"></span>
         <button type="button" class="cms-seltext-btn" data-seltext-cmd="clear" title="Clear formatting" aria-label="Clear formatting">
@@ -177,19 +260,34 @@
       <div class="editor-tab-panel" data-panel="content">
         {% if not content_sections %}
           <div class="empty editor-zero-state" role="status">
-            {% if scope == "tenant" %}
+            {% if block_mode and client_editable %}
+              <div class="editor-zero-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+              </div>
+              <h3>Start building your page</h3>
+              <p>Add your first block, then rearrange, duplicate or edit anything — nothing is permanent.</p>
+              <button type="button" class="btn btn-primary" id="zero-add-block">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Add your first block
+              </button>
+              <ul class="editor-zero-tips">
+                <li>Double-click text on the page to edit it</li>
+                <li>Drag a block's handle to move it</li>
+                <li>Press <kbd>?</kbd> anytime for keyboard shortcuts</li>
+              </ul>
+            {% elif scope == "tenant" %}
               <h3>No editable content yet</h3>
               <p>Your agency needs to finish preparing this page before its content can be edited.</p>
               <a class="btn btn-secondary" href="{{ page_list_url }}"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/></svg>View your pages</a>
             {% else %}
               <h3>No editable sections detected</h3>
               <p>Annotate this page's HTML with <code>data-section</code> and <code>data-edit</code> markers, then return here.</p>
-              <a class="btn btn-secondary" href="{% if editing_page %}{% url 'dashboard:page_edit_html' tenant.pk editing_page.pk %}{% else %}{% url 'dashboard:template_detail' tenant.template.pk %}{% endif %}"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></svg>Edit HTML source</a>
+              <a class="btn btn-secondary" href="{% if page_owns_template %}{% url 'dashboard:page_edit_html' tenant.pk editing_page.pk %}{% else %}{% url 'dashboard:template_detail' tenant.template.pk %}{% endif %}"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></svg>{% if page_owns_template %}Edit HTML source{% else %}Edit site template{% endif %}</a>
             {% endif %}
           </div>
         {% endif %}
         {% for section in content_sections %}
-          <div class="editor-form-section" id="section-{{ section.id }}" data-section-id="{{ section.id }}">
+          <div class="editor-form-section{% if section.is_layout %} is-layout-block{% endif %}" id="section-{{ section.id }}" data-section-id="{{ section.id }}"{% if section.is_instance %} data-instance-id="{{ section.id }}" data-block-type="{{ section.block_type }}" data-depth="{{ section.depth }}" data-parent-id="{{ section.parent_id|default_if_none:'' }}" data-region="{{ section.region }}"{% if section.is_layout %} data-is-layout="1"{% endif %}{% endif %}>
             <div class="editor-form-section-head">
               <h2>{{ section.label }}</h2>
               <span class="pill">{{ section.fields|length }} field{{ section.fields|length|pluralize }}</span>
@@ -199,6 +297,9 @@
               {% for field in section.fields %}
                 {% include "dashboard/components/field.html" with field=field section_id=section.id %}
               {% endfor %}
+              {% if section.is_layout and not section.fields %}
+                <p class="field-hint layout-block-hint">This is a container. Click <strong>+ Add block</strong> in a column, or keep this selected and use Quick Add to drop elements inside it.</p>
+              {% endif %}
             </div>
           </div>
         {% endfor %}
@@ -274,7 +375,7 @@
           </div>
         </div>
         {% if theme_tokens %}
-          <div class="editor-form-section" data-section-id="_tokens">
+          <div class="editor-form-section" id="section-_tokens" data-section-id="_tokens">
             <div class="editor-form-section-head"><h2>Theme colors</h2></div>
             <p class="field-hint mb-2">These recolor your whole site: buttons, headings and accents update together.</p>
             <div class="stack-5">
@@ -320,8 +421,298 @@
         <iframe id="preview-frame" class="preview-frame"
                 src="{{ preview_url }}"
                 title="Site preview"></iframe>
+        {% if block_mode and client_editable %}
+        <div class="cms-canvas-start" id="cms-canvas-start" hidden>
+          <div class="cms-canvas-start-card">
+            <h3>Start creating this page</h3>
+            <p>Add a section, then drop headlines, images and buttons into it.</p>
+            <div class="cms-canvas-start-actions">
+              <button type="button" class="btn btn-secondary" id="canvas-add-section">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+                Add a section
+              </button>
+              <button type="button" class="btn btn-primary" id="canvas-insert-element">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Insert element
+              </button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </section>
+
+    {% if block_mode %}
+    {% comment %}
+      Block settings slide-over drawer (GHL-style). Clicking a block in the
+      preview or the sidebar slides this panel in from the right; editor.js
+      relocates that block's .editor-form-section node into the body (so all
+      its wired inputs keep working) and moves it back when the drawer closes.
+    {% endcomment %}
+    <div class="cms-drawer-backdrop" id="cms-drawer-backdrop" hidden></div>
+    <aside class="cms-drawer is-idle" id="cms-block-drawer" data-drawer-pane="general" aria-hidden="false" aria-label="Block settings">
+      <div class="cms-drawer-head">
+        <h2 class="cms-drawer-title" data-drawer-title>Properties</h2>
+        <button type="button" class="cms-drawer-close" id="cms-drawer-close" aria-label="Close settings">&times;</button>
+      </div>
+      <div class="cms-drawer-tabs" data-drawer-tabs hidden>
+        <button type="button" class="cms-drawer-tab is-active" data-drawer-tab="general">General</button>
+        <button type="button" class="cms-drawer-tab" data-drawer-tab="styles">Styles</button>
+      </div>
+      <div class="cms-drawer-idle" data-drawer-idle>
+        <div class="cms-drawer-idle-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/><path d="M13.58 13.58 21 21"/></svg>
+        </div>
+        <p>Select an element to see and edit its properties here.</p>
+      </div>
+      <div class="cms-header-panel" id="cms-header-panel" hidden>
+        <p class="cms-drawer-hint">Click a word in the bar to rename it. Layout and links live here.</p>
+        <div class="cms-layout-section">
+          <p class="cms-layout-heading">Logo</p>
+          <div class="cms-header-logo-media">
+            <img class="cms-header-logo-preview" data-header-logo-preview alt="" hidden>
+            <div class="cms-layout-image-actions">
+              <button type="button" class="btn btn-secondary btn-sm" data-header-logo-gallery>Gallery</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-header-logo-upload>Upload</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-header-logo-clear>Remove</button>
+              <input type="file" accept="image/*" hidden data-header-logo-file>
+            </div>
+            <p class="cms-layout-hint" data-header-logo-status>Upload a logo image, or keep the site name below.</p>
+          </div>
+          <label class="cms-layout-row cms-header-logo-size" data-header-logo-size-row hidden>
+            <span>Size</span>
+            <input type="range" min="24" max="80" step="4" value="40" data-header-logo-size>
+            <span data-header-logo-size-label>40px</span>
+          </label>
+          <label class="cms-layout-row cms-layout-toggle">
+            <span>Show site name</span>
+            <input type="checkbox" data-header-show-name>
+          </label>
+          <label class="cms-layout-row" data-header-name-row>
+            <span>Site name</span>
+            <input type="text" class="input" data-header-logo maxlength="80" placeholder="Your brand">
+          </label>
+        </div>
+        <div class="cms-layout-section cms-header-layouts">
+          <p class="cms-layout-heading">Layout</p>
+          <div class="cms-header-layout-group" role="group" aria-label="Header layout">
+            <button type="button" data-header-layout="classic" title="Logo left, menu center, button right">Classic</button>
+            <button type="button" data-header-layout="packed" title="Logo left, menu and button right">Packed</button>
+            <button type="button" data-header-layout="centered" title="Logo, menu, and button centered">Centered</button>
+          </div>
+        </div>
+        <div class="cms-layout-section">
+          <p class="cms-layout-heading">Menu</p>
+          <div data-header-menu></div>
+          <button type="button" class="btn btn-secondary btn-sm" data-header-add-link>+ Add link</button>
+        </div>
+        <div class="cms-layout-section">
+          <p class="cms-layout-heading">Button</p>
+          <label class="cms-layout-row cms-layout-toggle">
+            <span>Show button</span>
+            <input type="checkbox" data-header-btn-on>
+          </label>
+          <div data-header-btn-fields>
+            <label class="cms-layout-row">
+              <span>Label</span>
+              <input type="text" class="input" data-header-btn-label maxlength="80" placeholder="Get Started">
+            </label>
+            <label class="cms-layout-row">
+              <span>Link</span>
+              <input type="text" class="input" data-header-btn-href maxlength="500" placeholder="/">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="cms-block-layout" data-block-layout hidden>
+        <details class="cms-layout-section" open>
+          <summary class="cms-layout-heading">Background</summary>
+          <label class="cms-layout-row" data-layout-target-row hidden>
+            <span>Container</span>
+            <select class="select" data-layout-target></select>
+          </label>
+          <div class="cms-layout-tabs" role="tablist" aria-label="Background type">
+            <button type="button" class="cms-layout-tab" data-bg-mode="color">Color</button>
+            <button type="button" class="cms-layout-tab" data-bg-mode="image">Image</button>
+            <button type="button" class="cms-layout-tab" data-bg-mode="gradient">Gradient</button>
+          </div>
+          <div class="cms-layout-pane" data-bg-pane="color">
+            <label class="cms-layout-row">
+              <span>Color</span>
+              <div class="cms-style-colorwrap">
+                <input type="color" data-layout-bind="bgColor" value="#ffffff">
+                <button type="button" class="cms-style-clear" data-layout-clear="bgColor" title="Clear color" aria-label="Clear color">×</button>
+              </div>
+            </label>
+          </div>
+          <div class="cms-layout-pane" data-bg-pane="image" hidden>
+            <div class="cms-layout-image">
+              <div class="cms-layout-image-preview" data-layout-image-preview hidden></div>
+              <div class="cms-layout-image-actions">
+                <button type="button" class="btn btn-secondary btn-sm" data-layout-pick-image>Gallery</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-layout-upload-btn>Upload</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-layout-clear="bgImage">Remove</button>
+                <input type="file" accept="image/*" hidden data-layout-upload>
+              </div>
+              <p class="cms-layout-hint" data-layout-image-status>Upload, pick from the gallery, or paste a URL.</p>
+            </div>
+            <label class="cms-layout-row cms-layout-url">
+              <span>Image URL</span>
+              <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://" data-layout-bind="bgImage">
+            </label>
+            <label class="cms-layout-row">
+              <span>Image options</span>
+              <select class="select" data-layout-image-option>
+                <option value="cover|center">Full center</option>
+                <option value="cover|top">Full top</option>
+                <option value="cover|bottom">Full bottom</option>
+                <option value="cover|left">Full left</option>
+                <option value="cover|right">Full right</option>
+                <option value="contain|center">Fit center</option>
+              </select>
+            </label>
+            <label class="cms-layout-row">
+              <span>Fit</span>
+              <select class="select" data-layout-bind="bgSize">
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+              </select>
+            </label>
+            <label class="cms-layout-row">
+              <span>Position</span>
+              <select class="select" data-layout-bind="bgPosition">
+                <option value="center">Center</option>
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label class="cms-layout-row">
+              <span>Image opacity</span>
+              <select class="select" data-layout-bind="bgOpacity">
+                <option value="100">100%</option>
+                <option value="80">80%</option>
+                <option value="60">60%</option>
+                <option value="40">40%</option>
+                <option value="20">20%</option>
+              </select>
+            </label>
+            <label class="cms-layout-row cms-layout-toggle">
+              <span>Blur image</span>
+              <input type="checkbox" data-layout-blur-on>
+            </label>
+            <label class="cms-layout-row" data-layout-blur-row hidden>
+              <span>Blur amount</span>
+              <input type="range" min="2" max="20" step="1" value="8" data-layout-bind="bgBlur">
+            </label>
+            <label class="cms-layout-row">
+              <span>Dim</span>
+              <select class="select" data-layout-bind="bgOverlay">
+                <option value="">None</option>
+                <option value="20">Light</option>
+                <option value="40">Medium</option>
+                <option value="60">Heavy</option>
+              </select>
+            </label>
+          </div>
+          <div class="cms-layout-pane" data-bg-pane="gradient" hidden>
+            <label class="cms-layout-row">
+              <span>From</span>
+              <input type="color" data-layout-grad-from value="#1e3a8a">
+            </label>
+            <label class="cms-layout-row">
+              <span>To</span>
+              <input type="color" data-layout-grad-to value="#2563eb">
+            </label>
+            <label class="cms-layout-row">
+              <span>Angle</span>
+              <select class="select" data-layout-grad-angle>
+                <option value="180">Top → bottom</option>
+                <option value="90">Left → right</option>
+                <option value="135">Diagonal</option>
+                <option value="0">Bottom → top</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <details class="cms-layout-section" open>
+          <summary class="cms-layout-heading">Alignment</summary>
+          <div class="cms-layout-row">
+            <span>Text</span>
+            <div class="cms-align-group cms-layout-align" role="group" aria-label="Text alignment">
+              <button type="button" data-layout-align="left" title="Left" aria-label="Align left">Left</button>
+              <button type="button" data-layout-align="center" title="Center" aria-label="Align center">Center</button>
+              <button type="button" data-layout-align="right" title="Right" aria-label="Align right">Right</button>
+            </div>
+          </div>
+        </details>
+        <details class="cms-layout-section" open>
+          <summary class="cms-layout-heading">Width</summary>
+          <label class="cms-layout-row">
+            <span>Width</span>
+            <select class="select" data-layout-bind="maxWidth">
+              <option value="">Default</option>
+              <option value="100%">Full</option>
+              <option value="1200px">Wide</option>
+              <option value="960px">Medium</option>
+              <option value="720px">Small</option>
+              <option value="480px">Narrow</option>
+            </select>
+          </label>
+          <label class="cms-layout-row">
+            <span>Min height</span>
+            <select class="select" data-layout-bind="minHeight">
+              <option value="">Default</option>
+              <option value="160px">Short</option>
+              <option value="280px">Medium</option>
+              <option value="420px">Tall</option>
+              <option value="560px">Hero</option>
+              <option value="80vh">Almost full screen</option>
+            </select>
+          </label>
+        </details>
+        <details class="cms-layout-section">
+          <summary class="cms-layout-heading">Spacing</summary>
+          <label class="cms-layout-row">
+            <span>Padding</span>
+            <select class="select" data-layout-bind="padding">
+              <option value="">Default</option>
+              <option value="0">None</option>
+              <option value="16px">16</option>
+              <option value="24px">24</option>
+              <option value="32px">32</option>
+              <option value="48px">48</option>
+              <option value="64px">64</option>
+              <option value="32px 64px">32 × 64</option>
+              <option value="48px 80px">48 × 80</option>
+            </select>
+          </label>
+          <label class="cms-layout-row">
+            <span>Corners</span>
+            <select class="select" data-layout-bind="borderRadius">
+              <option value="">Default</option>
+              <option value="0">Square</option>
+              <option value="8px">Soft</option>
+              <option value="16px">Rounded</option>
+              <option value="24px">Pill-ish</option>
+            </select>
+          </label>
+        </details>
+      </div>
+      <div class="cms-replace-image" data-replace-image hidden>
+        <h3 class="cms-layout-heading">Photo</h3>
+        <img class="cms-replace-preview" data-replace-preview alt="">
+        <div class="cms-layout-image-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-replace-gallery>Replace from gallery</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-replace-upload>Upload</button>
+        </div>
+        <p class="cms-layout-hint" data-replace-status>This is the picture on the page — not the section background.</p>
+        <input type="file" accept="image/*" hidden data-replace-file>
+      </div>
+      <div class="cms-drawer-body" data-drawer-body></div>
+    </aside>
+    {% endif %}
 
   </div>
 
@@ -379,6 +770,32 @@
     </div>
   </div>
 
+  {% if block_mode %}
+  <!-- Quick Add / block palette drawer -->
+  <div class="modal-overlay cms-quickadd-overlay" id="palette-modal" role="dialog" aria-modal="true" aria-labelledby="palette-title" hidden>
+    <div class="modal modal-wide palette-modal cms-quickadd" tabindex="-1">
+      <nav class="palette-nav" id="palette-rail" aria-label="Add categories"></nav>
+      <div class="palette-flyout">
+        <div class="modal-header">
+          <h2 id="palette-title">Quick Add</h2>
+          <button type="button" class="modal-close" id="close-palette-btn" aria-label="Close">&times;</button>
+        </div>
+        <div class="palette-search">
+          <input type="text" class="input" id="palette-search" placeholder="Search…" autocomplete="off">
+        </div>
+        <div class="palette-dest-bar">
+          <label class="palette-dest-label" for="palette-dest">Add to</label>
+          <select class="select" id="palette-dest"></select>
+        </div>
+        <div class="palette-main">
+          <div class="palette-grid" id="palette-grid"></div>
+          <p class="settings-status" id="palette-status"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Version history modal -->
   <div class="modal-overlay" id="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title" hidden>
     <div class="modal" tabindex="-1">
@@ -410,6 +827,12 @@
         <p class="field-hint modal-intro" id="gallery-hint">
           Click an image for details. Default page images can be opened, copied, or downloaded; only your uploads can be renamed or deleted.
         </p>
+        <div class="gallery-toolbar">
+          <button type="button" class="btn btn-secondary btn-sm" id="gallery-upload-btn" data-gallery-upload>Upload</button>
+          <span class="field-hint">or drop images onto the gallery</span>
+          <input type="file" accept="image/*" multiple hidden id="gallery-upload-input">
+        </div>
+        <div class="gallery-drop" id="gallery-drop">
         <div class="gallery-layout">
           <div class="gallery-grid" id="gallery-grid"></div>
           <aside class="gallery-detail" id="gallery-detail" hidden>
@@ -432,6 +855,10 @@
               </div>
             </div>
           </aside>
+        </div>
+        <div class="gallery-drop-overlay" id="gallery-drop-overlay" hidden>
+          Drop images to upload
+        </div>
         </div>
         <p class="settings-status" id="gallery-status"></p>
       </div>
@@ -602,6 +1029,11 @@
     })();
   </script>
 
+  {{ content|json_script:"cms-content-data" }}
+  {{ palette|json_script:"cms-palette-data" }}
+  {{ block_defaults|json_script:"cms-blockdefaults-data" }}
+  {{ shell_regions|json_script:"cms-shell-regions" }}
+  {{ header_pages|json_script:"cms-header-pages" }}
   <script>
     window.CMS = {
       tenantId: {{ tenant.pk }},
@@ -615,9 +1047,20 @@
       previewUrl: "{{ preview_url }}",
       settingsUrl: "{{ settings_url }}",
       csrfToken: "{{ csrf_token }}",
-      content: {{ content_json|safe }},
+      // Parsed from json_script blocks above (escaped, breakout-safe).
+      content: JSON.parse(document.getElementById("cms-content-data").textContent),
       readOnly: {% if scope == "tenant" and not client_editable %}true{% else %}false{% endif %},
       published: {% if target_is_published %}true{% else %}false{% endif %},
+      blocksMode: {% if block_mode %}true{% else %}false{% endif %},
+      regionName: "{{ region_name }}",
+      shellRegions: JSON.parse(document.getElementById("cms-shell-regions").textContent),
+      palette: JSON.parse(document.getElementById("cms-palette-data").textContent),
+      blockDefaults: JSON.parse(document.getElementById("cms-blockdefaults-data").textContent),
+      maxBlockDepth: {{ max_block_depth|default:0 }},
+      headerPages: (function () {
+        var el = document.getElementById("cms-header-pages");
+        return el ? JSON.parse(el.textContent) : [];
+      })(),
     };
   </script>
   <script src="{% static_v 'js/editor.js' %}"></script>

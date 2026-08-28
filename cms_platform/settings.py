@@ -7,12 +7,21 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    "dev-only-secret-change-me-in-production",
-)
+_SECRET_KEY_FALLBACK = "dev-only-secret-change-me-in-production"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _SECRET_KEY_FALLBACK)
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+
+# Refuse to boot a production server (DEBUG off) on the shared dev secret. The
+# fallback is fine for local dev (DEBUG stays on by default), but shipping it to
+# production would let anyone forge sessions/signatures (A5).
+if not DEBUG and SECRET_KEY == _SECRET_KEY_FALLBACK:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a unique secret when DEBUG is off. "
+        "The built-in development fallback is not allowed in production."
+    )
 
 _tenant_base_domains = [
     domain.strip().lstrip(".")
@@ -294,6 +303,9 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 # X-Frame-Options and adds Content-Security-Policy: frame-ancestors at
 # the edge.
 IFRAME_EMBED = os.environ.get("IFRAME_EMBED", "0") == "1"
+# Opt-in leak of X-Diag-* headers when DEBUG is off (local ops). Off by
+# default so production curls don't fingerprint CSRF/DEBUG flags (X1).
+DIAG_HEADERS = os.environ.get("DIAG_HEADERS", "0") == "1"
 if IFRAME_EMBED:
     SESSION_COOKIE_SAMESITE = "None"
     SESSION_COOKIE_SECURE = True
@@ -446,7 +458,9 @@ PASSWORD_RESET_TIMEOUT = int(os.environ.get("PASSWORD_RESET_TIMEOUT", 60 * 60)) 
 # --------------------------------------------------------------------------- #
 # Iceberg — client media host (images + video), served from cdn.katalyst-crm  #
 # --------------------------------------------------------------------------- #
-ICEBERG_API_URL = os.environ.get("ICEBERG_API_URL", "")
+ICEBERG_API_URL = os.environ.get(
+    "ICEBERG_API_URL", "https://dashboard.katalyst-crm.com"
+)
 ICEBERG_TOKEN = os.environ.get("ICEBERG_TOKEN", "")
 ICEBERG_CDN = os.environ.get("ICEBERG_CDN", "https://cdn.katalyst-crm.com")
 ICEBERG_TENANT = os.environ.get("ICEBERG_TENANT", "t1")
@@ -455,3 +469,10 @@ MEDIA_ALLOWED_IMAGE_FORMATS = {"png", "jpg", "jpeg", "gif", "webp"}
 MEDIA_MAX_IMAGE_BYTES = int(os.environ.get("MEDIA_MAX_IMAGE_BYTES", 10 * 1024 * 1024))      # 10 MB
 MEDIA_MAX_VIDEO_BYTES = int(os.environ.get("MEDIA_MAX_VIDEO_BYTES", 200 * 1024 * 1024))     # 200 MB
 MEDIA_MAX_VIDEO_DURATION = int(os.environ.get("MEDIA_MAX_VIDEO_DURATION", 180))             # seconds
+
+# Server-side image optimization (applied to client uploads before they hit the
+# CDN). Photos off a phone/camera are routinely 3000-6000px / several MB; we
+# downscale to a sane web maximum and recompress so pages stay fast. Set the
+# dimension to 0 to disable downscaling.
+MEDIA_IMAGE_MAX_DIMENSION = int(os.environ.get("MEDIA_IMAGE_MAX_DIMENSION", 2000))          # px, longest edge
+MEDIA_IMAGE_JPEG_QUALITY = int(os.environ.get("MEDIA_IMAGE_JPEG_QUALITY", 82))              # 1-95

@@ -30,7 +30,11 @@ from core.ghl_embed import VALID_GHL_EMBED_KINDS, parse_ghl_embed_value
 
 
 VALID_FIELD_TYPES = {
-    "text", "richtext", "image", "color", "link", "video", "ghl-embed"
+    "text", "richtext", "image", "color", "link", "video", "ghl-embed", "select",
+    # embed: a plain URL the client types that fills the element's `src`
+    # (iframes, QR/map images). code: raw HTML the client controls, rendered
+    # unsanitized on their own site (opt-in power feature).
+    "embed", "code",
 }
 
 
@@ -152,7 +156,68 @@ def _detect_theme_tokens(soup: BeautifulSoup) -> list[dict[str, str]]:
     return tokens
 
 
+def parse_select_options(el) -> list[dict[str, str]]:
+    """Parse a ``select`` field's ``data-options`` into ``[{label, value}]``.
+
+    Format: ``"Label=value;Label2=value2"``. A bare entry (no ``=``) uses the
+    text as both label and value. Blank/duplicate values are dropped. This is
+    the single source of truth for which values a select may hold — the
+    renderer re-parses it so a stored value outside this set can never inject
+    arbitrary CSS/classes.
+    """
+    raw = (el.get("data-options") or "").strip()
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for chunk in raw.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "=" in chunk:
+            label, value = chunk.split("=", 1)
+        else:
+            label = value = chunk
+        label, value = label.strip(), value.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        options.append({"label": label or value, "value": value})
+    return options
+
+
+def _anchor_href_companion(field_el, field_id: str, label: str) -> dict[str, Any] | None:
+    """If a text/richtext edit sits on an ``<a>``, also expose its href.
+
+    Agencies often mark nav labels as ``data-type="text"`` and forget the URL.
+    Clients still need to retarget Services / Contact / Privacy without
+    editing HTML.
+    """
+    if getattr(field_el, "name", None) != "a":
+        return None
+    ftype = (field_el.get("data-type") or "text").strip() or "text"
+    if ftype not in ("text", "richtext"):
+        return None
+    return {
+        "id": f"{field_id}_href",
+        "label": f"{label} URL",
+        "type": "link",
+        "default": field_el.get("href") or "",
+        "style_editable": False,
+        "applies_to": field_id,
+    }
+
+
 def _extract_default(el, ftype: str) -> str:
+    if ftype == "select":
+        options = parse_select_options(el)
+        values = [o["value"] for o in options]
+        default = (el.get("data-default") or "").strip()
+        if default in values:
+            return default
+        return values[0] if values else ""
+    if ftype == "embed":
+        return el.get("src", "")
+    if ftype == "code":
+        return el.decode_contents().strip()
     if ftype == "image":
         return el.get("src", "")
     if ftype == "video":
@@ -264,8 +329,18 @@ def build_schema(html: str) -> dict[str, Any]:
             }
             if ghl_kind is not None:
                 field_entry["ghl_kind"] = ghl_kind
+            if ftype == "select":
+                field_entry["options"] = parse_select_options(field_el)
+                field_entry["apply"] = (field_el.get("data-apply") or "class").strip()
             section_entry["fields"].append(field_entry)
             section_defaults[field_part] = default
+            href_field = _anchor_href_companion(
+                field_el, full_id, field_entry["label"]
+            )
+            if href_field and href_field["id"] not in seen_field_ids:
+                seen_field_ids.add(href_field["id"])
+                section_entry["fields"].append(href_field)
+                section_defaults[href_field["id"].split(".", 1)[1]] = href_field["default"]
 
         if section_entry["fields"]:
             sections.append(section_entry)
@@ -294,4 +369,121 @@ def build_schema(html: str) -> dict[str, Any]:
         "defaults": defaults,
         "link_targets": link_targets,
         "theme_tokens": theme_tokens,
+    }
+
+
+def _empty_block_schema() -> dict[str, Any]:
+    return {
+        "key": "",
+        "label": "",
+        "icon": "square",
+        "category": "General",
+        "fields": [],
+        "defaults": {},
+    }
+
+
+def build_block_schema(html: str) -> dict[str, Any]:
+    """Parse a single annotated block fragment into an insertable block schema.
+
+    A *block* is one ``data-block`` (or legacy ``data-section``) wrapper plus
+    its nested ``data-edit`` fields — i.e. exactly one of today's annotated
+    sections, promoted to be insertable. Field ids are stored *relative* to the
+    block (the part after the dot, e.g. ``quote`` not ``testimonial.quote``) so
+    the same block type can be inserted many times on a page; each instance
+    rewrites ``data-edit`` to ``<instanceId>.<field>`` at render time.
+
+    Output shape::
+
+        {
+          "key": "testimonial", "label": "Testimonial",
+          "icon": "quote", "category": "Social proof",
+          "fields": [ {"id": "quote", "type": "richtext", "default": "…", ...} ],
+          "defaults": { "quote": "…", "author": "…" }
+        }
+    """
+    if not html or not html.strip():
+        return _empty_block_schema()
+
+    soup = BeautifulSoup(html, "lxml")
+    wrapper = (
+        soup.find(attrs={"data-block": True})
+        or soup.find(attrs={"data-section": True})
+    )
+    if wrapper is None:
+        return _empty_block_schema()
+
+    key = (wrapper.get("data-block") or wrapper.get("data-section") or "").strip()
+    fields: list[dict[str, Any]] = []
+    defaults: dict[str, str] = {}
+
+    for field_el in wrapper.find_all(attrs={"data-edit": True}):
+        full_id = field_el["data-edit"].strip()
+        if "." not in full_id:
+            continue
+        section_part, field_part = full_id.split(".", 1)
+        # Only fields whose dotted id is scoped to this block belong to it
+        # (mirrors build_schema's section/field matching).
+        if section_part != key:
+            continue
+
+        ftype = field_el.get("data-type", "text").strip()
+        if ftype not in VALID_FIELD_TYPES:
+            ftype = "text"
+
+        default = _extract_default(field_el, ftype)
+
+        ghl_kind = None
+        if ftype == "ghl-embed":
+            ghl_kind = field_el.get("data-ghl-kind", "").strip()
+            if not ghl_kind:
+                raise ValueError(
+                    f"GHL embed field '{full_id}' requires data-ghl-kind."
+                )
+            if ghl_kind not in VALID_GHL_EMBED_KINDS:
+                raise ValueError(
+                    f"Unknown data-ghl-kind '{ghl_kind}' on field '{full_id}'."
+                )
+            parsed_default = parse_ghl_embed_value(default, expected_kind=ghl_kind)
+            if parsed_default is not None:
+                raise ValueError(
+                    f"GHL embed field '{full_id}' must be empty in block HTML. "
+                    "Select the form as tenant content."
+                )
+
+        style_editable = (
+            ftype in ("text", "richtext", "link")
+            and field_el.get("data-style", "").strip().lower() != "off"
+        )
+
+        entry = {
+            "id": field_part,
+            "label": field_el.get("data-label", _humanize(field_part)),
+            "type": ftype,
+            "default": default,
+            "style_editable": style_editable,
+        }
+        if ghl_kind is not None:
+            entry["ghl_kind"] = ghl_kind
+        if ftype == "select":
+            entry["options"] = parse_select_options(field_el)
+            entry["apply"] = (field_el.get("data-apply") or "class").strip()
+        fields.append(entry)
+        defaults[field_part] = default
+        href_field = _anchor_href_companion(field_el, field_part, entry["label"])
+        if href_field and href_field["id"] not in defaults:
+            fields.append(href_field)
+            defaults[href_field["id"]] = href_field["default"]
+
+    return {
+        "key": key,
+        "label": wrapper.get("data-label", _humanize(key)) if key else "",
+        "icon": wrapper.get("data-icon", "square"),
+        "category": (
+            wrapper.get("data-category")
+            or wrapper.get("data-group")
+            or "General"
+        ),
+        "fields": fields,
+        "defaults": defaults,
     }

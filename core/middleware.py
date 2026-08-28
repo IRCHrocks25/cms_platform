@@ -25,11 +25,15 @@ class DiagnosticHeaderMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        response["X-Diag-Debug"] = str(getattr(settings, "DEBUG", "?"))
-        response["X-Diag-Iframe-Embed"] = str(getattr(settings, "IFRAME_EMBED", "?"))
-        response["X-Diag-Csrf-Samesite"] = str(getattr(settings, "CSRF_COOKIE_SAMESITE", "?"))
-        response["X-Diag-Csrf-Secure"] = str(getattr(settings, "CSRF_COOKIE_SECURE", "?"))
-        response["X-Diag-Ghl-Auto-Login"] = str(getattr(settings, "GHL_AUTO_LOGIN", "?"))
+        # These headers leak deployment config to any anonymous curl, so only
+        # emit them in DEBUG or when explicitly opted in with DIAG_HEADERS=1
+        # (X1). In production they stay off.
+        if getattr(settings, "DEBUG", False) or getattr(settings, "DIAG_HEADERS", False):
+            response["X-Diag-Debug"] = str(getattr(settings, "DEBUG", "?"))
+            response["X-Diag-Iframe-Embed"] = str(getattr(settings, "IFRAME_EMBED", "?"))
+            response["X-Diag-Csrf-Samesite"] = str(getattr(settings, "CSRF_COOKIE_SAMESITE", "?"))
+            response["X-Diag-Csrf-Secure"] = str(getattr(settings, "CSRF_COOKIE_SECURE", "?"))
+            response["X-Diag-Ghl-Auto-Login"] = str(getattr(settings, "GHL_AUTO_LOGIN", "?"))
         return response
 
 

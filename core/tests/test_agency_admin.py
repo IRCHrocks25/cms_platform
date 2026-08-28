@@ -196,6 +196,8 @@ class NewClientFlowTests(TestCase):
         tenant = Tenant.objects.get(subdomain="bellas")
         self.assertEqual(tenant.name, "Bella's")
         self.assertEqual(tenant.owner.username, "alice")
+        # New sites stay draft until someone publishes (A6).
+        self.assertFalse(tenant.is_published)
         self.assertTrue(
             TenantMembership.objects.filter(
                 tenant=tenant,
@@ -399,7 +401,7 @@ class CheckSubdomainEndpointTests(TestCase):
         self.assertEqual(r.json(), {"available": False, "reason": "reserved"})
 
     def test_invalid(self):
-        for bad in ["UPPER", "with space", "-leadingdash", "trailing-", "x_y"]:
+        for bad in ["with space", "-leadingdash", "trailing-", "x_y"]:
             r = self._client().get(reverse("dashboard:check_subdomain") + f"?value={bad}")
             self.assertEqual(
                 r.json(),
@@ -409,6 +411,11 @@ class CheckSubdomainEndpointTests(TestCase):
 
     def test_available(self):
         r = self._client().get(reverse("dashboard:check_subdomain") + "?value=newco")
+        self.assertEqual(r.json(), {"available": True})
+
+    def test_mixed_case_is_lowercased_then_available(self):
+        # Matches tenant_create, which lowercases before validating (A13).
+        r = self._client().get(reverse("dashboard:check_subdomain") + "?value=MySite")
         self.assertEqual(r.json(), {"available": True})
 
 

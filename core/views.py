@@ -9,7 +9,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 from .models import EmbeddableAssistant, Page, Tenant
 from .renderer import render_site, merge_with_defaults, apply_head_settings
-from .services import blog_render
+from .services import blocks, blog_render
 
 
 def root_redirect(request):
@@ -36,12 +36,12 @@ def public_render(request, subdomain):
 def _render_tenant(tenant: Tenant, request=None, *, blog_base: str = "/blog/") -> HttpResponse:
     if not tenant.template_id:
         raise Http404("Template missing")
-    content = merge_with_defaults(tenant.template.schema, tenant.content)
-    html = render_site(
-        tenant.template.html_source,
-        content,
+    html = blocks.render_content(
+        tenant.template,
+        tenant.content,
         preview=False,
         site_settings=tenant.site_settings or {},
+        nav_pages=blocks.nav_pages_for(tenant),
     )
     html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
     return HttpResponse(html)
@@ -67,16 +67,20 @@ def page_render_public(request, subdomain, slug):
 
 def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpResponse:
     page = get_object_or_404(Page, tenant=tenant, slug=slug)
-    # Same visibility gate as the homepage: a draft page is only visible to an
-    # editor/operator, never leaked to the public.
+    # Two gates, matching home/blog. First the SITE must be visible — an
+    # unpublished site must not leak any inner page to the public, even a
+    # per-page-published one (C1). Then the page itself must be published.
+    # Editors/operators bypass both via user_can_edit.
+    if not _tenant_visible(tenant, request):
+        raise Http404("Site not published")
     if not page.is_published and not tenant.user_can_edit(request.user):
         raise Http404("Page not published")
-    content = merge_with_defaults(page.template.schema, page.content)
-    html = render_site(
-        page.template.html_source,
-        content,
+    html = blocks.render_content(
+        page.template,
+        page.content,
         preview=False,
         site_settings=tenant.site_settings or {},
+        nav_pages=blocks.nav_pages_for(tenant),
     )
     html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
     return HttpResponse(html)

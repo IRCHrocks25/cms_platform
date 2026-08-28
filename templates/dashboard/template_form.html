@@ -59,7 +59,28 @@
                  value="{{ form_data.description|default_if_none:'' }}">
         </div>
 
-        <div class="field">
+        {% if not template %}
+          <div class="field build-mode-field">
+            <span class="field-label">How do you want to build this?</span>
+            <div class="stack-3">
+              <label class="check-row">
+                <input type="radio" name="build_mode" value="blocks"
+                       {% if form_data.build_mode != 'paste' %}checked{% endif %}>
+                <span><strong>Build with blocks</strong> — start from a blank site and let the client compose pages from our block palette (no coding).</span>
+              </label>
+              <label class="check-row">
+                <input type="radio" name="build_mode" value="paste"
+                       {% if form_data.build_mode == 'paste' %}checked{% endif %}>
+                <span><strong>Paste HTML</strong> — provide annotated HTML for a fixed, locked-structure template.</span>
+              </label>
+            </div>
+            <p class="field-hint mt-2 text-sm text-soft">
+              “Build with blocks” creates a starter site and attaches the full block library, so the client can add sections themselves.
+            </p>
+          </div>
+        {% endif %}
+
+        <div class="field" data-paste-only>
           <label class="field-label" for="id_editing_mode">Client editing</label>
           <select class="input" name="editing_mode" id="id_editing_mode">
             {% with mode=form_data.editing_mode|default_if_none:'raw' %}
@@ -104,7 +125,7 @@
           </div>
         {% endif %}
 
-        <details class="card-tight annotation-guide">
+        <details class="card-tight annotation-guide" data-paste-only>
           <summary>How to annotate</summary>
           <div class="annotation-guide-body">
             <p class="mb-2">
@@ -123,12 +144,14 @@
           </div>
         </details>
 
-        {# html_value is supplied explicitly by every view that renders this
-           template. It must NOT fall back to template.html_source: that value
-           is truthy on a field-loss conflict re-render and would hand the
-           operator back the OLD html, so confirming re-saved the bytes they
-           were replacing (incident 2026-08-17). #}
-        {% include "dashboard/_html_source_editor.html" with html_value=html_value|default_if_none:'' %}
+        {% comment %}html_value is supplied explicitly by every view that renders
+        this template. It must NOT fall back to template.html_source: that value
+        is truthy on a field-loss conflict re-render and would hand the operator
+        back the OLD html, so confirming re-saved the bytes they were replacing
+        (incident 2026-08-17).{% endcomment %}
+        <div data-paste-only>
+          {% include "dashboard/_html_source_editor.html" with html_value=html_value|default_if_none:'' %}
+        </div>
 
         {% if template %}
           {% with section_count=template.schema.sections|length %}
@@ -175,4 +198,29 @@
       </section>
     {% endif %}
   </div>
+
+  <script>
+    // Create-only: toggle the paste-HTML fields based on the build mode. In
+    // "blocks" mode the HTML textarea is hidden AND its `required` is dropped so
+    // the (hidden) control never blocks submit.
+    (function () {
+      var form = document.getElementById("template-source-form");
+      if (!form) return;
+      var radios = form.querySelectorAll('input[name="build_mode"]');
+      if (!radios.length) return;
+      var pasteEls = form.querySelectorAll("[data-paste-only]");
+      var textarea = document.getElementById("id_html_source");
+      function sync() {
+        var checked = form.querySelector('input[name="build_mode"]:checked');
+        var blocks = checked ? checked.value === "blocks" : false;
+        pasteEls.forEach(function (el) { el.hidden = blocks; });
+        if (textarea) {
+          if (blocks) textarea.removeAttribute("required");
+          else textarea.setAttribute("required", "required");
+        }
+      }
+      radios.forEach(function (r) { r.addEventListener("change", sync); });
+      sync();
+    })();
+  </script>
 {% endblock %}

@@ -33,8 +33,14 @@
       </a>
     </div>
 
-    {% if can_manage_pages %}
+    {% if can_manage_pages and is_block_shell %}
+    {% comment %}Block-shell create (agency + client): no HTML paste — the new
+    page shares the site shell and is composed from the curated block palette.{% endcomment %}
     <div class="card content-block content-block-spaced">
+      {% if at_page_cap %}
+        <h3 class="content-block-title">New page</h3>
+        <p class="field-help m-0">You've reached the maximum of {{ page_cap }} pages. Delete one to add another.</p>
+      {% else %}
       <div class="content-block-action-head">
         <h3 class="content-block-title">New page</h3>
         <button type="submit" form="page-create-form" class="btn btn-primary">
@@ -54,6 +60,46 @@
             <input class="input" type="text" id="pf-slug" name="slug" maxlength="80" placeholder="about">
           </div>
         </div>
+        <fieldset class="field m-0">
+          <legend class="field-label">Start from</legend>
+          <label class="row-inline"><input type="radio" name="start_from" value="blank" checked> Blank page — add sections yourself</label>
+          <label class="row-inline"><input type="radio" name="start_from" value="copy_home"> Copy the sections from my home page</label>
+          {% for row in pages %}
+            <label class="row-inline"><input type="radio" name="start_from" value="copy_page:{{ row.obj.pk }}"> Copy the sections from “{{ row.obj.title }}”</label>
+          {% endfor %}
+        </fieldset>
+        <p class="field-help m-0">
+          Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
+          You'll compose the page from your agency's approved sections — no HTML needed.
+        </p>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if can_manage_pages and scope == "agency" %}
+    <div class="card content-block content-block-spaced">
+      <h3 class="content-block-title">
+        {% if is_block_shell %}New page from HTML <span class="badge badge-soft">advanced</span>{% else %}New page{% endif %}
+      </h3>
+      {% if is_block_shell %}
+      <p class="field-help m-0">
+        This site builds pages from blocks (above). Use this only if you need a
+        page with its own pasted/annotated HTML instead — it gets its own template.
+      </p>
+      {% endif %}
+      <form method="post" action="{{ nav_urls.new }}" class="stack-5">
+        {% csrf_token %}
+        <div class="row page-create-row">
+          <div class="field field-min-200">
+            <label class="field-label" for="pf-title-html">Page title</label>
+            <input class="input" type="text" id="pf-title-html" name="title" maxlength="120" placeholder="About us" required>
+          </div>
+          <div class="field field-min-160">
+            <label class="field-label" for="pf-slug-html">URL slug</label>
+            <input class="input" type="text" id="pf-slug-html" name="slug" maxlength="80" placeholder="about">
+          </div>
+        </div>
         <p class="field-help m-0">
           Leave the slug blank to derive it from the title. Reserved slugs: {{ reserved_slugs }}.
           Paste the page's HTML below (annotate it with AI for the editable fields). Each page gets its own template.
@@ -61,8 +107,9 @@
         {% include "dashboard/_html_source_editor.html" with html_value="" %}
       </form>
     </div>
+    {% endif %}
 
-    {% if scope == "agency" %}
+    {% if can_manage_pages and scope == "agency" %}
     <div class="card content-block content-block-spaced">
       <div class="content-block-action-head">
         <h3 class="content-block-title">Import sibling pages from a URL</h3>
@@ -233,7 +280,6 @@
       })();
     </script>
     {% endif %}
-    {% endif %}
 
     {% if pages and scope != "agency" %}
       <section class="card stack-4 content-block" aria-labelledby="client-pages-heading">
@@ -244,9 +290,9 @@
           </div>
           <span class="badge badge-soft">{{ pages|length }} page{{ pages|length|pluralize }}</span>
         </div>
-        <div class="site-page-list">
+        <div class="site-page-list" id="client-page-list"{% if can_manage_pages %} data-nav-order-url="{{ nav_urls.nav_order }}"{% endif %}>
           {% for row in pages %}
-            <article class="site-page-row">
+            <article class="site-page-row" data-page-id="{{ row.obj.pk }}">
               <div class="site-page-identity">
                 <span class="site-page-icon" aria-hidden="true">{{ row.obj.title|first|upper }}</span>
                 <div>
@@ -257,7 +303,21 @@
               <span class="badge {% if row.obj.is_published %}badge-success{% else %}badge-soft{% endif %}">
                 {% if row.obj.is_published %}Published{% else %}Draft{% endif %}
               </span>
+              {% if can_manage_pages %}
+              <label class="row-inline page-nav-toggle" title="Show this page in the site menu">
+                <input type="checkbox" data-nav-visible {% if row.obj.show_in_nav %}checked{% endif %}>
+                <span>In menu</span>
+              </label>
+              {% endif %}
               <div class="row-actions">
+                {% if can_manage_pages %}
+                <button type="button" class="btn btn-ghost btn-sm" data-nav-move="up" aria-label="Move {{ row.obj.title }} up in the menu" title="Move up">
+                  <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" data-nav-move="down" aria-label="Move {{ row.obj.title }} down in the menu" title="Move down">
+                  <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                {% endif %}
                 <a href="{{ row.urls.edit }}" class="btn btn-primary btn-sm">
                   <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   Edit page
@@ -285,6 +345,28 @@
                         {% if row.obj.is_published %}Unpublish page{% else %}Publish page{% endif %}
                       </button>
                     </form>
+                    {% if can_manage_pages %}
+                      <details class="page-rename-details">
+                        <summary role="menuitem" tabindex="-1" data-menu-item>
+                          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                          Rename
+                        </summary>
+                        <form method="post" action="{{ row.urls.rename }}" class="page-rename-form stack-3">
+                          {% csrf_token %}
+                          <input type="text" class="input" name="title" maxlength="120" value="{{ row.obj.title }}" aria-label="Page title" required>
+                          <input type="text" class="input" name="slug" maxlength="80" value="{{ row.obj.slug }}" aria-label="URL slug" required>
+                          <button type="submit" class="btn btn-secondary btn-sm">Save name</button>
+                        </form>
+                      </details>
+                      <form method="post" action="{{ row.urls.delete }}" class="action-menu-danger" role="none"
+                            onsubmit="return confirm('Delete “{{ row.obj.title|escapejs }}”? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button type="submit" role="menuitem" tabindex="-1" data-menu-item>
+                          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
+                          Delete page
+                        </button>
+                      </form>
+                    {% endif %}
                   </div>
                 </div>
               </div>
@@ -292,6 +374,48 @@
           {% endfor %}
         </div>
       </section>
+
+      {% if can_manage_pages %}
+      <script>
+        (function () {
+          var list = document.getElementById("client-page-list");
+          if (!list || !list.dataset.navOrderUrl) return;
+          var csrf = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
+
+          function persist() {
+            var order = Array.prototype.map.call(list.querySelectorAll(".site-page-row"), function (row) {
+              var cb = row.querySelector("[data-nav-visible]");
+              return { id: parseInt(row.dataset.pageId, 10), show_in_nav: cb ? cb.checked : true };
+            });
+            fetch(list.dataset.navOrderUrl, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+              body: JSON.stringify({ order: order }),
+            });
+          }
+
+          list.addEventListener("click", function (e) {
+            var btn = e.target.closest("[data-nav-move]");
+            if (!btn) return;
+            var row = btn.closest(".site-page-row");
+            if (!row) return;
+            if (btn.dataset.navMove === "up" && row.previousElementSibling) {
+              list.insertBefore(row, row.previousElementSibling);
+            } else if (btn.dataset.navMove === "down" && row.nextElementSibling) {
+              list.insertBefore(row.nextElementSibling, row);
+            } else {
+              return;
+            }
+            persist();
+          });
+
+          list.addEventListener("change", function (e) {
+            if (e.target.matches("[data-nav-visible]")) persist();
+          });
+        })();
+      </script>
+      {% endif %}
     {% elif pages %}
       <div class="card card-flush content-block">
         <table class="data-table" data-responsive-table>
@@ -365,7 +489,9 @@
     {% else %}
       <div class="empty content-block">
         <h3>No inner pages yet</h3>
-        {% if can_manage_pages %}
+        {% if can_manage_pages and is_block_shell %}
+          <p>Add one above. Give it a title and URL slug like <code>about</code> or <code>services</code>, then compose it from the block palette. No HTML needed.</p>
+        {% elif can_manage_pages %}
           <p>Add one above. Give it a URL slug like <code>about</code> or <code>services</code> and paste its HTML.</p>
         {% else %}
           <p>Your site doesn't have extra pages yet. Need an About or Services page? Ask your agency; they'll set it up for you.</p>

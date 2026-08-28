@@ -98,3 +98,13 @@ class NoOpApplyPreservesOriginalHtmlTests(TestCase):
         out = render_site(template, {"hero": {"photo": "new.jpg"}})
         self.assertIn('src="new.jpg"', out)
         self.assertNotIn("srcset=", out)
+
+    def test_text_anchor_companion_href_is_applied(self):
+        template = (
+            "<header data-section='nav'>"
+            "<a data-edit='nav.link1' data-type='text' href='#old'>Go</a>"
+            "</header>"
+        )
+        out = render_site(template, {"nav": {"link1": "Go", "link1_href": "#contact"}})
+        self.assertIn('href="#contact"', out)
+        self.assertIn("Go", out)

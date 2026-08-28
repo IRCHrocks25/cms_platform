@@ -2,11 +2,24 @@ import re
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
-from .parser import build_schema
+from .parser import build_block_schema, build_schema
+
+# Same rule the dashboard new-client form uses. SlugField would otherwise
+# allow underscores, which Django then rejects as Host headers (C6).
+_TENANT_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def validate_tenant_subdomain(value):
+    if not _TENANT_SUBDOMAIN_RE.match(value or ""):
+        raise ValidationError(
+            "Subdomain may only use lowercase letters, digits, and hyphens "
+            "(no underscores)."
+        )
 
 
 BLOG_TEMPLATE_MINIMAL = "minimal"
@@ -71,6 +84,17 @@ class Template(models.Model):
         max_length=16, choices=EDITING_MODE_CHOICES, default=EDITING_RAW
     )
 
+    # Curated block palette (CMS block-instance model). A template acts as a
+    # locked *shell* (fixed chrome + a `data-region` slot); clients may insert
+    # only the BlockTypes allowlisted here into that region. Empty allowlist =
+    # nothing is insertable (the template behaves like a classic fixed page).
+    allowed_block_types = models.ManyToManyField(
+        "core.BlockType",
+        blank=True,
+        related_name="templates",
+        help_text="Blocks a client may insert into this template's region(s).",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -113,6 +137,14 @@ class Template(models.Model):
     @property
     def has_editable_schema(self) -> bool:
         return bool((self.schema or {}).get("sections"))
+
+    @property
+    def is_block_shell(self) -> bool:
+        """True when this template is a block-instance *shell* — its HTML has a
+        ``data-region`` slot where client-inserted blocks are rendered. Such a
+        template drives the block editor + ``render_page_from_blocks`` instead
+        of the classic fixed-section renderer."""
+        return 'data-region=' in (self.html_source or '')
 
     @property
     def is_client_editable(self) -> bool:
@@ -182,9 +214,72 @@ class TemplateVersion(models.Model):
         return f"{self.template_id} v{self.number}"
 
 
+class BlockType(models.Model):
+    """One insertable block in the curated palette.
+
+    A BlockType is essentially one of today's annotated ``data-section`` /
+    ``data-block`` fragments, promoted to be insertable into a template's
+    region. Its ``schema`` is DERIVED from ``html_source`` on save (never
+    hand-edited) via :func:`core.parser.build_block_schema`, preserving the
+    "schema is derived, not stored" invariant. Blocks live in a global library;
+    each Template allowlists which ones a client site may use
+    (``Template.allowed_block_types``).
+    """
+
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=120)
+    icon = models.CharField(max_length=40, blank=True, default="square")
+    category = models.CharField(
+        max_length=80,
+        default="General",
+        help_text="Palette grouping shown to the client (e.g. 'Social proof').",
+    )
+    html_source = models.TextField(
+        help_text="Annotated fragment: one data-block/data-section wrapper.",
+    )
+    schema = models.JSONField(default=dict, blank=True, editable=False)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category", "label"]
+        constraints = [
+            models.UniqueConstraint(fields=["key"], name="uniq_blocktype_key"),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Schema is always derived from the annotated HTML — never hand-edited.
+        self.schema = build_block_schema(self.html_source)
+        if not self.key and self.schema.get("key"):
+            self.key = self.schema["key"]
+        schema_label = (self.schema.get("label") or "").strip()
+        # get_or_create(key=...) used to stamp label=key before HTML was set;
+        # treat that as empty so the human data-label wins on the next save.
+        if not (self.label or "").strip() or self.label == self.key:
+            self.label = schema_label or self.key
+        if not (self.icon or "").strip() or self.icon == "square":
+            self.icon = self.schema.get("icon") or "square"
+        if not (self.category or "").strip() or self.category == "General":
+            self.category = self.schema.get("category") or "General"
+        super().save(*args, **kwargs)
+
+    @property
+    def has_fields(self) -> bool:
+        return bool((self.schema or {}).get("fields"))
+
+    def __str__(self):
+        return f"{self.label} ({self.key})"
+
+
 class Tenant(models.Model):
     name = models.CharField(max_length=120)
-    subdomain = models.SlugField(max_length=80, unique=True)
+    subdomain = models.SlugField(
+        max_length=80,
+        unique=True,
+        validators=[validate_tenant_subdomain],
+    )
     # Display-only hint for core/urls_helpers.py (site_created page, tenant
     # detail header); NOT the source of truth for routing or TLS. Real
     # custom-domain resolution and the route-syncer key off the CustomDomain
@@ -201,7 +296,11 @@ class Tenant(models.Model):
     )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        # PROTECT, not CASCADE: deleting the client user must NOT silently take
+        # the whole site (content, pages, versions, media) with it (A2). An
+        # operator has to delete or reassign the site first. The dashboard
+        # already has a typed-subdomain tenant delete for that.
+        on_delete=models.PROTECT,
         related_name="tenants",
     )
 
@@ -229,6 +328,11 @@ class Tenant(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.subdomain})"
+
+    def clean(self):
+        super().clean()
+        self.subdomain = (self.subdomain or "").strip().lower()
+        validate_tenant_subdomain(self.subdomain)
 
     def user_can_edit(self, user) -> bool:
         if not user.is_authenticated:
@@ -438,6 +542,16 @@ class ContentVersion(models.Model):
 
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name="versions"
+    )
+    # A NULL page means this snapshot belongs to the tenant *home* content
+    # (Tenant.content). A set page means it belongs to that inner Page's
+    # content, so undo history now covers every page, not just the home.
+    page = models.ForeignKey(
+        "core.Page",
+        on_delete=models.CASCADE,
+        related_name="versions",
+        null=True,
+        blank=True,
     )
     snapshot = models.JSONField()
     saved_by = models.ForeignKey(

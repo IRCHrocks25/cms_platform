@@ -146,22 +146,34 @@ class PublishPageToolTests(TestCase):
         self.page.refresh_from_db()
         self.assertTrue(self.page.is_published)
 
+        # The page is published, but a published inner page only renders publicly
+        # once the SITE is published too (C1). Publish the site, then it renders.
+        self.tenant.is_published = True
+        self.tenant.save(update_fields=["is_published"])
         rendered = self.client.get("/site/existing/about/")
         self.assertEqual(rendered.status_code, 200)
         self.assertIn(b"Welcome", rendered.content)
 
-    def test_page_publish_reachable_even_when_site_unpublished(self):
-        """Design decision: page reachability doesn't require tenant.is_published —
-        core.views.page_render/page_render_public gate solely on
-        Page.is_published, so publish_page does not also require publish_site."""
+    def test_page_not_public_while_site_unpublished(self):
+        """An unpublished site must not leak any inner page to the public, even a
+        per-page-published one — matches the dashboard Unpublish copy (C1).
+        publish_page still succeeds (it flips Page.is_published), but the page
+        stays 404 to anonymous visitors until the SITE is published too."""
         self.assertFalse(self.tenant.is_published)
         r = self._call("publish_page", {"site": "existing", "page": "about"})
         self.assertFalse(r.json()["result"].get("isError", False))
 
         home = self.client.get("/site/existing/")
         self.assertEqual(home.status_code, 404)
+        # Page is published, but the site is not → anonymous visitor gets 404.
         page = self.client.get("/site/existing/about/")
-        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.status_code, 404)
+
+        # Once the site is published, the published page becomes reachable.
+        self.tenant.is_published = True
+        self.tenant.save(update_fields=["is_published"])
+        page_after = self.client.get("/site/existing/about/")
+        self.assertEqual(page_after.status_code, 200)
 
     def test_non_superuser_denied_identically_to_nonexistent(self):
         """No enumeration: member/staff denial matches nonexistent site/page."""
