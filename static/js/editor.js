@@ -89,7 +89,7 @@
     return stop;
   }
   function shellRegionLabel(name) {
-    if (name === "main") return "Page (bottom)";
+    if (name === "main") return "Page";
     if (name === "header-left") return "Header · Logo";
     if (name === "header-center") return "Header · Menu";
     if (name === "header-right") return "Header · Buttons";
@@ -2600,14 +2600,52 @@
     return grp;
   }
 
+  function lastMountedInSubtree(inst, findEl) {
+    var last = null;
+    if (!inst) return null;
+    walkInstances([inst], function (child) {
+      var el = findEl(child.id);
+      if (el) last = el;
+      return false;
+    });
+    return last;
+  }
+
+  function insertNodeAfterAnchor(parent, node, loc, findEl) {
+    if (loc && loc.index > 0) {
+      var last = lastMountedInSubtree(loc.list[loc.index - 1], findEl);
+      if (last && last.parentNode === parent) {
+        if (last.nextSibling) parent.insertBefore(node, last.nextSibling);
+        else parent.appendChild(node);
+        return;
+      }
+    }
+    if (loc && loc.index + 1 < loc.list.length) {
+      var next = findEl(loc.list[loc.index + 1].id);
+      if (next && next.parentNode === parent) {
+        parent.insertBefore(node, next);
+        return;
+      }
+    }
+    parent.appendChild(node);
+  }
+
   function insertMountedSection(sec) {
     hideZeroState();
+    var id = sec.getAttribute("data-instance-id");
+    var loc = id ? findInstanceLoc(id) : null;
     var panel = document.querySelector('.editor-tab-panel[data-panel="content"]');
-    if (panel) panel.appendChild(sec);
+    if (panel) {
+      insertNodeAfterAnchor(panel, sec, loc, function (fid) {
+        return panel.querySelector('.editor-form-section[data-instance-id="' + fid + '"]');
+      });
+    }
     var grp = ensureLayersGroup();
     if (grp) {
       var link = makeLayerLink(sec);
-      grp.appendChild(link);
+      insertNodeAfterAnchor(grp, link, loc, function (fid) {
+        return grp.querySelector('.sidebar-link[data-jump="' + fid + '"]');
+      });
       bindLayerLink(link);
     }
     bindFormSectionDnD(sec);
@@ -2730,7 +2768,7 @@
       return;
     }
     var inst = makeInstance(type);
-    list.push(inst);
+    insertAfterSelection(list, inst);
     if (pendingBlockStyle) {
       if (typeof content._styles !== "object" || content._styles === null) content._styles = {};
       content._styles[inst.id + ".__block"] = pendingBlockStyle;
@@ -2933,6 +2971,26 @@
       return false;
     });
     return opts;
+  }
+
+  // Add-section lands on the page (or the selected band's shell region), never
+  // inside a row column. Nested selection walks up to the top-level band.
+  function shellDestForSelection() {
+    if (!currentBlockId) return "main";
+    if (isHeaderSection(currentBlockId)) return "main";
+    if (CHROME_DEST[currentBlockId]) return "main";
+    if (allShellRegionNames().indexOf(currentBlockId) !== -1) {
+      return currentBlockId === "main" || currentBlockId === REGION ? currentBlockId : "main";
+    }
+    var loc = findInstanceLoc(currentBlockId);
+    if (!loc) return "main";
+    var top = loc;
+    while (top && top.parentId) top = findInstanceLoc(top.parentId);
+    var region = (top && top.region) || "main";
+    if (!region || region.indexOf("header") === 0 || region.indexOf("footer") === 0 || region === "nav") {
+      return "main";
+    }
+    return region;
   }
 
   // When a section/row (or a block inside one) is selected, new elements go
@@ -3263,7 +3321,9 @@
       render(search ? search.value : "");
       if (window.__cmsOpenDialog) window.__cmsOpenDialog(modal, addBtn);
     };
-    addBtn.addEventListener("click", function () { addToDestOrPalette(defaultInsertDest()); });
+    addBtn.addEventListener("click", function () {
+      addToDestOrPalette(shellDestForSelection(), "__sections__");
+    });
     var barAdd = document.getElementById("bar-add-block");
     if (barAdd) barAdd.addEventListener("click", function () { addToDestOrPalette(defaultInsertDest()); });
     var zeroAdd = document.getElementById("zero-add-block");   // empty-canvas CTA
@@ -3271,7 +3331,7 @@
     var canvasSection = document.getElementById("canvas-add-section");
     var canvasInsert = document.getElementById("canvas-insert-element");
     if (canvasSection) canvasSection.addEventListener("click", function () {
-      openPalette(null, "__sections__");
+      openPalette(shellDestForSelection(), "__sections__");
     });
     if (canvasInsert) canvasInsert.addEventListener("click", function () {
       addToDestOrPalette(defaultInsertDest(), "__elements__");
@@ -3421,6 +3481,38 @@
       }
     }
     list.push(inst);
+  }
+
+  function listInsertAfter(list, inst, afterId) {
+    if (afterId) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === afterId) { list.splice(i + 1, 0, inst); return; }
+      }
+    }
+    list.push(inst);
+  }
+
+  // Walk up from a selected block until we find one that already lives in
+  // `list` (the destination). A click on a nested element therefore inserts
+  // after its enclosing top-level section, not at the end of the page.
+  function anchorIdInList(list, instId) {
+    if (!list || !instId) return null;
+    var id = instId;
+    for (var guard = 0; guard < 8; guard++) {
+      var loc = findInstanceLoc(id);
+      if (!loc) return null;
+      if (loc.list === list) return loc.inst.id;
+      if (!loc.parentId) return null;
+      id = loc.parentId;
+    }
+    return null;
+  }
+
+  function insertAfterSelection(list, inst) {
+    var afterId = (currentBlockId && inst && currentBlockId !== inst.id)
+      ? anchorIdInList(list, currentBlockId)
+      : null;
+    listInsertAfter(list, inst, afterId);
   }
 
   // Canvas drop of a NEW palette block at a resolved {dest, beforeId}.
