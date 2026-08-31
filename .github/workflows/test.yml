@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "sqlite:///:memory:"
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: ci-only-not-a-secret
+      TENANT_BASE_DOMAIN: localhost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.0"
+          cache: npm
+      - run: npm ci
+      - run: NODE_OPTIONS=--max-old-space-size=4096 npm run build
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - run: python manage.py collectstatic --noinput
+      - run: python manage.py test
