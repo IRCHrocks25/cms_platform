@@ -447,8 +447,11 @@ def seed_block_types():
     """
     block_types, created, updated = [], 0, 0
     for key, html in BUILDER_BLOCKS.items():
+        # template=None on purpose: the curated palette is the one library
+        # every site shares. Template-derived blocks are scoped to their own
+        # template instead, so they cannot collide with these or each other.
         bt, was_created = BlockType.objects.get_or_create(
-            key=key, defaults={"html_source": html}
+            template=None, key=key, defaults={"html_source": html}
         )
         if not was_created and _is_migrated_section_html(bt.html_source or "", key):
             block_types.append(bt)
