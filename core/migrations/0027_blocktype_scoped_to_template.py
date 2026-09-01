@@ -6,6 +6,7 @@ converting a section with the same id resolved to the same row, and the later
 conversion overwrote `html_source` for both.
 """
 import django.db.models.deletion
+from bs4 import BeautifulSoup
 from django.db import migrations, models
 
 # Snapshot of BUILDER_BLOCKS keys as of 2026-09-02, frozen on purpose. A
@@ -29,16 +30,23 @@ def _is_curated(bt):
     a duplicated palette entry, while the cost of wrongly globalising a client
     block is one client's copy appearing on another client's site.
 
-    The first version delegated to seed_builder_blocks._is_migrated_section_html.
-    That helper answers a different question, "should this row be protected from
-    being overwritten by the seeder", and it answers "curated" for HTML with
-    neither marker, HTML with both markers, and a data-section naming some other
-    key. Any of those can hold client markup.
+    Two earlier versions of this got it wrong and both are worth recording.
 
-    Curated therefore requires all three:
+    First it delegated to seed_builder_blocks._is_migrated_section_html, which
+    answers "should the seeder avoid overwriting this row", not "is this row
+    curated". It calls HTML with neither marker, or with both, or with a
+    data-section naming another key, curated. All three can hold client markup.
+
+    Then it fixed that with substring matching, which is not HTML. With a
+    matching data-block, `data-section = "x"`, a newline before the equals, and
+    `DATA-SECTION="x"` all slipped through as curated, while the literal text
+    `data-section=` inside a paragraph or a comment wrongly condemned a real
+    primitive. So this parses the markup and reads actual attributes.
+
+    Curated requires all three:
       * a key in the palette snapshot,
-      * a positive data-block="<key>" marker,
-      * no data-section marker anywhere in the fragment.
+      * an element carrying data-block="<key>",
+      * no element anywhere in the fragment carrying data-section.
     """
     if bt.key not in PALETTE_KEYS_AT_MIGRATION:
         return False
@@ -46,11 +54,18 @@ def _is_curated(bt):
     if not html.strip():
         # Nothing to leak, and the seeder repopulates it on the next run.
         return True
-    has_primitive_marker = (
-        f'data-block="{bt.key}"' in html or f"data-block='{bt.key}'" in html
-    )
-    carries_a_section = "data-section=" in html
-    return has_primitive_marker and not carries_a_section
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        # Unparseable markup is ambiguous, so it fails closed like the rest.
+        return False
+    # BeautifulSoup lowercases attribute names and normalises whitespace around
+    # the equals sign, so casing and spacing variants are handled here rather
+    # than enumerated. Text and comments are not elements, so a literal
+    # "data-section=" in copy no longer condemns a primitive.
+    if soup.find(attrs={"data-section": True}) is not None:
+        return False
+    return soup.find(attrs={"data-block": bt.key}) is not None
 
 
 def split_shared_blocks(apps, schema_editor):

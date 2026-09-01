@@ -234,3 +234,55 @@ class ClassifierFailsClosedTests(TestCase):
         self.assert_scoped(
             self.split('<div data-block="hero"><p>x</p></div>', key="hero")
         )
+
+
+class ClassifierIsHtmlAwareTests(TestCase):
+    """Attribute detection must parse HTML, not match substrings.
+
+    Substring matching let `data-section = "x"`, a newline before the equals,
+    and uppercase attribute names pass as curated, and wrongly condemned a real
+    primitive whose copy merely mentioned data-section.
+    """
+
+    def setUp(self):
+        self.t1 = Template.objects.create(name="T1", slug="t1", html_source="<html></html>")
+        self.t2 = Template.objects.create(name="T2", slug="t2", html_source="<html></html>")
+
+    def classify(self, html, key="faq"):
+        bt = BlockType.objects.create(template=None, key=key, html_source=html)
+        self.t1.allowed_block_types.add(bt)
+        self.t2.allowed_block_types.add(bt)
+        split_shared_blocks(global_apps, None)
+        return BlockType.objects.filter(key=key)
+
+    def assert_derived(self, rows):
+        self.assertEqual(rows.filter(template__isnull=True).count(), 0)
+
+    def assert_curated(self, rows):
+        self.assertEqual(rows.filter(template__isnull=True).count(), 1)
+        self.assertEqual(rows.count(), 1)
+
+    def test_spaces_around_the_equals_are_still_a_section(self):
+        self.assert_derived(
+            self.classify('<div data-block="faq"><s data-section = "faq">x</s></div>')
+        )
+
+    def test_newline_before_the_equals_is_still_a_section(self):
+        self.assert_derived(
+            self.classify('<div data-block="faq"><s data-section\n="faq">x</s></div>')
+        )
+
+    def test_uppercase_attribute_is_still_a_section(self):
+        self.assert_derived(
+            self.classify('<div data-block="faq"><s DATA-SECTION="faq">x</s></div>')
+        )
+
+    def test_the_literal_string_in_copy_does_not_condemn_a_primitive(self):
+        self.assert_curated(
+            self.classify('<div data-block="faq"><p>use data-section= to annotate</p></div>')
+        )
+
+    def test_the_literal_string_in_a_comment_does_not_condemn_a_primitive(self):
+        self.assert_curated(
+            self.classify('<div data-block="faq"><!-- data-section="faq" --><p>x</p></div>')
+        )
