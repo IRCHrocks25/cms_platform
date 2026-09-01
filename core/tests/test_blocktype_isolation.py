@@ -165,7 +165,7 @@ class MigrationRepairTests(TestCase):
         self.assertEqual(self.t1.allowed_block_types.get(key="faq").id, prim.id)
         self.assertEqual(self.t2.allowed_block_types.get(key="faq").id, prim.id)
 
-    def test_derived_row_no_template_references_is_deactivated_not_left_global(self):
+    def test_derived_row_no_template_references_is_deactivated(self):
         orphan = BlockType.objects.create(
             template=None, key="stray", html_source=section_html("stray", "x")
         )
@@ -183,3 +183,54 @@ class MigrationRepairTests(TestCase):
         before = BlockType.objects.filter(key="hero").count()
         self.run_repair()
         self.assertEqual(BlockType.objects.filter(key="hero").count(), before)
+
+
+class ClassifierFailsClosedTests(TestCase):
+    """Ambiguous HTML on a palette key must be treated as client-derived.
+
+    The cost of wrongly scoping a curated block is a duplicated palette entry.
+    The cost of wrongly globalising a client block is one client's copy on
+    another client's site. So ambiguity fails closed.
+    """
+
+    def setUp(self):
+        self.t1 = Template.objects.create(name="T1", slug="t1", html_source="<html></html>")
+        self.t2 = Template.objects.create(name="T2", slug="t2", html_source="<html></html>")
+
+    def split(self, html, key="faq"):
+        bt = BlockType.objects.create(template=None, key=key, html_source=html)
+        self.t1.allowed_block_types.add(bt)
+        self.t2.allowed_block_types.add(bt)
+        split_shared_blocks(global_apps, None)
+        return BlockType.objects.filter(key=key)
+
+    def assert_scoped(self, rows):
+        self.assertEqual(rows.filter(template__isnull=True).count(), 0)
+        self.assertEqual(rows.count(), 2)
+
+    def test_neither_marker_is_treated_as_derived(self):
+        self.assert_scoped(self.split('<section id="faq"><h2>Client questions</h2></section>'))
+
+    def test_both_markers_is_treated_as_derived(self):
+        self.assert_scoped(
+            self.split('<div data-block="faq" data-section="faq"><p>client</p></div>')
+        )
+
+    def test_a_section_marker_for_another_key_is_treated_as_derived(self):
+        self.assert_scoped(
+            self.split('<div data-block="faq"><section data-section="hero">x</section></div>')
+        )
+
+    def test_single_quoted_primitive_is_still_curated(self):
+        rows = self.split("<div data-block='faq'><p>primitive</p></div>")
+        self.assertEqual(rows.filter(template__isnull=True).count(), 1)
+        self.assertEqual(rows.count(), 1)
+
+    def test_empty_html_stays_curated_because_it_cannot_leak(self):
+        rows = self.split("")
+        self.assertEqual(rows.filter(template__isnull=True).count(), 1)
+
+    def test_a_non_palette_key_is_always_derived_whatever_the_markup(self):
+        self.assert_scoped(
+            self.split('<div data-block="hero"><p>x</p></div>', key="hero")
+        )

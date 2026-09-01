@@ -21,30 +21,36 @@ PALETTE_KEYS_AT_MIGRATION = {
 }
 
 
-def _is_migrated_section_html(html, key):
-    """True when a row holds a converted page section, not a curated primitive.
-
-    Copied deliberately from seed_builder_blocks rather than imported, for the
-    same reason as the key snapshot above.
-
-    The key name alone is NOT the discriminator, and assuming it was is what
-    the first version of this migration got wrong. `faq`, `video` and `gallery`
-    are palette keys that also collide with real designed-page section ids, so
-    a row named `faq` can hold one client's annotated section. Curated
-    primitives carry `data-block="<key>"`; converted sections carry
-    `data-section="<key>"`.
-    """
-    if not html:
-        return False
-    if f'data-block="{key}"' in html or f"data-block='{key}'" in html:
-        return False
-    return f'data-section="{key}"' in html or f"data-section='{key}'" in html
-
-
 def _is_curated(bt):
-    return bt.key in PALETTE_KEYS_AT_MIGRATION and not _is_migrated_section_html(
-        bt.html_source or "", bt.key
+    """True only when a row is positively a curated palette primitive.
+
+    This FAILS CLOSED. Anything ambiguous is treated as client-derived and gets
+    scoped to a template, because the cost of wrongly scoping a curated block is
+    a duplicated palette entry, while the cost of wrongly globalising a client
+    block is one client's copy appearing on another client's site.
+
+    The first version delegated to seed_builder_blocks._is_migrated_section_html.
+    That helper answers a different question, "should this row be protected from
+    being overwritten by the seeder", and it answers "curated" for HTML with
+    neither marker, HTML with both markers, and a data-section naming some other
+    key. Any of those can hold client markup.
+
+    Curated therefore requires all three:
+      * a key in the palette snapshot,
+      * a positive data-block="<key>" marker,
+      * no data-section marker anywhere in the fragment.
+    """
+    if bt.key not in PALETTE_KEYS_AT_MIGRATION:
+        return False
+    html = bt.html_source or ""
+    if not html.strip():
+        # Nothing to leak, and the seeder repopulates it on the next run.
+        return True
+    has_primitive_marker = (
+        f'data-block="{bt.key}"' in html or f"data-block='{bt.key}'" in html
     )
+    carries_a_section = "data-section=" in html
+    return has_primitive_marker and not carries_a_section
 
 
 def split_shared_blocks(apps, schema_editor):
@@ -57,9 +63,9 @@ def split_shared_blocks(apps, schema_editor):
       * A derived row referenced by exactly one template is assigned to it.
       * A derived row referenced by several templates is CLONED, one per
         template, each template's allowlist repointed at its own clone.
-      * A derived row referenced by NO template is deactivated. It cannot stay
-        NULL, because NULL now means "curated and shared", and leaving it there
-        makes it eligible for accidental global attachment later.
+      * A derived row referenced by NO template is deactivated. Its scope
+        column stays NULL because there is no template to own it, so
+        deactivation is what stops it being rendered or attached later.
 
     Whichever html_source survived belongs to at most one of the colliding
     templates, and there is no record of which, so EVERY participant is
