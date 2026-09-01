@@ -1363,7 +1363,12 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
         block_types = []
         for key, frag in resolved:
             schema = build_block_schema(frag)
+            # Scoped to this template. Keyed on `key` alone, two templates
+            # with a section called `hero` resolved to one row and the second
+            # conversion overwrote the first template's markup, so one client's
+            # copy rendered on another client's site.
             bt, _ = BlockType.objects.get_or_create(
+                template=template,
                 key=key,
                 defaults={
                     "html_source": frag,

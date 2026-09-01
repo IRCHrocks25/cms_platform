@@ -221,11 +221,33 @@ class BlockType(models.Model):
     ``data-block`` fragments, promoted to be insertable into a template's
     region. Its ``schema`` is DERIVED from ``html_source`` on save (never
     hand-edited) via :func:`core.parser.build_block_schema`, preserving the
-    "schema is derived, not stored" invariant. Blocks live in a global library;
-    each Template allowlists which ones a client site may use
+    "schema is derived, not stored" invariant.
+
+    ``template`` scopes the block. NULL means a curated library block shared by
+    every site (the ``seed_builder_blocks`` palette). A set ``template`` means
+    the block was derived from that template's own markup and belongs to it
+    alone. Each Template still allowlists what a client may insert
     (``Template.allowed_block_types``).
+
+    That distinction is not cosmetic. Blocks used to be one global library keyed
+    by ``key`` alone, so two templates converting a section with the same id
+    resolved to the same row and whichever converted last overwrote
+    ``html_source`` for both. One client's copy then rendered on another
+    client's site. ``hero`` is the most common section id there is, so the
+    collision was not rare.
     """
 
+    template = models.ForeignKey(
+        "core.Template",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="own_block_types",
+        help_text=(
+            "Template this block was derived from. NULL for curated library "
+            "blocks shared by every site."
+        ),
+    )
     key = models.SlugField(max_length=80)
     label = models.CharField(max_length=120)
     icon = models.CharField(max_length=40, blank=True, default="square")
@@ -246,7 +268,19 @@ class BlockType(models.Model):
     class Meta:
         ordering = ["category", "label"]
         constraints = [
-            models.UniqueConstraint(fields=["key"], name="uniq_blocktype_key"),
+            # Per-template blocks are unique within their own template.
+            models.UniqueConstraint(
+                fields=["template", "key"],
+                name="uniq_blocktype_template_key",
+            ),
+            # Library blocks have template NULL, and Postgres treats NULLs as
+            # distinct, so the constraint above would not stop two global rows
+            # sharing a key. This partial index does.
+            models.UniqueConstraint(
+                fields=["key"],
+                condition=models.Q(template__isnull=True),
+                name="uniq_global_blocktype_key",
+            ),
         ]
 
     def save(self, *args, **kwargs):
