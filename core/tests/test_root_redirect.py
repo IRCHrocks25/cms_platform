@@ -65,12 +65,12 @@ class RootRedirectTests(TestCase):
 
         response = Client().get("/", HTTP_HOST="draft.sites.katek.app")
 
+        self.assertNotIn(DRAFT_SENTINEL.encode(), response.content)
         self.assertRedirects(
             response,
             reverse("login"),
             fetch_redirect_response=False,
         )
-        self.assertNotContains(response, DRAFT_SENTINEL, status_code=302)
 
     def test_published_tenant_renders_site(self):
         owner = User.objects.create_user("published-owner", password="secret")

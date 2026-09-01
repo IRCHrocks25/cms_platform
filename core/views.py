@@ -23,7 +23,7 @@ def root_redirect(request):
         return redirect("login")
     if request.user.is_authenticated:
         return redirect("dashboard:root")
-    return redirect("login")
+    return render(request, "marketing/home.html")
 
 
 def public_render(request, subdomain):
