@@ -12,6 +12,11 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       DATABASE_URL: ${DATABASE_URL}
       TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-sites.katek.app}
+      # Shared token for GET /api/monitored-hosts, read by the off-box uptime
+      # checker (IRCHrocks25/katek-uptime-checker). Unset means the endpoint
+      # returns 503, so a misconfigured deploy reads as broken rather than as
+      # "no sites to watch".
+      MONITOR_TOKEN: ${MONITOR_TOKEN:-}
       # Iframe embedding (e.g. inside a GHL Custom Menu Link). Must be
       # forwarded — Dokploy holds the value but docker-compose only passes
       # vars listed here. See settings.py::IFRAME_EMBED.
