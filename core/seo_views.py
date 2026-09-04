@@ -61,3 +61,27 @@ def sitemap_xml(request):
         )
     lines.append("</urlset>")
     return HttpResponse("\n".join(lines) + "\n", content_type="application/xml")
+
+
+@require_GET
+def robots_txt(request):
+    """Allow crawling on published sites; hide drafts entirely.
+
+    Unlike the sitemap this answers 200 for an unpublished tenant, because a
+    404 here means "no rules", which crawlers read as "crawl everything"."""
+    tenant = getattr(request, "tenant", None)
+    if tenant is None:
+        raise Http404("No site here")
+    if not tenant.is_published:
+        body = "User-agent: *\nDisallow: /\n"
+    else:
+        base = tenant_canonical_base_url(tenant)
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /dashboard/\n"
+            "Disallow: /login/\n"
+            "\n"
+            f"Sitemap: {base}sitemap.xml\n"
+        )
+    return HttpResponse(body, content_type="text/plain; charset=utf-8")

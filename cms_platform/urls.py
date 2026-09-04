@@ -66,10 +66,11 @@ urlpatterns = [
 
     # GHL marketplace app endpoints. URLs are deliberately neutral
     # (no /ghl/ exposed) — see core/ghl_views.py.
-    # Crawler files on tenant hosts (CMS-57). No trailing slash and a dot in
+    # Crawler files on tenant hosts (CMS-57/58). No trailing slash and a dot in
     # the path, so the `<slug>/` catch-all never matches them; kept above the
     # tenant routes so nothing shadows them.
     path("sitemap.xml", seo_views.sitemap_xml, name="sitemap_xml"),
+    path("robots.txt", seo_views.robots_txt, name="robots_txt"),
 
     path("embed/", ghl_views.embed_view, name="ghl_embed"),
     path("embed/sop-assistant.js", core_views.embed_assistant_loader, name="embed_assistant_loader"),
