@@ -1723,7 +1723,11 @@ TOOLS_LIST: list[dict[str, Any]] = [
             "writes; use "
             "allow_field_loss=true when a re-push drops fields a published page "
             "still holds. Reserved slugs (api, mcp, dashboard, …) are refused; "
-            "privacy/terms are allowed (platform legal pages are host-scoped)."
+            "privacy/terms are allowed (platform legal pages are host-scoped). "
+            "html is stored byte-for-byte; a \\uXXXX escape inside it is decoded "
+            "by JSON before this tool runs, so to keep a literal backslash-u "
+            "(e.g. in inline JS) double the backslash on the wire, or use the "
+            "character itself."
         ),
         "inputSchema": {
             "type": "object",
