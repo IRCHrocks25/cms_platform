@@ -1,4 +1,4 @@
-"""CMS-62 — push_page must store backslash escape sequences byte-for-byte.
+"""CMS-62: push_page must store backslash escape sequences byte-for-byte.
 
 Reported: an inline <script> with ``'Sending\\u2026'`` came back from the CMS
 as the literal ellipsis. This pins down where the escape is decoded: the
