@@ -162,3 +162,27 @@ def build_tenant_url_bundle(request, tenant):
         "base_domain": _base_domain(),
         "has_custom_domain": bool((tenant.custom_domain or "").strip()),
     }
+
+
+def tenant_canonical_base_url(tenant) -> str:
+    """Absolute base URL crawlers should treat as canonical for a tenant.
+
+    Prefers the first *verified* ``CustomDomain`` row (the only hosts the
+    route-syncer actually serves), and otherwise the ``<subdomain>.<base>``
+    URL. Deliberately ignores the display-only ``Tenant.custom_domain`` hint:
+    an unverified domain does not answer requests yet, so pointing search
+    engines at it would 404. Used by sitemap.xml and robots.txt (CMS-57/58).
+    """
+    verified = (
+        tenant.custom_domains.filter(is_verified=True)
+        .order_by("created_at", "pk")
+        .values_list("domain", flat=True)
+        .first()
+    )
+    if verified:
+        return f"https://{verified.strip().lower()}/"
+    base = _base_domain()
+    if is_using_local_dev_base() or not base:
+        host = f"{tenant.subdomain}.{base}" if base else tenant.subdomain
+        return f"http://{host}/"
+    return f"https://{tenant.subdomain}.{base}/"
