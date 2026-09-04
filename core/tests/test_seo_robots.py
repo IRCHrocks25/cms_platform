@@ -1,4 +1,4 @@
-"""CMS-58 — per-site /robots.txt on tenant hosts."""
+"""CMS-58: per-site /robots.txt on tenant hosts."""
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
