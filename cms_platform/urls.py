@@ -22,6 +22,7 @@ def healthz(request):
         return JsonResponse({"status": "error", "db": "unreachable"}, status=503)
     return JsonResponse({"status": "ok"})
 
+from core import seo_views
 from core import views as core_views
 from core import ghl_views
 from core.auth_views import (
@@ -65,6 +66,11 @@ urlpatterns = [
 
     # GHL marketplace app endpoints. URLs are deliberately neutral
     # (no /ghl/ exposed) — see core/ghl_views.py.
+    # Crawler files on tenant hosts (CMS-57). No trailing slash and a dot in
+    # the path, so the `<slug>/` catch-all never matches them; kept above the
+    # tenant routes so nothing shadows them.
+    path("sitemap.xml", seo_views.sitemap_xml, name="sitemap_xml"),
+
     path("embed/", ghl_views.embed_view, name="ghl_embed"),
     path("embed/sop-assistant.js", core_views.embed_assistant_loader, name="embed_assistant_loader"),
     path("embed/assistant/<slug:slug>/", core_views.embed_assistant_frame, name="embed_assistant_frame"),
