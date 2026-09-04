@@ -1,4 +1,4 @@
-"""CMS-57 — generated /sitemap.xml on tenant hosts."""
+"""CMS-57: generated /sitemap.xml on tenant hosts."""
 import xml.etree.ElementTree as ET
 
 from django.contrib.auth import get_user_model
