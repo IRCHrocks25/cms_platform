@@ -108,10 +108,15 @@ urlpatterns = [
 
     path("site/<slug:subdomain>/", core_views.public_render, name="public_render"),
 
-    # Inner page on a tenant host (`/<slug>/`). This is a catch-all single
-    # segment, so it MUST stay last (before root) — every more specific route
-    # above wins first. Unknown slugs 404 in page_render.
-    path("<slug:slug>/", core_views.page_render, name="page_render"),
+    # Canonical tenant pages use extensionless paths without a trailing slash.
+    # Legacy aliases validate the tenant page before redirecting so unknown
+    # paths stay real 404 responses instead of redirecting to another 404.
+    path("index.html", core_views.home_redirect_html_alias, name="home_html_alias"),
+    path("<slug:slug>.html", core_views.page_redirect_html_alias, name="page_html_alias"),
+    path("<slug:slug>/", core_views.page_redirect_canonical, name="page_slash_alias"),
+    # The canonical single-segment catch-all must stay last (before root), so
+    # every application route above wins first.
+    path("<slug:slug>", core_views.page_render, name="page_render"),
     path("", core_views.root_redirect, name="root"),
 ]
 

@@ -99,7 +99,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         _published_page(
             self.tenant, slug="privacy", title="Privacy", marker="ACME_PRIVACY"
         )
-        r = Client().get("/privacy/", HTTP_HOST="acme.sites.katek.app")
+        r = Client().get("/privacy", HTTP_HOST="acme.sites.katek.app")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "ACME_PRIVACY")
         self.assertNotContains(r, "Privacy Policy: sites.katek.app")
@@ -108,7 +108,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
         _published_page(
             self.tenant, slug="terms", title="Terms", marker="ACME_TERMS"
         )
-        r = Client().get("/terms/", HTTP_HOST="acme.sites.katek.app")
+        r = Client().get("/terms", HTTP_HOST="acme.sites.katek.app")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "ACME_TERMS")
         self.assertNotContains(r, "Terms of Service: sites.katek.app")
@@ -122,7 +122,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
             _published_page(self.tenant, slug=slug, title=title, marker=marker)
 
         c = Client()
-        for path in ("/about/", "/privacy/", "/terms/"):
+        for path in ("/about", "/privacy", "/terms"):
             with self.subTest(path=path):
                 self.assertEqual(
                     c.head(path, HTTP_HOST="acme.sites.katek.app").status_code, 200
@@ -137,7 +137,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
             domain="www.acmebrand.com",
             is_verified=True,
         )
-        r = Client().get("/privacy/", HTTP_HOST="www.acmebrand.com")
+        r = Client().get("/privacy", HTTP_HOST="www.acmebrand.com")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "CUSTOM_PRIVACY")
 
@@ -153,7 +153,7 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
             is_verified=True,
         )
         r = Client().get(
-            "/privacy/",
+            "/privacy",
             HTTP_HOST="proxy.internal",
             HTTP_X_FORWARDED_HOST="www.acmebrand.com",
         )
@@ -169,6 +169,6 @@ class TenantPrivacyTermsPagesReachableTests(TestCase):
             title="Privacy Policy",
             marker="SUFFIXED_PRIVACY",
         )
-        r = Client().get("/privacy-policy/", HTTP_HOST="acme.sites.katek.app")
+        r = Client().get("/privacy-policy", HTTP_HOST="acme.sites.katek.app")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "SUFFIXED_PRIVACY")

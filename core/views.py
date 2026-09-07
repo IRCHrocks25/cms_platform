@@ -1,7 +1,13 @@
 import json
 
 from django.core.paginator import Paginator
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponsePermanentRedirect,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
@@ -53,10 +59,40 @@ def _render_tenant(tenant: Tenant, request=None, *, blog_base: str = "/blog/") -
 
 
 def page_render(request, slug):
-    """An inner page on a tenant host (`/<slug>/`)."""
+    """The canonical inner-page response on a tenant host (`/<slug>`)."""
     if request.tenant is None:
         raise Http404("No site here")
     return _render_page(request, request.tenant, slug, blog_base="/blog/")
+
+
+def _permanent_redirect_with_query(request, path: str) -> HttpResponse:
+    query = request.META.get("QUERY_STRING", "")
+    location = f"{path}?{query}" if query else path
+    return HttpResponsePermanentRedirect(location)
+
+
+def page_redirect_canonical(request, slug):
+    """Redirect a valid `/<slug>/` alias to canonical `/<slug>`."""
+    if request.tenant is None:
+        raise Http404("No site here")
+    _visible_page_or_404(request, request.tenant, slug)
+    return _permanent_redirect_with_query(request, f"/{slug}")
+
+
+def page_redirect_html_alias(request, slug):
+    """Redirect a valid legacy `/<slug>.html` alias to `/<slug>`."""
+    if request.tenant is None:
+        raise Http404("No site here")
+    _visible_page_or_404(request, request.tenant, slug)
+    return _permanent_redirect_with_query(request, f"/{slug}")
+
+
+def home_redirect_html_alias(request):
+    """Redirect the legacy `/index.html` alias to the tenant homepage."""
+    tenant = request.tenant
+    if tenant is None or not tenant.template_id or not _tenant_visible(tenant, request):
+        raise Http404("No site here")
+    return _permanent_redirect_with_query(request, "/")
 
 
 def page_render_public(request, subdomain, slug):
@@ -66,15 +102,7 @@ def page_render_public(request, subdomain, slug):
 
 
 def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpResponse:
-    page = get_object_or_404(Page, tenant=tenant, slug=slug)
-    # Two gates, matching home/blog. First the SITE must be visible — an
-    # unpublished site must not leak any inner page to the public, even a
-    # per-page-published one (C1). Then the page itself must be published.
-    # Editors/operators bypass both via user_can_edit.
-    if not _tenant_visible(tenant, request):
-        raise Http404("Site not published")
-    if not page.is_published and not tenant.user_can_edit(request.user):
-        raise Http404("Page not published")
+    page = _visible_page_or_404(request, tenant, slug)
     html = blocks.render_content(
         page.template,
         page.content,
@@ -84,6 +112,19 @@ def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpR
     )
     html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
     return HttpResponse(html)
+
+
+def _visible_page_or_404(request, tenant: Tenant, slug: str) -> Page:
+    page = get_object_or_404(Page, tenant=tenant, slug=slug)
+    # Two gates, matching home/blog. First the SITE must be visible — an
+    # unpublished site must not leak any inner page to the public, even a
+    # per-page-published one (C1). Then the page itself must be published.
+    # Editors/operators bypass both via user_can_edit.
+    if not _tenant_visible(tenant, request):
+        raise Http404("Site not published")
+    if not page.is_published and not tenant.user_can_edit(request.user):
+        raise Http404("Page not published")
+    return page
 
 
 # --------------------------------------------------------------------------- #

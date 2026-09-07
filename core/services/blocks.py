@@ -960,7 +960,7 @@ def nav_pages_for(tenant) -> list[dict]:
     pages = tenant.pages.filter(is_published=True, show_in_nav=True).order_by(
         "nav_order", "title"
     )
-    return [{"title": p.title, "url": f"/{p.slug}/"} for p in pages]
+    return [{"title": p.title, "url": f"/{p.slug}"} for p in pages]
 
 
 def editor_header_pages(tenant) -> list[dict]:
@@ -969,7 +969,7 @@ def editor_header_pages(tenant) -> list[dict]:
     if tenant is None or tenant.pk is None:
         return rows
     for page in tenant.pages.order_by("nav_order", "title"):
-        rows.append({"id": page.pk, "title": page.title, "url": f"/{page.slug}/"})
+        rows.append({"id": page.pk, "title": page.title, "url": f"/{page.slug}"})
     return rows
 
 

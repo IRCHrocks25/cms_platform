@@ -141,7 +141,7 @@ class PublishPageToolTests(TestCase):
         self.assertTrue(sc["published"])
         self.assertEqual(sc["site"], "existing")
         self.assertEqual(sc["page"], "about")
-        self.assertEqual(sc["url"], "https://existing.sites.example.test/about/")
+        self.assertEqual(sc["url"], "https://existing.sites.example.test/about")
 
         self.page.refresh_from_db()
         self.assertTrue(self.page.is_published)

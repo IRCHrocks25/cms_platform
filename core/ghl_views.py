@@ -291,12 +291,12 @@ def _platform_legal_or_tenant_page(request, *, template_name: str, slug: str):
     ``/terms/`` on every host, including tenant subdomains and custom
     domains. Gate on ``request.tenant`` (set by TenantResolverMiddleware,
     which already prefers ``X-Forwarded-Host`` behind Traefik) and fall
-    through to the page renderer when a tenant is present.
+    through to the canonical page redirect when a tenant is present.
     """
     if request.tenant is not None:
-        from .views import page_render
+        from .views import page_redirect_canonical
 
-        return page_render(request, slug)
+        return page_redirect_canonical(request, slug)
     return render(request, template_name)
 
 

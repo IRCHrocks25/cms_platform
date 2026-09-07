@@ -79,7 +79,7 @@ def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
             base_url = f"https://{tenant.subdomain}.{base}/"
 
     if page_slug:
-        return f"{base_url.rstrip('/')}/{page_slug.strip('/')}/"
+        return f"{base_url.rstrip('/')}/{page_slug.strip('/')}"
     return base_url
 
 
