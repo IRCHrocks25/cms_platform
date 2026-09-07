@@ -65,17 +65,17 @@ class SitemapTests(TestCase):
             locs,
             [
                 "https://acme.sites.example.test/",
-                "https://acme.sites.example.test/about/",
+                "https://acme.sites.example.test/about",
             ],
         )
-        self.assertNotIn("https://acme.sites.example.test/draft/", locs)
+        self.assertNotIn("https://acme.sites.example.test/draft", locs)
 
     def test_lastmod_is_the_page_updated_date(self):
         resp = self._get()
         root = ET.fromstring(resp.content)
         about = [
             u for u in root.findall("sm:url", NS)
-            if u.findtext("sm:loc", namespaces=NS).endswith("/about/")
+            if u.findtext("sm:loc", namespaces=NS).endswith("/about")
         ][0]
         page = Page.objects.get(slug="about")
         self.assertEqual(
@@ -123,6 +123,30 @@ class SitemapTests(TestCase):
         self.assertIn("https://acme.sites.example.test/blog/hello/", locs)
         self.assertNotIn("https://acme.sites.example.test/blog/secret/", locs)
 
+    def test_published_noindex_page_is_excluded(self):
+        noindex_template = Template.objects.create(
+            name="Error page",
+            html_source=(
+                "<!doctype html><html><head>"
+                "<meta content='follow, NOINDEX' name='robots'>"
+                "</head><body><h1>Not found</h1></body></html>"
+            ),
+        )
+        Page.objects.create(
+            tenant=self.tenant,
+            template=noindex_template,
+            title="Not found",
+            slug="404",
+            is_published=True,
+        )
+
+        self.assertFalse(
+            any(
+                loc.rstrip("/").endswith("/404")
+                for loc in _locs(self._get().content)
+            )
+        )
+
     def test_unpublished_tenant_returns_404_even_for_staff(self):
         self.tenant.is_published = False
         self.tenant.save(update_fields=["is_published"])
@@ -140,7 +164,7 @@ class SitemapTests(TestCase):
             slug="q-and-a", is_published=True,
         )
         body = self._get().content.decode()
-        self.assertIn("/q-and-a/", body)
+        self.assertIn("/q-and-a", body)
         # No unescaped ampersand anywhere in the document.
         ET.fromstring(body)
 
