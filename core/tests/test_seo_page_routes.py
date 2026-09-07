@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
 from core.models import Page, Template, Tenant
+from core.services import blocks
 
 
 STATIC = {
@@ -119,3 +120,13 @@ class CanonicalTenantPageRouteTests(TestCase):
 
             self.assertEqual(response.status_code, 301)
             self.assertEqual(response["Location"], f"/{slug}")
+
+    def test_generated_navigation_uses_canonical_page_paths(self):
+        self.assertEqual(
+            blocks.nav_pages_for(self.tenant),
+            [{"title": "About", "url": "/about"}],
+        )
+        self.assertEqual(
+            [row["url"] for row in blocks.editor_header_pages(self.tenant)],
+            ["/", "/about", "/draft"],
+        )

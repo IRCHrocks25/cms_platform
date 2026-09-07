@@ -71,7 +71,35 @@ Expected: PASS.
 
 Commit message: `fix: align sitemap with indexable canonical pages`
 
-### Task 3: Regression verification
+### Task 3: Generated canonical page links
+
+**Files:**
+- Modify: `core/urls_helpers.py`
+- Modify: `core/services/blocks.py`
+- Modify: `dashboard/views.py`
+- Modify: `core/tests/test_page_live_url.py`
+- Modify: `api/tests/test_mcp_push_page.py`
+- Modify: `api/tests/test_mcp_publish_page.py`
+
+**Step 1: Update URL expectations**
+
+Expect the public URL helper, CMS-generated navigation, editor link choices, dashboard live links, and API page URLs to omit the trailing slash.
+
+**Step 2: Implement canonical generated URLs**
+
+Remove the trailing slash from generated tenant page URLs while retaining the root and blog URL shapes.
+
+**Step 3: Run focused link tests**
+
+Run: `.venv/bin/python manage.py test core.tests.test_seo_page_routes core.tests.test_page_live_url api.tests.test_mcp_push_page api.tests.test_mcp_publish_page -v 2`
+
+Expected: PASS.
+
+**Step 4: Commit**
+
+Commit message: `fix: emit canonical tenant page links`
+
+### Task 4: Regression verification
 
 **Files:**
 - Test only

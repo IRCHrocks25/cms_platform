@@ -1,5 +1,5 @@
 """The agency-surface "live" link for an inner page must point at the tenant's
-own host (`<sub>.<base>/<slug>/`), not the agency apex fallback
+own host (`<sub>.<base>/<slug>`), not the agency apex fallback
 (`sites.katek.app/site/<sub>/<slug>/`).
 
 Regression: clicking "view page" from the agency dashboard opened the page on
@@ -33,13 +33,13 @@ class AgencyPageLiveUrlTests(TestCase):
         urls = _page_row_urls(self.request, "agency", self.tenant, self.page)
         self.assertNotIn("/site/", urls["live"])
         self.assertIn("acme.sites.katek.app", urls["live"])
-        self.assertTrue(urls["live"].endswith("/about/"))
+        self.assertTrue(urls["live"].endswith("/about"))
         # Ties it to the canonical helper the home page already uses.
         self.assertEqual(
-            urls["live"], f"{tenant_public_url(self.request, self.tenant)}about/"
+            urls["live"], f"{tenant_public_url(self.request, self.tenant)}about"
         )
 
     def test_tenant_scope_live_url_stays_relative(self):
         # Client editing on their own host: a relative slug link is correct.
         urls = _page_row_urls(self.request, "tenant", self.tenant, self.page)
-        self.assertEqual(urls["live"], "/about/")
+        self.assertEqual(urls["live"], "/about")

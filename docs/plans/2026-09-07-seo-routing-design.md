@@ -8,6 +8,8 @@ Preserve existing extensionless, no-trailing-slash public URLs when sites move t
 
 Tenant inner pages use one canonical path: `/<slug>`. That path returns the published page directly. `/<slug>/` and `/<slug>.html` permanently redirect to `/<slug>`, preserving query strings. `/index.html` permanently redirects to `/`. Unknown paths and unknown `.html` aliases remain real 404 responses.
 
+CMS-generated navigation, editor link choices, dashboard live links, and API response URLs use the same canonical no-trailing-slash paths. Imported site HTML can keep legacy slash links because those remain valid permanent aliases, but newly generated links do not add avoidable redirect hops.
+
 The agency-host fallback keeps its existing `/site/<subdomain>/<slug>/` behavior because it is an operator preview route rather than the public canonical URL. Blog URLs keep their current trailing-slash behavior because changing them is outside the Nolan migration scope and could affect existing tenants.
 
 ## Sitemap and robots

@@ -188,7 +188,7 @@ class PushPageTests(TestCase):
         self.assertEqual(tpl.tenant_id, self.tenant_a.pk)
         self.assertEqual(tpl.editing_mode, Template.EDITING_RAW)
         self.assertEqual(tpl.html_source, HTML_RAW)
-        self.assertEqual(sc["url"], "https://alpha.sites.katek.app/about/")
+        self.assertEqual(sc["url"], "https://alpha.sites.katek.app/about")
         self.assertEqual(sc["page"], "about")
         self.assertEqual(sc["editing_mode"], "raw")
         self.assertEqual(sc["etag"], _html_etag(HTML_RAW))
@@ -372,7 +372,7 @@ class PushPageTests(TestCase):
         self.assertFalse(result.get("isError"), result)
         self.assertEqual(
             result["structuredContent"]["url"],
-            "https://alpha.sites.katek.app/services/",
+            "https://alpha.sites.katek.app/services",
         )
         self.assertEqual(McpAuditLog.objects.count(), before + 1)
         row = McpAuditLog.objects.latest("id")

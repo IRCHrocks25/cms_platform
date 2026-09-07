@@ -2143,7 +2143,7 @@ def _page_row_urls(request, scope, tenant, page):
             "delete": reverse("dashboard:page_delete_self", args=[page.pk]),
             "rename": reverse("dashboard:page_rename_self", args=[page.pk]),
             # Client is already on the tenant host, so a relative slug link stays there.
-            "live": f"/{page.slug}/",
+            "live": f"/{page.slug}",
         }
     urls = {
         "edit": reverse("dashboard:page_editor", args=[tenant.pk, page.pk]),
@@ -2151,8 +2151,8 @@ def _page_row_urls(request, scope, tenant, page):
         "delete": reverse("dashboard:page_delete", args=[tenant.pk, page.pk]),
         "rename": reverse("dashboard:page_rename", args=[tenant.pk]),
         # Agency host: link to the client's canonical tenant host, not the apex
-        # `/site/<sub>/` fallback, so the page opens on <sub>.<base>/<slug>/.
-        "live": f"{tenant_public_url(request, tenant)}{page.slug}/",
+        # `/site/<sub>/` fallback, so the page opens on <sub>.<base>/<slug>.
+        "live": f"{tenant_public_url(request, tenant)}{page.slug}",
     }
     # Shared-shell pages reuse the site template — Edit HTML would rewrite
     # home + every sibling. Only offer the action when this page owns its
@@ -2991,7 +2991,7 @@ def _block_form_partial(request, tenant, page=None):
     )
     site_link_targets = [{"value": "/", "label": "Home"}]
     for p in tenant.pages.all():
-        site_link_targets.append({"value": f"/{p.slug}/", "label": p.title})
+        site_link_targets.append({"value": f"/{p.slug}", "label": p.title})
     site_link_targets.append({"value": "/blog/", "label": "Blog"})
     html = render_to_string(
         "dashboard/partials/block_form_section.html",
@@ -3175,7 +3175,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             # Undo now covers inner pages too (per-page ContentVersion bucket).
             versions_url = reverse("dashboard:page_versions_self", args=[page.pk])
             version_restore_url = reverse("dashboard:page_version_restore_self", args=[page.pk])
-            live_url = f"/{page.slug}/"
+            live_url = f"/{page.slug}"
     else:
         ghl_forms_url = reverse("dashboard:tenant_ghl_forms", args=[tenant.pk])
         upload_url = reverse("dashboard:tenant_upload", args=[tenant.pk])
@@ -3197,7 +3197,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             save_url = reverse("dashboard:page_save", args=[tenant.pk, page.pk])
             publish_url = reverse("dashboard:page_publish", args=[tenant.pk, page.pk])
             versions_url = version_restore_url = ""
-            live_url = f"{tenant_public_url(request, tenant)}{page.slug}/"
+            live_url = f"{tenant_public_url(request, tenant)}{page.slug}"
 
     # Switcher: Home + each inner page, with scope-aware editor URLs.
     if scope == "tenant":
@@ -3221,7 +3221,7 @@ def _render_editor(request, tenant, *, scope, page=None):
     # blog, plus any in-template #anchors the parser already found.
     site_link_targets = [{"value": "/", "label": "Home"}]
     for p in tenant.pages.all():
-        site_link_targets.append({"value": f"/{p.slug}/", "label": p.title})
+        site_link_targets.append({"value": f"/{p.slug}", "label": p.title})
     site_link_targets.append({"value": "/blog/", "label": "Blog"})
     link_targets = site_link_targets + schema.get("link_targets", [])
 
