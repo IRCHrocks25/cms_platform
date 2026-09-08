@@ -121,6 +121,10 @@ urlpatterns = [
 ]
 
 
+# A tenant host serves that tenant's own `404` page when it has one.
+handler404 = "core.views.tenant_404"
+
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.BASE_DIR / "static")
