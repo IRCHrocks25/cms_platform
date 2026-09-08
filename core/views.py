@@ -9,6 +9,7 @@ from django.http import (
     JsonResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views import defaults as default_views
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -125,6 +126,41 @@ def _visible_page_or_404(request, tenant: Tenant, slug: str) -> Page:
     if not page.is_published and not tenant.user_can_edit(request.user):
         raise Http404("Page not published")
     return page
+
+
+TENANT_404_SLUG = "404"
+
+
+def tenant_404(request, exception=None):
+    """Serve the tenant's own `404` page, with a 404 status, on a tenant host.
+
+    Without this a missing slug falls through to Django's bare "Not Found",
+    so a client site that ships a designed 404 page never gets to use it.
+    Falls back to the default response when there is no tenant, no such page,
+    or anything goes wrong at all: a handler404 that raises turns the 404 into
+    a 500, so nothing in here may propagate.
+    """
+    tenant = getattr(request, "tenant", None)
+    if tenant is not None:
+        try:
+            page = Page.objects.select_related("template").get(
+                tenant=tenant, slug=TENANT_404_SLUG
+            )
+            if _tenant_visible(tenant, request) and page.is_published:
+                html = blocks.render_content(
+                    page.template,
+                    page.content,
+                    preview=False,
+                    site_settings=tenant.site_settings or {},
+                    nav_pages=blocks.nav_pages_for(tenant),
+                )
+                html = blog_render.inject_strip(
+                    html, tenant, request=request, blog_base="/blog/"
+                )
+                return HttpResponse(html, status=404)
+        except Exception:
+            pass
+    return default_views.page_not_found(request, exception)
 
 
 # --------------------------------------------------------------------------- #
