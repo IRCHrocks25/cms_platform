@@ -330,3 +330,62 @@ class PageRowUrlQueryCostTests(TestCase):
         self._add_pages(6)
         with_eight = self._query_count("dashboard:tenant_detail")
         self.assertEqual(with_two, with_eight)
+
+
+@override_settings(TENANT_BASE_DOMAIN="sites.example.test", ALLOWED_HOSTS=["*"])
+class SiteCreatedCustomDomainBadgeTests(TestCase):
+    """Documents the CMS-63 choice for CMS-37 creation: a domain supplied at
+    creation is a real but *unverified* CustomDomain row, so the site_created
+    page shows subdomain URLs and no "Custom domain" badge until the domain
+    verifies; the legacy hint is cleared rather than naming a pending host."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("agency", password="x", is_staff=True)
+        cls.template = _template()
+
+    def _client(self):
+        c = Client(HTTP_HOST="sites.example.test")
+        c.force_login(self.staff)
+        return c
+
+    def test_pending_domain_at_creation_shows_no_badge_until_verified(self):
+        c = self._client()
+        resp = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Bella's", "subdomain": "bellas",
+                "template": str(self.template.pk),
+                "custom_domain": "www.bellas.com",
+                "client_username": "alice", "client_email": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        tenant = Tenant.objects.get(subdomain="bellas")
+        row = CustomDomain.objects.get(domain="www.bellas.com")
+        self.assertEqual(row.tenant_id, tenant.pk)
+        self.assertFalse(row.is_verified)
+        # Legacy hint mirrors the verified state, so it is empty for now.
+        self.assertEqual(tenant.custom_domain, "")
+
+        page = c.get(resp["Location"])
+        self.assertEqual(page.status_code, 200)
+        self.assertFalse(page.context["urls"]["has_custom_domain"])
+        self.assertNotContains(page, ">Custom domain<")
+        self.assertEqual(
+            page.context["urls"]["public_url"], "https://bellas.sites.example.test/"
+        )
+
+        # Once verified (dashboard/MCP/force-verify all go through the sync),
+        # the same page flips to the custom domain.
+        row.is_verified = True
+        row.save(update_fields=["is_verified", "updated_at"])
+        from core.services.custom_domains import sync_tenant_primary_domain
+        sync_tenant_primary_domain(tenant)
+        self.assertEqual(Tenant.objects.get(pk=tenant.pk).custom_domain, "www.bellas.com")
+
+        page = c.get(reverse("dashboard:site_created", args=[tenant.pk]))
+        self.assertTrue(page.context["urls"]["has_custom_domain"])
+        self.assertContains(page, ">Custom domain<")
+        self.assertEqual(page.context["urls"]["public_url"], "https://www.bellas.com/")
+        self.assertEqual(page.context["urls"]["login_url"], "https://www.bellas.com/login/")
