@@ -59,8 +59,34 @@ def _render_tenant(tenant: Tenant, request=None, *, blog_base: str = "/blog/") -
 # --------------------------------------------------------------------------- #
 
 
+# Routes the slashless page catch-all must never shadow. `/login`, `/blog`
+# and friends without a trailing slash used to reach the slashed application
+# route through APPEND_SLASH; the canonical `/<slug>` pattern (PR #55) made
+# them resolve to page_render instead and answer 404 (CMS-64).
+# `privacy`/`terms` are host-scoped: on a tenant host they render that
+# tenant's own page (CMS-40), so the slashless form stays a page request.
+_PAGE_ALIAS_ROUTE_NAMES = {"page_slash_alias", "page_render", "page_html_alias", "privacy", "terms"}
+
+
+def _application_route_for_slug(slug: str):
+    """The slashed application path `/<slug>/` resolves to, or None when
+    `/<slug>/` is only the page alias (or nothing)."""
+    from django.urls import Resolver404, resolve
+
+    try:
+        match = resolve(f"/{slug}/")
+    except Resolver404:
+        return None
+    if match.url_name in _PAGE_ALIAS_ROUTE_NAMES:
+        return None
+    return f"/{slug}/"
+
+
 def page_render(request, slug):
     """The canonical inner-page response on a tenant host (`/<slug>`)."""
+    application_path = _application_route_for_slug(slug)
+    if application_path is not None:
+        return _permanent_redirect_with_query(request, application_path)
     if request.tenant is None:
         raise Http404("No site here")
     return _render_page(request, request.tenant, slug, blog_base="/blog/")
