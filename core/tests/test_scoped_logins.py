@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template, Tenant, TenantMembership
+from core.models import CustomDomain, Template, Tenant, TenantMembership
 
 
 User = get_user_model()
@@ -249,3 +249,68 @@ class ClientTeamTests(TestCase):
         # Scoped lookup → 404, membership untouched.
         self.assertEqual(response.status_code, 404)
         self.assertTrue(TenantMembership.objects.filter(pk=other_m.pk).exists())
+
+
+@override_settings(
+    TENANT_BASE_DOMAIN="sites.example.test",
+    SESSION_COOKIE_DOMAIN=".sites.example.test",
+    ALLOWED_HOSTS=["*"],
+)
+class AgencyHostClientLoginCustomDomainTests(TestCase):
+    """CMS-63 review fix: the parent-domain session cookie only reaches
+    ``*.sites.example.test``. A client whose home site is served on a verified
+    custom domain must be bounced to that host's login (with ``next``) rather
+    than to ``/dashboard/``, where they would arrive without a session."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.template = _make_template()
+        cls.sub_user = User.objects.create_user("alice", password="secret")
+        cls.sub_tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=cls.template, owner=cls.sub_user,
+        )
+        TenantMembership.objects.create(tenant=cls.sub_tenant, user=cls.sub_user)
+
+        cls.custom_user = User.objects.create_user("bob", password="secret")
+        cls.custom_tenant = Tenant.objects.create(
+            name="Bob Co", subdomain="bobco", template=cls.template,
+            owner=cls.custom_user, custom_domain="",
+        )
+        TenantMembership.objects.create(tenant=cls.custom_tenant, user=cls.custom_user)
+        CustomDomain.objects.create(
+            tenant=cls.custom_tenant, domain="www.bobco.com", is_verified=True
+        )
+
+    def _post_login(self, username):
+        c = Client(HTTP_HOST="sites.example.test")
+        r = c.post(
+            reverse("login"), data={"username": username, "password": "secret"}
+        )
+        return c, r
+
+    def test_subdomain_home_gets_session_and_goes_straight_to_editor(self):
+        c, r = self._post_login("alice")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://acme.sites.example.test/dashboard/")
+        self.assertIn("_auth_user_id", c.session)
+
+    def test_custom_domain_home_is_bounced_to_its_own_login_with_next(self):
+        c, r = self._post_login("bob")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(
+            r["Location"], "https://www.bobco.com/login/?next=/dashboard/"
+        )
+        # No agency-host session: it could not reach www.bobco.com anyway.
+        self.assertNotIn("_auth_user_id", c.session)
+
+    def test_login_on_custom_domain_host_honours_next_to_dashboard(self):
+        # The second hop: the bounce lands on the custom host's login, and
+        # ``next=/dashboard/`` is a same-host path, so it is honoured.
+        c = Client(HTTP_HOST="www.bobco.com")
+        r = c.post(
+            reverse("login") + "?next=/dashboard/",
+            data={"username": "bob", "password": "secret"},
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "/dashboard/")
+        self.assertIn("_auth_user_id", c.session)
