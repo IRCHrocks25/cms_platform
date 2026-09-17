@@ -8,6 +8,7 @@ import re
 import socket
 
 from django.conf import settings
+from django.db import transaction
 
 from core.models import CustomDomain, Tenant
 
@@ -68,7 +69,10 @@ def verify_custom_domain(custom_domain: CustomDomain):
         if not custom_domain.is_verified:
             custom_domain.is_verified = True
             custom_domain.save(update_fields=["is_verified", "updated_at"])
-            sync_tenant_primary_domain(custom_domain.tenant)
+        # Sync on every successful check, not only on the flip: re-verifying
+        # an already-verified domain is how an operator repairs a drifted
+        # Tenant.custom_domain from the dashboard (CMS-63 review fix).
+        sync_tenant_primary_domain(custom_domain.tenant)
         return True, resolved
 
     return False, resolved
@@ -92,18 +96,29 @@ def sync_tenant_primary_domain(tenant: Tenant) -> bool:
     Routing and the URL helpers (``core.urls_helpers``) key off the rows;
     this field is only a display hint, but it must not drift after any
     add/verify/delete, whichever surface performed it (CMS-63). Returns
-    ``True`` when the stored value changed. Idempotent: an in-step tenant
-    costs one read and no write.
+    ``True`` when the stored value changed and refreshes ``tenant`` so the
+    caller's instance matches the DB. Idempotent: an in-step tenant costs
+    reads only, no write.
     """
-    primary = (
-        tenant.custom_domains.filter(is_verified=True)
-        .order_by("created_at", "pk")
-        .values_list("domain", flat=True)
-        .first()
-        or ""
-    )
-    if tenant.custom_domain == primary:
-        return False
+    with transaction.atomic():
+        # Compare against the persisted value under a row lock, never the
+        # caller's in-memory copy: a second instance of the same tenant with
+        # a stale custom_domain would otherwise skip a needed write.
+        locked = (
+            Tenant.objects.select_for_update()
+            .only("pk", "custom_domain")
+            .get(pk=tenant.pk)
+        )
+        primary = (
+            locked.custom_domains.filter(is_verified=True)
+            .order_by("created_at", "pk")
+            .values_list("domain", flat=True)
+            .first()
+            or ""
+        )
+        changed = locked.custom_domain != primary
+        if changed:
+            locked.custom_domain = primary
+            locked.save(update_fields=["custom_domain", "updated_at"])
     tenant.custom_domain = primary
-    tenant.save(update_fields=["custom_domain", "updated_at"])
-    return True
+    return changed

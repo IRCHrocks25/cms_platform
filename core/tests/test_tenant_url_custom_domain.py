@@ -194,6 +194,36 @@ class TenantUrlCustomDomainTests(TestCase):
                 tenant_canonical_public_url(tenant), "https://www.acme.com/"
             )
 
+    def test_prefetched_rows_still_pick_earliest_verified(self):
+        newer = CustomDomain.objects.create(
+            tenant=self.tenant, domain="newer.example.com", is_verified=True
+        )
+        older = CustomDomain.objects.create(
+            tenant=self.tenant, domain="older.example.com", is_verified=True
+        )
+        pending = CustomDomain.objects.create(
+            tenant=self.tenant, domain="pending.example.com", is_verified=False
+        )
+        _backdate(newer, 1)
+        _backdate(older, 5)
+        _backdate(pending, 10)
+        # Prefetch in an order that is NOT created_at, so the helper must sort
+        # the cached rows itself rather than trust the prefetch order.
+        tenant = Tenant.objects.prefetch_related(
+            Prefetch(
+                "custom_domains",
+                queryset=CustomDomain.objects.order_by("-created_at"),
+            )
+        ).get(pk=self.tenant.pk)
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                tenant_primary_custom_domain(tenant), "older.example.com"
+            )
+            self.assertEqual(
+                tenant_public_url(self.request, tenant),
+                "https://older.example.com/",
+            )
+
     def test_unprefetched_lookup_costs_one_query_per_call(self):
         CustomDomain.objects.create(
             tenant=self.tenant, domain="www.acme.com", is_verified=True

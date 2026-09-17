@@ -8,7 +8,9 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.models import CustomDomain, Template, Tenant
@@ -80,8 +82,10 @@ class SyncTenantPrimaryDomainTests(TestCase):
         )
         self.assertTrue(custom_domains.sync_tenant_primary_domain(self.tenant))
         before = Tenant.objects.get(pk=self.tenant.pk).updated_at
-        with self.assertNumQueries(1):
+        with CaptureQueriesContext(connection) as ctx:
             self.assertFalse(custom_domains.sync_tenant_primary_domain(self.tenant))
+        writes = [q["sql"] for q in ctx.captured_queries if q["sql"].startswith("UPDATE")]
+        self.assertEqual(writes, [])
         self.assertEqual(Tenant.objects.get(pk=self.tenant.pk).updated_at, before)
 
     # --- writers ------------------------------------------------------------ #
@@ -136,3 +140,52 @@ class SyncTenantPrimaryDomainTests(TestCase):
 
         custom_domains.delete_custom_domain(second)
         self.assertEqual(self._legacy(), "")
+
+    # --- review fixes (CMS-63) ---------------------------------------------- #
+
+    def test_sync_compares_against_persisted_value_not_stale_instance(self):
+        """Two in-memory copies of one tenant: verify through A, delete through
+        B (whose cached custom_domain is still ""). The sync must compare with
+        the DB, not B's stale attribute, or the DB keeps naming a dead host."""
+        instance_a = Tenant.objects.get(pk=self.tenant.pk)
+        instance_b = Tenant.objects.get(pk=self.tenant.pk)
+        row = CustomDomain.objects.create(
+            tenant=instance_a, domain="www.acme.com", is_verified=False
+        )
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=[TARGET_IP]
+        ):
+            custom_domains.verify_custom_domain(row)
+        self.assertEqual(self._legacy(), "www.acme.com")
+        self.assertEqual(instance_b.custom_domain, "")
+
+        row_via_b = CustomDomain.objects.get(pk=row.pk)
+        row_via_b.tenant = instance_b
+        custom_domains.delete_custom_domain(row_via_b)
+
+        self.assertFalse(CustomDomain.objects.exists())
+        self.assertEqual(self._legacy(), "")
+        # The passed instance is refreshed to the persisted value too.
+        self.assertEqual(instance_b.custom_domain, "")
+
+    def test_sync_refreshes_passed_instance_from_db(self):
+        stale = Tenant.objects.get(pk=self.tenant.pk)
+        stale.custom_domain = "in-memory-only.example.com"  # never saved
+        CustomDomain.objects.create(
+            tenant=self.tenant, domain="www.acme.com", is_verified=True
+        )
+        self.assertTrue(custom_domains.sync_tenant_primary_domain(stale))
+        self.assertEqual(stale.custom_domain, "www.acme.com")
+        self.assertEqual(self._legacy(), "www.acme.com")
+
+    def test_reverifying_already_verified_row_repairs_drifted_legacy_field(self):
+        row = CustomDomain.objects.create(
+            tenant=self.tenant, domain="www.acme.com", is_verified=True
+        )
+        self.assertEqual(self._legacy(), "")  # drifted (verified before sync existed)
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=[TARGET_IP]
+        ):
+            verified, _resolved = custom_domains.verify_custom_domain(row)
+        self.assertTrue(verified)
+        self.assertEqual(self._legacy(), "www.acme.com")
