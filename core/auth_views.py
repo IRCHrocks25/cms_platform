@@ -11,8 +11,21 @@ from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
+from urllib.parse import urlsplit
 
 from core.urls_helpers import tenant_editor_url, tenant_login_url
+
+
+def _cookie_reaches(url: str) -> bool:
+    """True when the session cookie set on this request will be sent to
+    ``url``'s host: SESSION_COOKIE_DOMAIN is configured and the host is that
+    parent domain or a subdomain of it. A verified custom domain is neither,
+    so a login here would not carry over (CMS-63 review fix)."""
+    parent = (getattr(settings, "SESSION_COOKIE_DOMAIN", "") or "").lstrip(".").lower()
+    if not parent:
+        return False
+    host = (urlsplit(url).hostname or "").lower().rstrip(".")
+    return host == parent or host.endswith("." + parent)
 
 
 class TenantAwareLoginView(LoginView):
@@ -45,15 +58,25 @@ class TenantAwareLoginView(LoginView):
         # their own site rather than refusing.
         home_tenant = self._pick_home_tenant(user)
         if home_tenant is not None:
-            if getattr(settings, "SESSION_COOKIE_DOMAIN", None):
+            editor_url = tenant_editor_url(request, home_tenant)
+            if _cookie_reaches(editor_url):
                 # Production: the session cookie spans the parent domain
                 # (COOKIE_PARENT_DOMAIN), so logging in here carries straight
                 # over to the subdomain editor: one login, no second prompt.
                 auth_login(request, user)
-                return HttpResponseRedirect(tenant_editor_url(request, home_tenant))
+                return HttpResponseRedirect(editor_url)
+            login_url = tenant_login_url(request, home_tenant)
+            if getattr(settings, "SESSION_COOKIE_DOMAIN", None):
+                # A verified custom domain outside the cookie's parent domain
+                # (CMS-63): the cookie can't reach it, so bounce them to their
+                # own site's login and carry the editor as ``next`` (a
+                # same-host path, which that host's _safe_next honours).
+                return HttpResponseRedirect(
+                    f"{login_url}?next={urlsplit(editor_url).path}"
+                )
             # Single-host / local dev: the cookie can't span hosts, so bounce
             # them to their own site's login to establish the session there.
-            return HttpResponseRedirect(tenant_login_url(request, home_tenant))
+            return HttpResponseRedirect(login_url)
 
         messages.error(request, "This account has no sites here.")
         return HttpResponseRedirect(reverse("login"))

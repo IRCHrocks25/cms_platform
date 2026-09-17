@@ -273,6 +273,37 @@ class CustomDomainToolsTests(TestCase):
         row = CustomDomain.objects.get(domain="www.acme.com")
         self.assertTrue(row.is_verified)
 
+    def test_verify_syncs_legacy_tenant_custom_domain_field(self):
+        """CMS-63: the MCP path never synced ``Tenant.custom_domain``, so the
+        dashboard/URL helpers kept showing the sites.katek.app link for
+        tenants verified through Claude. The service now owns the sync."""
+        CustomDomain.objects.create(
+            tenant=self.tenant, domain="www.acme.com", is_verified=False
+        )
+        self.assertEqual(Tenant.objects.get(pk=self.tenant.pk).custom_domain, "")
+        with patch(
+            "core.services.custom_domains.resolve_a_records",
+            return_value=[TARGET_IP],
+        ):
+            r = self._call(
+                "verify_custom_domain",
+                {"site": "existing", "domain": "www.acme.com"},
+            )
+        self.assertFalse(r.json()["result"].get("isError", False))
+        self.assertEqual(
+            Tenant.objects.get(pk=self.tenant.pk).custom_domain, "www.acme.com"
+        )
+
+    def test_add_syncs_legacy_tenant_custom_domain_field(self):
+        """Adding an (unverified) row must clear a stale hint left behind by an
+        out-of-band delete rather than leave it pointing at a dead host."""
+        Tenant.objects.filter(pk=self.tenant.pk).update(custom_domain="gone.example.com")
+        r = self._call(
+            "add_custom_domain", {"site": "existing", "domain": "www.acme.com"}
+        )
+        self.assertFalse(r.json()["result"].get("isError", False))
+        self.assertEqual(Tenant.objects.get(pk=self.tenant.pk).custom_domain, "")
+
     def test_verify_resolves_elsewhere_stays_unverified_and_names_ips(self):
         CustomDomain.objects.create(
             tenant=self.tenant, domain="www.acme.com", is_verified=False

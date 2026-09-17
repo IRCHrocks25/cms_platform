@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Prefetch, Q, prefetch_related_objects
 from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -959,6 +959,14 @@ def tenant_list(request):
     tenants = (
         Tenant.objects.all()
         .select_related("template")
+        # tenant_public_url reads the verified CustomDomain rows (CMS-63);
+        # prefetch so the per-row link doesn't cost a query per tenant.
+        .prefetch_related(
+            Prefetch(
+                "custom_domains",
+                queryset=CustomDomain.objects.order_by("created_at", "pk"),
+            )
+        )
         .annotate(
             member_count=Count("memberships", distinct=True),
             last_edited=Max("versions__saved_at"),
@@ -1399,6 +1407,7 @@ def tenant_detail(request, pk):
             if not loc_id or loc_id in bound:
                 continue
             connectable.append({"agency_id": agency.pk, "id": loc_id, "name": loc.get("name", "")})
+    _prefetch_custom_domains(tenant)
     page_rows = [
         {"obj": page, "urls": _page_row_urls(request, "agency", tenant, page)}
         for page in tenant.pages.select_related("template").all()
@@ -2135,6 +2144,19 @@ def _page_nav_urls(scope, tenant):
     }
 
 
+def _prefetch_custom_domains(tenant):
+    """Warm ``tenant.custom_domains`` once so the per-page ``live`` link
+    (``tenant_public_url`` reads the verified rows, CMS-63) costs one query
+    for the whole list rather than one per page."""
+    prefetch_related_objects(
+        [tenant],
+        Prefetch(
+            "custom_domains",
+            queryset=CustomDomain.objects.order_by("created_at", "pk"),
+        ),
+    )
+
+
 def _page_row_urls(request, scope, tenant, page):
     if scope == "tenant":
         return {
@@ -2187,6 +2209,10 @@ def _page_list(request, tenant, scope):
     tenant.refresh_from_db()
 
     can_manage = _user_can_manage_pages(request)
+    if scope != "tenant":
+        # Tenant-scope rows link relatively; only the agency list builds
+        # absolute live URLs from the verified custom domain.
+        _prefetch_custom_domains(tenant)
     pages = [
         {"obj": p, "urls": _page_row_urls(request, scope, tenant, p)}
         for p in tenant.pages.all()
@@ -4370,23 +4396,6 @@ def _custom_domain_context(tenant):
     }
 
 
-def _sync_tenant_primary_domain(tenant) -> None:
-    """Keep the vestigial ``Tenant.custom_domain`` display hint in step with the
-    CustomDomain table: the earliest verified domain (or "" when none). Routing
-    keys off the CustomDomain rows; this only feeds the site_created / detail
-    display so it must not drift after add/verify/delete (A17)."""
-    primary = (
-        tenant.custom_domains.filter(is_verified=True)
-        .order_by("created_at")
-        .values_list("domain", flat=True)
-        .first()
-        or ""
-    )
-    if tenant.custom_domain != primary:
-        tenant.custom_domain = primary
-        tenant.save(update_fields=["custom_domain", "updated_at"])
-
-
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
     context = _custom_domain_context(tenant)
     context.update({"tenant": tenant, "error": error, "info": info})
@@ -4409,7 +4418,7 @@ def tenant_custom_domain_add(request, pk):
     )
     if error:
         return _render_custom_domain_partial(request, tenant, error=error)
-    _sync_tenant_primary_domain(tenant)
+    # The service keeps Tenant.custom_domain in step (CMS-63).
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -4424,7 +4433,6 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
     verified, resolved = custom_domains.verify_custom_domain(custom_domain)
 
     if verified:
-        _sync_tenant_primary_domain(tenant)
         return _render_custom_domain_partial(
             request, tenant,
             info="DNS verified. Your SSL certificate is issued automatically "
@@ -4453,8 +4461,7 @@ def tenant_custom_domain_delete(request, pk, domain_pk):
 
     # Deleting the row drops the host from the next route-syncer pass (≤20s), so
     # Traefik stops routing it. No external (Cloudflare/Railway) cleanup needed.
-    custom_domain.delete()
-    _sync_tenant_primary_domain(tenant)
+    custom_domains.delete_custom_domain(custom_domain)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -4508,7 +4515,7 @@ def custom_domain_force_verify(request, pk):
     if not domain.is_verified:
         domain.is_verified = True
         domain.save(update_fields=["is_verified", "updated_at"])
-        _sync_tenant_primary_domain(domain.tenant)
+        custom_domains.sync_tenant_primary_domain(domain.tenant)
         messages.success(request, f"“{domain.domain}” force-marked as verified.")
     else:
         messages.info(request, f"“{domain.domain}” was already verified.")
@@ -4520,9 +4527,7 @@ def custom_domain_force_verify(request, pk):
 def custom_domain_force_delete_local(request, pk):
     domain = get_object_or_404(CustomDomain, pk=pk)
     label = domain.domain
-    tenant = domain.tenant
-    domain.delete()
-    _sync_tenant_primary_domain(tenant)
+    custom_domains.delete_custom_domain(domain)
     messages.success(
         request,
         f"“{label}” deleted. It drops from Traefik on the next route sync (≤20s).",
