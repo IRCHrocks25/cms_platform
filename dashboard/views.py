@@ -2209,7 +2209,10 @@ def _page_list(request, tenant, scope):
     tenant.refresh_from_db()
 
     can_manage = _user_can_manage_pages(request)
-    _prefetch_custom_domains(tenant)
+    if scope != "tenant":
+        # Tenant-scope rows link relatively; only the agency list builds
+        # absolute live URLs from the verified custom domain.
+        _prefetch_custom_domains(tenant)
     pages = [
         {"obj": p, "urls": _page_row_urls(request, scope, tenant, p)}
         for p in tenant.pages.all()
