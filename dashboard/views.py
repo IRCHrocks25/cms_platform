@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Prefetch, Q, prefetch_related_objects
 from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -959,6 +959,14 @@ def tenant_list(request):
     tenants = (
         Tenant.objects.all()
         .select_related("template")
+        # tenant_public_url reads the verified CustomDomain rows (CMS-63);
+        # prefetch so the per-row link doesn't cost a query per tenant.
+        .prefetch_related(
+            Prefetch(
+                "custom_domains",
+                queryset=CustomDomain.objects.order_by("created_at", "pk"),
+            )
+        )
         .annotate(
             member_count=Count("memberships", distinct=True),
             last_edited=Max("versions__saved_at"),
@@ -1399,6 +1407,7 @@ def tenant_detail(request, pk):
             if not loc_id or loc_id in bound:
                 continue
             connectable.append({"agency_id": agency.pk, "id": loc_id, "name": loc.get("name", "")})
+    _prefetch_custom_domains(tenant)
     page_rows = [
         {"obj": page, "urls": _page_row_urls(request, "agency", tenant, page)}
         for page in tenant.pages.select_related("template").all()
@@ -2135,6 +2144,19 @@ def _page_nav_urls(scope, tenant):
     }
 
 
+def _prefetch_custom_domains(tenant):
+    """Warm ``tenant.custom_domains`` once so the per-page ``live`` link
+    (``tenant_public_url`` reads the verified rows, CMS-63) costs one query
+    for the whole list rather than one per page."""
+    prefetch_related_objects(
+        [tenant],
+        Prefetch(
+            "custom_domains",
+            queryset=CustomDomain.objects.order_by("created_at", "pk"),
+        ),
+    )
+
+
 def _page_row_urls(request, scope, tenant, page):
     if scope == "tenant":
         return {
@@ -2187,6 +2209,7 @@ def _page_list(request, tenant, scope):
     tenant.refresh_from_db()
 
     can_manage = _user_can_manage_pages(request)
+    _prefetch_custom_domains(tenant)
     pages = [
         {"obj": p, "urls": _page_row_urls(request, scope, tenant, p)}
         for p in tenant.pages.all()

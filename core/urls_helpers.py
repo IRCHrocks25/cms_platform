@@ -5,7 +5,9 @@ Centralizes the logic for turning a Tenant into the absolute URLs we show
 on the post-create success page (and anywhere else that needs them).
 
 Resolution priority for the public hostname:
-    1. Tenant.custom_domain (if set), always rendered https://
+    1. The tenant's earliest *verified* ``CustomDomain`` row, always rendered
+       https:// (CMS-63). ``Tenant.custom_domain`` is a display-only hint that
+       drifted in production and is never consulted here.
     2. <subdomain>.<TENANT_BASE_DOMAIN> on the same scheme/port as the
        current request
 
@@ -60,14 +62,40 @@ def is_local_request(request):
     )
 
 
+def tenant_primary_custom_domain(tenant) -> str:
+    """Host routing actually serves for ``tenant``: the earliest verified
+    ``CustomDomain`` (lower-cased), or ``""`` when none is verified.
+
+    Same rule as ``core.services.custom_domains.sync_tenant_primary_domain``
+    so the URL helpers and the legacy display field agree. Honours a
+    ``prefetch_related("custom_domains")`` cache so list views don't N+1;
+    otherwise it is exactly one query.
+    """
+    cache = getattr(tenant, "_prefetched_objects_cache", None) or {}
+    if "custom_domains" in cache:
+        verified = sorted(
+            (cd for cd in tenant.custom_domains.all() if cd.is_verified),
+            key=lambda cd: (cd.created_at, cd.pk),
+        )
+        domain = verified[0].domain if verified else ""
+    else:
+        domain = (
+            tenant.custom_domains.filter(is_verified=True)
+            .order_by("created_at", "pk")
+            .values_list("domain", flat=True)
+            .first()
+        )
+    return (domain or "").strip().lower()
+
+
 def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
     """Absolute public URL from TENANT_BASE_DOMAIN (no request).
 
     Used by MCP write tools so callers get a link to inspect. Builds
     ``{scheme}://{subdomain}.{TENANT_BASE_DOMAIN}/`` and never hardcodes a
-    production hostname. Falls back to ``Tenant.custom_domain`` when set.
+    production hostname. Prefers the earliest verified ``CustomDomain``.
     """
-    custom = (getattr(tenant, "custom_domain", None) or "").strip().lower()
+    custom = tenant_primary_custom_domain(tenant)
     if custom:
         base_url = f"https://{custom}/"
     else:
@@ -105,7 +133,7 @@ def tenant_public_url(request, tenant):
             dev_base = _dev_base_domain()
         return f"http://{tenant.subdomain}.{dev_base}{port}/"
 
-    custom = (tenant.custom_domain or "").strip().lower()
+    custom = tenant_primary_custom_domain(tenant)
     if custom:
         return f"https://{custom}/"
 
@@ -160,7 +188,7 @@ def build_tenant_url_bundle(request, tenant):
         "fallback_url": tenant_public_render_fallback_url(request, tenant),
         "using_local_dev_base": is_using_local_dev_base(),
         "base_domain": _base_domain(),
-        "has_custom_domain": bool((tenant.custom_domain or "").strip()),
+        "has_custom_domain": bool(tenant_primary_custom_domain(tenant)),
     }
 
 
@@ -173,14 +201,9 @@ def tenant_canonical_base_url(tenant) -> str:
     an unverified domain does not answer requests yet, so pointing search
     engines at it would 404. Used by sitemap.xml and robots.txt (CMS-57/58).
     """
-    verified = (
-        tenant.custom_domains.filter(is_verified=True)
-        .order_by("created_at", "pk")
-        .values_list("domain", flat=True)
-        .first()
-    )
+    verified = tenant_primary_custom_domain(tenant)
     if verified:
-        return f"https://{verified.strip().lower()}/"
+        return f"https://{verified}/"
     base = _base_domain()
     if is_using_local_dev_base() or not base:
         host = f"{tenant.subdomain}.{base}" if base else tenant.subdomain
