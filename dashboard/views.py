@@ -4393,23 +4393,6 @@ def _custom_domain_context(tenant):
     }
 
 
-def _sync_tenant_primary_domain(tenant) -> None:
-    """Keep the vestigial ``Tenant.custom_domain`` display hint in step with the
-    CustomDomain table: the earliest verified domain (or "" when none). Routing
-    keys off the CustomDomain rows; this only feeds the site_created / detail
-    display so it must not drift after add/verify/delete (A17)."""
-    primary = (
-        tenant.custom_domains.filter(is_verified=True)
-        .order_by("created_at")
-        .values_list("domain", flat=True)
-        .first()
-        or ""
-    )
-    if tenant.custom_domain != primary:
-        tenant.custom_domain = primary
-        tenant.save(update_fields=["custom_domain", "updated_at"])
-
-
 def _render_custom_domain_partial(request, tenant, *, error=None, info=None):
     context = _custom_domain_context(tenant)
     context.update({"tenant": tenant, "error": error, "info": info})
@@ -4432,7 +4415,7 @@ def tenant_custom_domain_add(request, pk):
     )
     if error:
         return _render_custom_domain_partial(request, tenant, error=error)
-    _sync_tenant_primary_domain(tenant)
+    # The service keeps Tenant.custom_domain in step (CMS-63).
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -4447,7 +4430,6 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
     verified, resolved = custom_domains.verify_custom_domain(custom_domain)
 
     if verified:
-        _sync_tenant_primary_domain(tenant)
         return _render_custom_domain_partial(
             request, tenant,
             info="DNS verified. Your SSL certificate is issued automatically "
@@ -4476,8 +4458,7 @@ def tenant_custom_domain_delete(request, pk, domain_pk):
 
     # Deleting the row drops the host from the next route-syncer pass (≤20s), so
     # Traefik stops routing it. No external (Cloudflare/Railway) cleanup needed.
-    custom_domain.delete()
-    _sync_tenant_primary_domain(tenant)
+    custom_domains.delete_custom_domain(custom_domain)
     return _render_custom_domain_partial(request, tenant)
 
 
@@ -4531,7 +4512,7 @@ def custom_domain_force_verify(request, pk):
     if not domain.is_verified:
         domain.is_verified = True
         domain.save(update_fields=["is_verified", "updated_at"])
-        _sync_tenant_primary_domain(domain.tenant)
+        custom_domains.sync_tenant_primary_domain(domain.tenant)
         messages.success(request, f"“{domain.domain}” force-marked as verified.")
     else:
         messages.info(request, f"“{domain.domain}” was already verified.")
@@ -4543,9 +4524,7 @@ def custom_domain_force_verify(request, pk):
 def custom_domain_force_delete_local(request, pk):
     domain = get_object_or_404(CustomDomain, pk=pk)
     label = domain.domain
-    tenant = domain.tenant
-    domain.delete()
-    _sync_tenant_primary_domain(tenant)
+    custom_domains.delete_custom_domain(domain)
     messages.success(
         request,
         f"“{label}” deleted. It drops from Traefik on the next route sync (≤20s).",
