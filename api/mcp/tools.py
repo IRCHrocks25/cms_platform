@@ -65,6 +65,7 @@ _CUSTOM_DOMAIN_DENIED = _CREATE_DENIED
 
 def _site_row(tenant: Tenant, role: str) -> dict[str, Any]:
     return {
+        "site_id": str(tenant.pk),
         "subdomain": tenant.subdomain,
         "name": tenant.name,
         "role": role,
@@ -83,6 +84,26 @@ def list_sites(auth: ResolvedAuth) -> dict[str, Any]:
             _site_row(scope.tenant, scope.role) for scope in auth.tenant_scopes
         ]
     return {"sites": sites}
+
+
+def get_connection_context(auth: ResolvedAuth) -> dict[str, Any]:
+    """Return stable actor and membership IDs for an external tenant binding.
+
+    Platform-wide superusers are deliberately refused. External connections
+    must be backed by a membership-scoped principal whose current site set can
+    be pinned and checked for drift by the caller.
+    """
+    if auth.platform_role or getattr(auth.user, "is_superuser", False):
+        return _CREATE_DENIED
+    return tool_success(
+        {
+            "principal_id": str(auth.user.pk),
+            "sites": [
+                _site_row(scope.tenant, scope.role)
+                for scope in auth.tenant_scopes
+            ],
+        }
+    )
 
 
 def _require_scope(auth: ResolvedAuth, site: str) -> Optional[TenantScope]:
@@ -1134,6 +1155,7 @@ def verify_custom_domain(
 # list_sites returns a plain dict; wrap at call site for MCP envelope.
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
+    "get_connection_context": get_connection_context,
     "list_pages": list_pages,
     "get_page": get_page,
     "get_page_html": get_page_html,
@@ -1171,9 +1193,16 @@ TOOLS_LIST: list[dict[str, Any]] = [
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": ["subdomain", "name", "role", "published"],
+                        "required": [
+                            "site_id",
+                            "subdomain",
+                            "name",
+                            "role",
+                            "published",
+                        ],
                         "additionalProperties": False,
                         "properties": {
+                            "site_id": {"type": "string"},
                             "subdomain": {"type": "string"},
                             "name": {"type": "string"},
                             "role": {"type": "string"},
@@ -1181,6 +1210,49 @@ TOOLS_LIST: list[dict[str, Any]] = [
                         },
                     },
                 }
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "get_connection_context",
+        "description": (
+            "Return the stable current principal and site membership IDs used "
+            "to bind an external tenant connection. Global superusers are "
+            "not eligible."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["principal_id", "sites"],
+            "additionalProperties": False,
+            "properties": {
+                "principal_id": {"type": "string"},
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "site_id",
+                            "subdomain",
+                            "name",
+                            "role",
+                            "published",
+                        ],
+                        "additionalProperties": False,
+                        "properties": {
+                            "site_id": {"type": "string"},
+                            "subdomain": {"type": "string"},
+                            "name": {"type": "string"},
+                            "role": {"type": "string"},
+                            "published": {"type": "boolean"},
+                        },
+                    },
+                },
             },
         },
         "annotations": ANNOTATIONS,
@@ -1920,6 +1992,14 @@ TOOLS_LIST: list[dict[str, Any]] = [
 ]
 
 
+TOOL_REQUIRED_OAUTH_SCOPES: dict[str, str] = {
+    tool["name"]: (
+        "read" if tool["annotations"]["readOnlyHint"] else "write"
+    )
+    for tool in TOOLS_LIST
+}
+
+
 def _validate_arguments(tool_name: str, arguments: dict) -> Optional[str]:
     tool = next((t for t in TOOLS_LIST if t["name"] == tool_name), None)
     if tool is None:
@@ -1972,6 +2052,11 @@ def call_tool(
     """Return (result, rpc_error). Exactly one is set."""
     if name not in HANDLERS:
         return None, {"code": METHOD_NOT_FOUND, "message": f"Unknown tool '{name}'"}
+    required_scope = TOOL_REQUIRED_OAUTH_SCOPES[name]
+    if not auth.has_oauth_scope(required_scope):
+        return tool_error(
+            f"OAuth scope '{required_scope}' is required for this tool."
+        ), None
     args = dict(arguments or {})
     err = _validate_arguments(name, args)
     if err:

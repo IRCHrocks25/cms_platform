@@ -33,6 +33,7 @@ class ResolvedAuth:
     user: object
     platform_role: Optional[str]
     tenant_scopes: tuple[TenantScope, ...]
+    granted_scopes: frozenset[str] = frozenset()
 
     def for_tenant(self, tenant: Tenant) -> Optional[TenantScope]:
         if self.platform_role:
@@ -41,6 +42,9 @@ class ResolvedAuth:
             if scope.tenant.pk == tenant.pk:
                 return scope
         return None
+
+    def has_oauth_scope(self, scope: str) -> bool:
+        return scope in self.granted_scopes
 
 
 def build_consent_contexts(user) -> list[dict]:
@@ -91,7 +95,9 @@ def _issued_by_allowed_client(access: AccessToken) -> bool:
     return application.client_id == expected
 
 
-def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
+def resolve_access_token(
+    token: str, *, audience: Optional[str] = None
+) -> Optional[ResolvedAuth]:
     """Resolve a bearer token to ``(user, role, tenant)`` scopes, or ``None``."""
     if not token:
         return None
@@ -104,6 +110,9 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     if access is None or not access.is_valid():
         return None
 
+    if audience and not access.allows_audience(audience):
+        return None
+
     if not _issued_by_allowed_client(access):
         return None
 
@@ -111,8 +120,15 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     if user is None or not user.is_active:
         return None
 
+    granted_scopes = frozenset((access.scope or "").split())
+
     if user.is_superuser:
-        return ResolvedAuth(user=user, platform_role="superadmin", tenant_scopes=())
+        return ResolvedAuth(
+            user=user,
+            platform_role="superadmin",
+            tenant_scopes=(),
+            granted_scopes=granted_scopes,
+        )
 
     memberships = list(
         TenantMembership.objects.select_related("tenant")
@@ -125,7 +141,12 @@ def resolve_access_token(token: str) -> Optional[ResolvedAuth]:
     tenant_scopes = tuple(
         TenantScope(tenant=m.tenant, role=m.role) for m in memberships
     )
-    return ResolvedAuth(user=user, platform_role=None, tenant_scopes=tenant_scopes)
+    return ResolvedAuth(
+        user=user,
+        platform_role=None,
+        tenant_scopes=tenant_scopes,
+        granted_scopes=granted_scopes,
+    )
 
 
 class CmsBearerAuth(HttpBearer):
