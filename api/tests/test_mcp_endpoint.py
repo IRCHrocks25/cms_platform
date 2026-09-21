@@ -99,7 +99,15 @@ def _make_app():
     return app
 
 
-def _make_token(user, *, token="tok-test", application=None, expires_delta=timedelta(hours=1)):
+def _make_token(
+    user,
+    *,
+    token="tok-test",
+    application=None,
+    expires_delta=timedelta(hours=1),
+    scope="read write",
+    resource=None,
+):
     if application is None:
         application = _make_app()
     return AccessToken.objects.create(
@@ -107,7 +115,8 @@ def _make_token(user, *, token="tok-test", application=None, expires_delta=timed
         application=application,
         token=token,
         expires=timezone.now() + expires_delta,
-        scope="read write",
+        scope=scope,
+        resource=resource or [],
     )
 
 
@@ -165,6 +174,18 @@ class McpEndpointTests(TestCase):
         )
         _make_token(self.admin, token="tok-admin")
         _make_token(self.member, token="tok-member")
+        _make_token(self.member, token="tok-read", scope="read")
+        _make_token(self.member, token="tok-write", scope="write")
+        _make_token(
+            self.member,
+            token="tok-wrong-resource",
+            resource=["https://other.example/mcp"],
+        )
+        _make_token(
+            self.member,
+            token="tok-local-resource",
+            resource=["http://localhost/mcp"],
+        )
         _make_token(self.staff, token="tok-staff")
 
     def _post(
@@ -374,6 +395,23 @@ class McpEndpointTests(TestCase):
             self._rpc("tools/list", token="tok-inactive").status_code, 401
         )
 
+    def test_token_audience_is_bound_when_resource_is_present(self):
+        self.assertEqual(
+            self._rpc("tools/list", token="tok-wrong-resource").status_code,
+            401,
+        )
+        self.assertEqual(
+            self._rpc("tools/list", token="tok-local-resource").status_code,
+            200,
+        )
+
+    def test_resolved_auth_retains_granted_oauth_scopes(self):
+        from api.auth import resolve_access_token
+
+        auth = resolve_access_token("tok-read", audience="http://localhost/mcp")
+        self.assertIsNotNone(auth)
+        self.assertEqual(auth.granted_scopes, frozenset({"read"}))
+
     # --- Enumeration oracle ---
 
     def test_ac17_site_enumeration_oracle(self):
@@ -435,12 +473,13 @@ class McpEndpointTests(TestCase):
     def test_ac22_tools_list_includes_write_tools(self):
         result = self._result(self._rpc("tools/list"))
         tools = result["tools"]
-        self.assertEqual(len(tools), 17)
+        self.assertEqual(len(tools), 18)
         names = {t["name"] for t in tools}
         self.assertEqual(
             names,
             {
                 "list_sites",
+                "get_connection_context",
                 "list_pages",
                 "get_page",
                 "get_page_html",
@@ -477,6 +516,96 @@ class McpEndpointTests(TestCase):
                 self.assertFalse(t["annotations"]["readOnlyHint"])
             else:
                 self.assertTrue(t["annotations"]["readOnlyHint"])
+
+    def test_oauth_scopes_are_enforced_before_tool_arguments(self):
+        write_names = {
+            "create_client_account",
+            "publish_site",
+            "publish_page",
+            "patch_content",
+            "push_page",
+            "delete_page",
+            "add_custom_domain",
+            "verify_custom_domain",
+            "set_embed_slot",
+        }
+        for name in write_names:
+            with self.subTest(name=name):
+                result = self._result(self._call(name, token="tok-read"))
+                self.assertTrue(result["isError"])
+                self.assertIn("write", result["content"][0]["text"])
+
+        read_denied = self._result(
+            self._call("list_sites", token="tok-write")
+        )
+        self.assertTrue(read_denied["isError"])
+        self.assertIn("read", read_denied["content"][0]["text"])
+
+        # Passing the scope gate reaches normal argument validation.
+        write_allowed = self._call("patch_content", token="tok-write")
+        self.assertEqual(write_allowed.json()["error"]["code"], -32602)
+
+    def test_connection_context_returns_stable_member_and_site_ids(self):
+        result = self._result(
+            self._call("get_connection_context", token="tok-read")
+        )
+        context = result["structuredContent"]
+        self.assertEqual(context["principal_id"], str(self.member.pk))
+        self.assertEqual(
+            context["sites"],
+            [
+                {
+                    "site_id": str(self.tenant_a.pk),
+                    "subdomain": "alpha",
+                    "name": "Alpha",
+                    "role": TenantMembership.ROLE_EDITOR,
+                    "published": False,
+                }
+            ],
+        )
+
+        inventory = self._result(
+            self._call("list_sites", token="tok-read")
+        )["structuredContent"]["sites"]
+        self.assertEqual(inventory[0]["site_id"], str(self.tenant_a.pk))
+
+        tools = self._result(self._rpc("tools/list", token="tok-read"))["tools"]
+        schema = next(
+            tool["outputSchema"]
+            for tool in tools
+            if tool["name"] == "get_connection_context"
+        )
+        _validate_schema(context, schema)
+
+    def test_connection_context_rejects_global_superuser(self):
+        result = self._result(
+            self._call("get_connection_context", token="tok-admin")
+        )
+        self.assertTrue(result["isError"])
+        self.assertEqual(result["content"][0]["text"], "Not permitted.")
+
+    def test_connection_context_tracks_membership_drift_without_leaking(self):
+        membership_b = TenantMembership.objects.create(
+            tenant=self.tenant_b,
+            user=self.member,
+            role=TenantMembership.ROLE_OWNER,
+        )
+        before = self._result(
+            self._call("get_connection_context", token="tok-read")
+        )["structuredContent"]["sites"]
+        self.assertEqual(
+            {site["site_id"] for site in before},
+            {str(self.tenant_a.pk), str(self.tenant_b.pk)},
+        )
+
+        membership_b.delete()
+        after = self._result(
+            self._call("get_connection_context", token="tok-read")
+        )["structuredContent"]["sites"]
+        self.assertEqual(
+            {site["site_id"] for site in after},
+            {str(self.tenant_a.pk)},
+        )
     def test_ac23_content_and_structured_content(self):
         result = self._result(self._call("list_sites", token="tok-member"))
         self.assertIn("content", result)

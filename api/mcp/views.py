@@ -108,7 +108,13 @@ class McpView(View):
             return response
 
         token = _bearer_token(request)
-        auth = resolve_access_token(token) if token else None
+        scheme = "https" if request.is_secure() else "http"
+        audience = f"{scheme}://{request.get_host()}/mcp"
+        auth = (
+            resolve_access_token(token, audience=audience)
+            if token
+            else None
+        )
         if auth is None:
             return _unauthorized(request)
 
