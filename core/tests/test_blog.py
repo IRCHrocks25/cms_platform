@@ -410,6 +410,8 @@ class BlogChromeTests(TestCase):
         for path in ("/blog/", f"/blog/{self.post.slug}/"):
             r = self._get("acme.localhost", path)
             self.assertContains(r, "nav.offsetHeight")  # marker from the offset script
+            self.assertContains(r, 'data-section="navigation"')
+            self.assertContains(r, "cms-nav-darkband")
 
     def test_blog_stylesheet_survives_wrapping(self):
         # Regression: lxml hoisted the fragment's leading <style> into its
@@ -452,12 +454,34 @@ class BlogChromeTests(TestCase):
                         leaked.append(p)
         self.assertEqual(leaked, [], "blog CSS leaked unscoped selectors: %s" % leaked)
 
-    def test_navbar_masthead_backdrop_applied(self):
-        # The client's hero background is reproduced behind the (transparent,
-        # light-text) navbar so it stays readable on blog pages.
+    def test_navbar_blog_contrast_applied(self):
+        # Light-type overlay navs get a blog-only grey→black strip (class
+        # gated in CSS). Homepage is untouched; nothing is recolored.
         body = self._get("acme.localhost", f"/blog/{self.post.slug}/").content.decode()
-        self.assertIn("--cms-masthead: #112233", body)
-        self.assertIn(".cms-blog::before", body)  # the backdrop band
+        self.assertIn("cms-blog-page", body)
+        self.assertIn('id="cms-blog-chrome-contrast"', body)
+        self.assertIn("cms-nav-darkband", body)
+        self.assertIn("linear-gradient", body)
+        self.assertNotIn("--cms-masthead:", body)
+
+    def test_homepage_chrome_not_contrast_rewritten(self):
+        body = self._get("acme.localhost", "/").content.decode()
+        self.assertNotIn("cms-blog-page", body)
+        self.assertNotIn("cms-blog-chrome-contrast", body)
+
+    def test_find_chrome_accepts_navigation_section(self):
+        from bs4 import BeautifulSoup
+        from core.services.blog_render import _find_chrome
+
+        soup = BeautifulSoup(
+            "<html><body><nav data-section='navigation'>N</nav>"
+            "<footer data-section='footer'>F</footer></body></html>",
+            "lxml",
+        )
+        nav, footer = _find_chrome(soup, soup.body)
+        self.assertIsNotNone(nav)
+        self.assertEqual(nav.get("data-section"), "navigation")
+        self.assertIsNotNone(footer)
 
     # --- chrome interactivity: anchor links + scripts ----------------------
     def test_chrome_anchor_links_rewritten_on_blog(self):

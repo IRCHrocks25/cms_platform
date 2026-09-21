@@ -282,6 +282,22 @@ def agency_home(request):
 # --------------------------------------------------------------------------- #
 
 
+def _template_form_site_context(request, template):
+    """Sites that use this template, plus header links to the first one."""
+    tenants_using = list(
+        template.tenants.only("id", "name", "subdomain").order_by("name")
+    )
+    linked = tenants_using[0] if tenants_using else None
+    return {
+        "tenants_using": tenants_using,
+        "linked_tenant": linked,
+        "view_site_url": tenant_public_url(request, linked) if linked else "",
+        "editor_url": (
+            reverse("dashboard:tenant_editor", args=[linked.pk]) if linked else ""
+        ),
+    }
+
+
 @agency_operator_required
 def template_list(request):
     templates = (
@@ -410,9 +426,7 @@ def template_detail(request, pk):
                 "dashboard/template_form.html",
                 {
                     "template": template,
-                    "tenants_using": list(
-                        template.tenants.only("id", "name", "subdomain").order_by("name")
-                    ),
+                    **_template_form_site_context(request, template),
                     # Bound data, so the operator keeps what they typed.
                     "form_data": request.POST,
                     # ...except the HTML, which is what they failed to supply.
@@ -460,15 +474,12 @@ def template_detail(request, pk):
             # save is still waiting on rather than one at a time.
             has_loss = bool(getattr(exc, "lost_fields", None))
             has_drift = bool(getattr(exc, "drifted_fields", None))
-            tenants_using = list(
-                template.tenants.only("id", "name", "subdomain").order_by("name")
-            )
             return render(
                 request,
                 "dashboard/template_form.html",
                 {
                     "template": template,
-                    "tenants_using": tenants_using,
+                    **_template_form_site_context(request, template),
                     "field_loss": exc if has_loss else None,
                     "field_drift": exc if has_drift else None,
                     # Keep a confirmation the operator already gave, so a
@@ -497,13 +508,12 @@ def template_detail(request, pk):
         )
         return redirect("dashboard:template_detail", pk=template.pk)
 
-    tenants_using = list(template.tenants.only("id", "name", "subdomain").order_by("name"))
     return render(
         request,
         "dashboard/template_form.html",
         {
             "template": template,
-            "tenants_using": tenants_using,
+            **_template_form_site_context(request, template),
             # form_data is now the single bound source for every field, so the
             # GET seed carries the stored values rather than relying on the
             # template falling back to `template.x` (which silently beat the

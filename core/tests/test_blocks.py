@@ -483,6 +483,19 @@ class TemplateShellTests(TestCase):
         self.assertTrue(shell.is_block_shell)
         self.assertFalse(classic.is_block_shell)
 
+    def test_css_data_region_selector_is_not_a_shell(self):
+        tpl = Template.objects.create(
+            name="CSSOnly",
+            html_source=(
+                "<style>[data-region=main]:not([data-empty-region])"
+                "{display:contents}</style>"
+                "<section data-section='hero'>"
+                "<h1 data-edit='hero.title' data-type='text'>Hi</h1>"
+                "</section>"
+            ),
+        )
+        self.assertFalse(tpl.is_block_shell)
+
 
 class AnnotateFragmentTests(TestCase):
     def test_promotes_section_to_block(self):
@@ -692,6 +705,43 @@ class EnsureBlockEditorTests(TestCase):
         self.assertEqual(
             [i["type"] for i in tenant.content["regions"]["main"]],
             ["hero", "how"],
+        )
+
+    def test_unextracted_sections_inside_region_become_instances(self):
+        from django.contrib.auth.models import User
+
+        html = (
+            "<!doctype html><html><body>"
+            "<style>[data-region=main]:not([data-empty-region])"
+            "{display:contents}</style>"
+            "<header data-section='nav' data-group='Header'>Nav</header>"
+            '<div data-region="main">'
+            "<section data-section='hero' data-label='Hero' data-group='Home' "
+            "data-block-type='hero' data-instance-id='hero'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            "<section data-section='about' data-label='About' data-group='Home'>"
+            "<p data-edit='about.body' data-type='text'>Us</p></section>"
+            "</div>"
+            "<footer data-section='footer' data-group='Footer'>Foot</footer>"
+            "</body></html>"
+        )
+        owner = User.objects.create_user("leftover", password="x")
+        template = Template.objects.create(name="Leftover", html_source=html)
+        tenant = Tenant.objects.create(
+            name="Leftover", subdomain="leftover", template=template, owner=owner,
+        )
+        self.assertTrue(template.is_block_shell)
+        blocks.ensure_block_editor(tenant)
+        tenant.refresh_from_db()
+        template.refresh_from_db()
+        self.assertEqual(
+            [i["type"] for i in tenant.content["regions"]["main"]],
+            ["hero", "about"],
+        )
+        self.assertNotIn('data-section="hero"', template.html_source)
+        self.assertIn('data-region="main"', template.html_source)
+        self.assertTrue(
+            template.allowed_block_types.filter(key="hero").exists()
         )
 
     def test_problem_fixture_converts_when_parity_matches(self):

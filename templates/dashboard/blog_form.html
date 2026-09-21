@@ -6,6 +6,19 @@
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/editor.css' %}">
   <link rel="stylesheet" href="{% static 'css/blog.css' %}">
+  {# Keep these rules in the document: hashed blog.css can lag behind the template. #}
+  <style>
+    .blog-edit-form { display: block; padding: var(--space-6, 32px); }
+    .blog-edit-form > * + * { margin-top: var(--space-5, 24px); }
+    .blog-panel {
+      display: block;
+      overflow: visible;
+      padding: var(--space-5, 24px);
+      background: var(--color-surface, #fff);
+      border: 1px solid var(--color-border, #dfe3ea);
+      border-radius: var(--radius-lg, 14px);
+    }
+  </style>
 {% endblock %}
 
 {% block shell %}
@@ -108,7 +121,7 @@
                value="{{ form.author }}" placeholder="Shown under the post title" autocomplete="off">
       </div>
 
-      <div class="card stack-4">
+      <div class="blog-panel stack-4">
         <h3 class="blog-card-title">Publish</h3>
         <div class="field">
           <label class="field-label" for="bf-status">Status</label>
@@ -129,7 +142,7 @@
         </label>
       </div>
 
-      <div class="card stack-4">
+      <div class="blog-panel stack-4">
         <h3 class="blog-card-title">Cover image</h3>
         <label class="cms-field-image" for="bf-cover-file">
           <img id="cover-preview" alt="Cover image preview" {% if form.cover_image %}src="{{ form.cover_image }}"{% else %}hidden{% endif %}>
@@ -142,7 +155,7 @@
         <input type="hidden" name="cover_image" id="cover-input" value="{{ form.cover_image }}">
       </div>
 
-      <div class="card stack-4">
+      <div class="blog-panel stack-4">
         <h3 class="blog-card-title">Style</h3>
         <div class="field">
           <label class="field-label" for="bf-template">Template for this post</label>
@@ -156,7 +169,7 @@
         </div>
       </div>
 
-      <div class="card stack-4">
+      <div class="blog-panel stack-4">
         <h3 class="blog-card-title">SEO</h3>
         <div class="field">
           <label class="field-label" for="bf-seo-title">SEO title</label>
@@ -175,7 +188,7 @@
       </div>
 
       {% if post %}
-        <div class="card danger-zone stack-3">
+        <div class="blog-panel danger-zone stack-3">
           <h3 class="blog-card-title">Delete post</h3>
           <p class="m-0">Permanently removes this post. This cannot be undone.</p>
           <button type="submit" form="blog-delete-form" class="btn btn-danger">

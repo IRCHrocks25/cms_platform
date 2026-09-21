@@ -184,10 +184,33 @@ def _home_from_blog_base(blog_base: str) -> str:
     return "/"
 
 
+# Blog-only: a full-width grey→black strip behind light-type overlay navs
+# so their designed white/light fonts stay readable on the white blog canvas.
+# Applied only when JS adds .cms-nav-darkband (nav already uses light type).
+# Homepage chrome is never wrapped. Separate <style> (no .cms-blog) so the
+# scoped-CSS leak test ignores it.
+_CHROME_CONTRAST_CSS = """
+html.cms-blog-page [data-section="nav"].cms-nav-darkband,
+html.cms-blog-page [data-section="navigation"].cms-nav-darkband{
+  background:linear-gradient(180deg,#2a2a2e 0%,#111 100%)!important;
+  background-image:linear-gradient(180deg,#2a2a2e 0%,#111 100%)!important;
+  mix-blend-mode:normal!important;
+  width:100%;
+  box-sizing:border-box;
+}
+html.cms-blog-page [data-section="nav"].cms-nav-darkband img,
+html.cms-blog-page [data-section="navigation"].cms-nav-darkband img{
+  mix-blend-mode:normal!important;
+}
+""".strip()
+
+
 # Body content of the homepage is everything marked with `data-section`,
 # except the navbar and footer, which are the chrome we keep.
 def _find_chrome(soup, body):
     nav = soup.find(attrs={"data-section": "nav"})
+    if nav is None:
+        nav = soup.find(attrs={"data-section": "navigation"})
     if nav is None:
         nav = body.find("nav", recursive=False) or body.find("header", recursive=False)
         if nav is None:
@@ -268,10 +291,12 @@ def _detect_masthead_bg(shell_html: str, hero_el) -> str:
 def _wrap_minimal(inner_html: str) -> str:
     """Fallback when the client's template has no usable <body> chrome."""
     return (
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<!doctype html><html lang=\"en\" class=\"cms-blog-page\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         + _BLOG_FONTS_LINK
-        + "<style>body{margin:0;}</style></head><body>"
+        + "<style>body{margin:0;}</style>"
+        + '<style id="cms-blog-chrome-contrast">' + _CHROME_CONTRAST_CSS + "</style>"
+        + "</head><body>"
         + inner_html
         + "</body></html>"
     )
@@ -306,19 +331,17 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
 
     nav, footer = _find_chrome(soup, body)
 
-    # The client navbar is often transparent with light text designed to sit
-    # over the (now-removed) hero. Capture the hero's background BEFORE we strip
-    # it, so we can recreate that backdrop behind the navbar on the blog page;
-    # otherwise the nav text is invisible on the light blog background.
-    hero = None
-    for section in soup.find_all(attrs={"data-section": True}):
-        if section is nav or section is footer:
-            continue
-        hero = section
-        break
-    masthead_bg = _detect_masthead_bg(shell_html, hero)
+    html_tag = soup.find("html")
+    if html_tag is not None:
+        classes = list(html_tag.get("class") or [])
+        if "cms-blog-page" not in classes:
+            html_tag["class"] = classes + ["cms-blog-page"]
 
     head = soup.find("head")
+    if head is not None:
+        contrast = soup.new_tag("style", id="cms-blog-chrome-contrast")
+        contrast.string = _CHROME_CONTRAST_CSS
+        head.append(contrast)
 
     # Strip the homepage's content sections, but first RESCUE any site
     # <script>/<style>/<link> living inside them, so the chrome's JS/CSS is
@@ -416,8 +439,6 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     blog_root = soup.find(class_="cms-blog")
     if blog_root is not None:
         decls = [f"--site-cw: {cw}", f"--site-gut: {gut}"]
-        if masthead_bg:
-            decls.append(f"--cms-masthead: {masthead_bg}")
         existing = str(blog_root.get("style", "") or "").rstrip().rstrip(";")
         blog_root["style"] = (existing + "; " if existing else "") + "; ".join(decls) + ";"
 

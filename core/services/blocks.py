@@ -1304,6 +1304,40 @@ def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]
     return catalog
 
 
+def _shell_has_unextracted_sections(html: str) -> bool:
+    """True when a region slot still holds annotated body bands.
+
+    The annotator (or a partial convert) can wrap designed sections in
+    ``<div data-region="main">`` without writing ``content.regions``. The
+    editor then treats the page as an empty canvas while the preview still
+    paints the leftover HTML.
+    """
+    soup = BeautifulSoup(html or "", "lxml")
+    for slot in soup.find_all(attrs={"data-region": True}):
+        if any(_is_root_block(n) for n in slot.find_all(True)):
+            return True
+    return False
+
+
+def _extract_unextracted_region_sections(
+    html: str, *, region: str = "main"
+) -> tuple[str, list[tuple[str, str]]]:
+    """Pull leftover ``data-section`` bands out of existing region slots."""
+    soup = BeautifulSoup(html or "", "lxml")
+    fragments: list[tuple[str, str]] = []
+    for slot in soup.find_all(attrs={"data-region": True}):
+        roots = [n for n in slot.find_all(True) if _is_root_block(n)]
+        if not roots:
+            continue
+        _absorb_split_glue(slot, {id(n) for n in roots})
+        for node in roots:
+            key = (node.get("data-section") or "").strip()
+            if key:
+                fragments.append((key, str(node)))
+            node.extract()
+    return _ensure_region_layout_css(str(soup)), fragments
+
+
 def attach_builder_primitives(template) -> None:
     """Allowlist the shared primitive catalog on a shell (idempotent).
 
@@ -1331,13 +1365,19 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
     from core.models import BlockType, Page, Tenant
     from core.parser import build_block_schema
 
+    old_html = template.html_source or ""
     if template.is_block_shell:
         attach_builder_primitives(template)
-        return
-
-    old_html = template.html_source or ""
-    shell_html, fragments = split_shell_and_blocks(old_html, region=region)
-    if not fragments:
+        if not _shell_has_unextracted_sections(old_html):
+            return
+        shell_html, fragments = _extract_unextracted_region_sections(
+            old_html, region=region
+        )
+        if not fragments:
+            return
+    else:
+        shell_html, fragments = split_shell_and_blocks(old_html, region=region)
+    if not fragments and not template.is_block_shell:
         soup = BeautifulSoup(old_html, "lxml")
         host = soup.body or soup
         slot = soup.new_tag("div")
@@ -1456,5 +1496,6 @@ def ensure_block_editor(editable, *, user=None):
         apply_classic_upgrade(template)
         template.refresh_from_db()
     else:
-        attach_builder_primitives(template)
+        apply_classic_upgrade(template)
+        template.refresh_from_db()
     return template

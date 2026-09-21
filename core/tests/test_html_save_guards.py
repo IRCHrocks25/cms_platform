@@ -8,9 +8,11 @@ they were trying to replace.
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from core.models import Template, Tenant
 from core.parser import build_schema
+from core.urls_helpers import tenant_public_url
 from core.renderer import merge_with_defaults
 from core.services import templates as template_svc
 
@@ -73,11 +75,29 @@ class BlankHtmlRejectedTest(TestCase):
         )
         self.assertContains(response, "data-source-unsaved-indicator", html=False)
         self.assertContains(response, 'class="btn btn-secondary">Cancel</a>', html=False)
+        self.assertNotContains(response, "View site", html=False)
         self.assertNotContains(response, "source-form-actions", html=False)
         self.assertLess(
             body.index('class="source-page-actions"'),
             body.index('id="template-source-form"'),
         )
+
+    def test_template_form_header_links_to_assigned_site(self):
+        tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=self.tpl, owner=self.staff,
+        )
+        response = self.client.get(f"/dashboard/templates/{self.tpl.pk}/")
+        editor = reverse("dashboard:tenant_editor", args=[tenant.pk])
+        public = tenant_public_url(response.wsgi_request, tenant)
+
+        self.assertContains(response, "View site", html=False)
+        self.assertContains(response, f'href="{public}"', html=False)
+        self.assertContains(response, f'href="{editor}"', html=False)
+        actions = response.content.decode()
+        actions = actions[actions.index("source-page-actions"):actions.index("template-source-form")]
+        self.assertRegex(actions, r">\s*Edit\s*</a>")
+        self.assertLess(actions.index("View site"), actions.index("Cancel"))
+        self.assertLess(actions.index("Edit"), actions.index("Cancel"))
 
     def test_missing_html_source_is_rejected(self):
         before = self.tpl.versions.count()

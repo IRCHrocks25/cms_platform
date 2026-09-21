@@ -96,15 +96,47 @@ leaks into the page as literal text.
    injected into arbitrary client chrome). Some client templates pin the
    navbar out of normal flow (position: fixed | absolute, top:0), which would
    let it overlap the blog title. Measure it at runtime and pad .cms-blog only
-   when the nav is out of flow AND at the top. In-flow navs get no dead space. */
+   when the nav is out of flow AND at the top. In-flow navs get no dead space.
+
+   Light-type overlay navs (white/light fonts designed for a dark hero) get
+   a full-width grey→black strip (.cms-nav-darkband) so those fonts stay
+   readable. Dark-text navs are left alone. Nothing is recolored. */
 (function () {
   "use strict";
   function findNav() {
-    var nav = document.querySelector('[data-section="nav"]');
+    var nav = document.querySelector('[data-section="nav"], [data-section="navigation"]');
     if (nav) return nav;
     var c = document.querySelectorAll("header, nav");
     for (var i = 0; i < c.length; i++) { if (!c[i].closest(".cms-blog")) return c[i]; }
     return null;
+  }
+  function parseColor(str) {
+    if (!str || str === "transparent") return null;
+    var m = str.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?/);
+    if (!m) return null;
+    var a = m[4] === undefined ? 1 : parseFloat(m[4]);
+    if (a < 0.15) return null;
+    return { r: +m[1], g: +m[2], b: +m[3] };
+  }
+  function luma(c) {
+    return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+  }
+  function navHasLightType(nav) {
+    var light = 0, dark = 0;
+    var nodes = nav.querySelectorAll("a, button, span, li, p, label");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!(el.textContent || "").trim()) continue;
+      var fg = parseColor(window.getComputedStyle(el).color);
+      if (!fg) continue;
+      if (luma(fg) >= 0.7) light += 1;
+      else dark += 1;
+    }
+    return light > 0 && light >= dark;
+  }
+  function applyDarkBand(nav) {
+    if (navHasLightType(nav)) nav.classList.add("cms-nav-darkband");
+    else nav.classList.remove("cms-nav-darkband");
   }
   function adjust() {
     var blog = document.querySelector(".cms-blog");
@@ -115,13 +147,12 @@ leaks into the page as literal text.
     var outOfFlow = pos === "fixed" || pos === "absolute";
     if (outOfFlow && nav.getBoundingClientRect().top <= 8 && nav.offsetHeight > 0) {
       blog.style.paddingTop = nav.offsetHeight + 24 + "px";
-      // Size the masthead backdrop band to the navbar so its (light) text has
-      // the dark hero-colored backdrop it was designed for.
       blog.style.setProperty("--cms-navh", nav.offsetHeight + "px");
     } else {
       blog.style.paddingTop = "";
       blog.style.setProperty("--cms-navh", "0px");
     }
+    applyDarkBand(nav);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", adjust);
   else adjust();

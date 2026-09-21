@@ -143,8 +143,15 @@ class Template(models.Model):
         """True when this template is a block-instance *shell* — its HTML has a
         ``data-region`` slot where client-inserted blocks are rendered. Such a
         template drives the block editor + ``render_page_from_blocks`` instead
-        of the classic fixed-section renderer."""
-        return 'data-region=' in (self.html_source or '')
+        of the classic fixed-section renderer.
+
+        Only a real attribute counts. Designed-page CSS often contains
+        ``[data-region=main]`` after a convert; that selector must not flip
+        a classic annotated template into an empty block canvas.
+        """
+        return bool(
+            re.search(r"""\sdata-region\s*=\s*['"]""", self.html_source or "")
+        )
 
     @property
     def is_client_editable(self) -> bool:
