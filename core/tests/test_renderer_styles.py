@@ -498,6 +498,7 @@ class PreviewBridgeStyleTests(SimpleTestCase):
         self.assertIn("apply-styles", html)
         self.assertIn("apply-global", html)
         self.assertIn("cmsEnsureFont", html)
+        self.assertIn("cmsApplyLinkTarget", html)
 
 
 class UrlFieldSanitizeTests(SimpleTestCase):
@@ -516,10 +517,28 @@ class UrlFieldSanitizeTests(SimpleTestCase):
 
     def test_https_link_applied(self):
         soup = self._render(
-            '<a data-edit="hero.cta" data-type="link" href="/ok">Go</a>',
+            '<a data-edit="hero.cta" data-type="link" href="/ok" rel="nofollow">Go</a>',
             {"hero": {"cta": "https://example.com"}},
         )
-        self.assertEqual(soup.find("a").get("href"), "https://example.com")
+        link = soup.find("a")
+        self.assertEqual(link.get("href"), "https://example.com")
+        self.assertEqual(link.get("target"), "_blank")
+        rel = link.get("rel") or []
+        self.assertIn("noopener", rel)
+        self.assertIn("noreferrer", rel)
+        self.assertIn("nofollow", rel)
+
+    def test_https_default_opens_new_tab_when_content_matches(self):
+        soup = self._render(
+            '<a data-edit="hero.cta" data-type="link" href="https://example.com">Go</a>',
+            {"hero": {"cta": "https://example.com"}},
+        )
+        link = soup.find("a")
+        self.assertEqual(link.get("href"), "https://example.com")
+        self.assertEqual(link.get("target"), "_blank")
+        rel = link.get("rel") or []
+        self.assertIn("noopener", rel)
+        self.assertIn("noreferrer", rel)
 
     def test_mailto_and_anchor_and_tel_allowed(self):
         for value in ("mailto:a@b.com", "#section", "tel:+123", "/rel/path"):
@@ -527,7 +546,9 @@ class UrlFieldSanitizeTests(SimpleTestCase):
                 '<a data-edit="s.f" data-type="link" href="#">x</a>',
                 {"s": {"f": value}},
             )
-            self.assertEqual(soup.find("a").get("href"), value)
+            link = soup.find("a")
+            self.assertEqual(link.get("href"), value)
+            self.assertIsNone(link.get("target"))
 
     def test_javascript_image_src_rejected(self):
         soup = self._render(

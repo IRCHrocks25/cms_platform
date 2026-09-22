@@ -183,6 +183,30 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (v.split('/')[0].indexOf(':') === -1) return v;
     return null;
   }
+  // http(s) leaves the site: open it in a new tab. Anchors, site paths,
+  // mailto, and tel stay in this tab. Drop a blank target when a live edit
+  // turns an external URL back into an on-site one.
+  function cmsIsExternalUrl(url) {
+    var low = String(url == null ? '' : url).trim().toLowerCase();
+    return low.indexOf('http://') === 0 || low.indexOf('https://') === 0;
+  }
+  function cmsApplyLinkTarget(el, url) {
+    if (!el || !el.setAttribute) return;
+    if (cmsIsExternalUrl(url)) {
+      el.setAttribute('target', '_blank');
+      var rel = (el.getAttribute('rel') || '').split(' ').filter(function (token) { return token; });
+      if (rel.indexOf('noopener') === -1) rel.push('noopener');
+      if (rel.indexOf('noreferrer') === -1) rel.push('noreferrer');
+      el.setAttribute('rel', rel.join(' '));
+    } else if (el.getAttribute('target') === '_blank') {
+      el.removeAttribute('target');
+      var kept = (el.getAttribute('rel') || '').split(' ').filter(function (token) {
+        return token && token !== 'noopener' && token !== 'noreferrer';
+      });
+      if (kept.length) el.setAttribute('rel', kept.join(' '));
+      else el.removeAttribute('rel');
+    }
+  }
   var CMS_SAFE_TOKEN = /^[A-Za-z0-9.%\\-\\s]+$/;
   var CMS_SAFE_CSS = /^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(?:rgb|rgba|hsl|hsla)\\([0-9.,%\\s\\/]+\\)$/;
   function cmsSafeCssValue(value) { var v = String(value == null ? '' : value).trim(); return CMS_SAFE_CSS.test(v) ? v : ''; }
@@ -604,6 +628,7 @@ PREVIEW_BRIDGE_SCRIPT = """
           if (lurlH === null) return;
           document.querySelectorAll('[data-edit="' + hrefHost + '"]').forEach(function (host) {
             host.setAttribute('href', lurlH);
+            cmsApplyLinkTarget(host, lurlH);
           });
           return;
         }
@@ -642,7 +667,7 @@ PREVIEW_BRIDGE_SCRIPT = """
               if (el.load) { el.load(); }
             } else { el.setAttribute('src', vurl); }
           }
-          else if (t === 'link') { var lurl = cmsSafeUrl(value, { anchor: true }); if (lurl === null) return; el.setAttribute('href', lurl); }
+          else if (t === 'link') { var lurl = cmsSafeUrl(value, { anchor: true }); if (lurl === null) return; el.setAttribute('href', lurl); cmsApplyLinkTarget(el, lurl); }
           else if (t === 'color') {
             var prop = (el.tagName.toLowerCase() === 'span') ? 'color' : 'background-color';
             var cval = cmsSafeCssValue(value);
@@ -2200,6 +2225,28 @@ def _auto_annotate(soup) -> None:
         n += 1
 
 
+def _mark_external_links(soup) -> None:
+    """Open http(s) anchors in a new tab. In-page, relative, mailto, and tel stay put.
+
+    Runs after field apply so a template whose href already matches the saved
+    value still gets ``target`` — ``_apply_field`` skips that write.
+    """
+    for el in soup.find_all("a", href=True):
+        href = str(el.get("href") or "").strip().lower()
+        if not href.startswith(("http://", "https://")):
+            continue
+        el["target"] = "_blank"
+        existing = el.get("rel") or []
+        if isinstance(existing, str):
+            tokens = existing.split()
+        else:
+            tokens = [str(token) for token in existing]
+        for token in ("noopener", "noreferrer"):
+            if token not in tokens:
+                tokens.append(token)
+        el["rel"] = tokens
+
+
 def render_site(
     template_html: str,
     content: dict[str, Any],
@@ -2280,6 +2327,7 @@ def render_site(
         for node in list(bridge.body.children if bridge.body else bridge.children):
             body.append(node)
 
+    _mark_external_links(soup)
     return str(soup)
 
 
