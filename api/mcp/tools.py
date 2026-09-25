@@ -1146,7 +1146,10 @@ def verify_custom_domain(
             "site": tenant.subdomain,
             "domain": custom_domain.domain,
             "is_verified": verified,
-            "resolved": resolved,
+            "resolved": list(resolved),
+            # Authorities that answered but not cleanly (CMS-65); any entry
+            # blocks verification because Let's Encrypt may ask that one.
+            "dns_problems": list(getattr(resolved, "problems", ())),
             "target_ip": settings.CUSTOM_DOMAIN_TARGET_IP,
         }
     )

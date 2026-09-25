@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
+from core.services import custom_domains
 from core.models import CustomDomain, Template, Tenant
 
 User = get_user_model()
@@ -84,6 +85,24 @@ class MultiCustomDomainTests(TestCase):
         b.refresh_from_db()
         self.assertTrue(b.is_verified)
         self.assertFalse(a.is_verified)  # sibling untouched
+
+    def test_verify_names_the_nameserver_that_disagrees(self):
+        cd = CustomDomain.objects.create(
+            tenant=self.tenant, domain="primary-site.com", is_verified=False
+        )
+        answer = custom_domains.DnsAnswer([TARGET_IP], problems=("192.0.2.2: NXDOMAIN",))
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=answer
+        ):
+            resp = self._client().post(
+                reverse(
+                    "dashboard:tenant_custom_domain_verify",
+                    args=[self.tenant.pk, cd.pk],
+                )
+            )
+        self.assertContains(resp, "192.0.2.2: NXDOMAIN")
+        cd.refresh_from_db()
+        self.assertFalse(cd.is_verified)
 
     def test_verify_rejects_domain_from_another_tenant(self):
         foreign = CustomDomain.objects.create(

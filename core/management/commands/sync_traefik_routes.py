@@ -28,13 +28,6 @@ class Command(BaseCommand):
                 "TRAEFIK_DYNAMIC_DIR is not set; nothing to write (no-op)."
             )
             return
-        # Probe verified domains without a confirmed cert first, so a bumped
-        # router generation lands in this same pass (CMS-65). Best-effort: a
-        # probe failure must never stop the routes from being written.
-        try:
-            check_pending_certificates()
-        except Exception as exc:  # noqa: BLE001; loop must survive any error
-            self.stderr.write(f"Certificate health check errored: {exc!r}")
         # Runs in the syncer's `while true` loop. Never raise: on first deploy the
         # DB may not be migrated yet (web owns migrations), so the CustomDomain
         # query can fail transiently. Log and exit 0 so the loop retries cleanly.
@@ -43,6 +36,14 @@ class Command(BaseCommand):
         except Exception as exc:  # noqa: BLE001; loop must survive any error
             self.stderr.write(f"Route sync errored (will retry): {exc!r}")
             return
+        # Then probe verified domains without a confirmed cert (CMS-65). Routes
+        # are already written, so slow probes never delay a new or removed
+        # domain. A bumped router generation is written straight away.
+        try:
+            if check_pending_certificates():
+                ok = sync_custom_domain_routes()
+        except Exception as exc:  # noqa: BLE001; loop must survive any error
+            self.stderr.write(f"Certificate health check errored: {exc!r}")
         if ok:
             self.stdout.write(
                 self.style.SUCCESS(f"Up to date: {target_dir}/{ROUTES_FILENAME}")

@@ -5,6 +5,7 @@ Only the network edge is faked: ``_nameserver_ips`` (which NS to ask) and
 ``_query_nameserver`` (one UDP/TCP exchange). The responses are real dnspython
 messages, so answer parsing and CNAME handling run for real.
 """
+import time
 from unittest.mock import patch
 
 import dns.exception
@@ -34,7 +35,7 @@ def _response(qname, *rrsets, rcode=dns.rcode.NOERROR):
 def _answers(table):
     """Fake one exchange: ``table[(ns_ip, qname)]`` is a response or an exception."""
 
-    def query(ns_ip, qname):
+    def query(ns_ip, qname, timeout=None):
         result = table[(ns_ip, qname)]
         if isinstance(result, Exception):
             raise result
@@ -109,7 +110,7 @@ class AuthoritativeLookupTests(TestCase):
             ),
         }
         with patch.object(
-            custom_domains, "_nameserver_ips", side_effect=lambda d: nameservers[d]
+            custom_domains, "_nameserver_ips", side_effect=lambda d, timeout=None: nameservers[d]
         ), patch.object(custom_domains, "_query_nameserver", side_effect=_answers(table)):
             self.assertEqual(custom_domains.resolve_a_records("www.acme.com"), [TARGET_IP])
 
@@ -123,6 +124,58 @@ class AuthoritativeLookupTests(TestCase):
             ),
         }
         self.assertEqual(self._resolve("a.acme.com", [NS_A], table), [])
+
+    def test_authority_answering_nxdomain_is_reported(self):
+        """One authority still says the name doesn't exist. Let's Encrypt
+        may ask that one, so it must not look like a clean answer."""
+        table = {
+            (NS_A, "acme.com"): _response("acme.com", ("acme.com.", "A", TARGET_IP)),
+            (NS_B, "acme.com"): _response("acme.com", rcode=dns.rcode.NXDOMAIN),
+        }
+        resolved = self._resolve("acme.com", [NS_A, NS_B], table)
+        self.assertEqual(resolved, [TARGET_IP])
+        self.assertEqual(resolved.problems, (f"{NS_B}: NXDOMAIN",))
+
+    def test_authority_answering_servfail_is_reported(self):
+        table = {
+            (NS_A, "acme.com"): _response("acme.com", ("acme.com.", "A", TARGET_IP)),
+            (NS_B, "acme.com"): _response("acme.com", rcode=dns.rcode.SERVFAIL),
+        }
+        resolved = self._resolve("acme.com", [NS_A, NS_B], table)
+        self.assertEqual(resolved.problems, (f"{NS_B}: SERVFAIL",))
+
+    def test_authority_with_no_a_record_is_reported(self):
+        table = {
+            (NS_A, "acme.com"): _response("acme.com", ("acme.com.", "A", TARGET_IP)),
+            (NS_B, "acme.com"): _response("acme.com"),
+        }
+        resolved = self._resolve("acme.com", [NS_A, NS_B], table)
+        self.assertEqual(resolved.problems, (f"{NS_B}: no A record",))
+
+    def test_clean_answer_has_no_problems(self):
+        table = {
+            (NS_A, "acme.com"): _response("acme.com", ("acme.com.", "A", TARGET_IP)),
+            (NS_B, "acme.com"): dns.exception.Timeout(),
+        }
+        self.assertEqual(self._resolve("acme.com", [NS_A, NS_B], table).problems, ())
+
+    def test_whole_lookup_respects_one_deadline(self):
+        """Several dead authorities must not add up: the dashboard verify is
+        a synchronous request."""
+        nameservers = [f"192.0.2.{i}" for i in range(1, 7)]
+
+        def slow(ns_ip, qname, timeout=None):
+            time.sleep(1.0)
+            raise dns.exception.Timeout()
+
+        started = time.monotonic()
+        with patch.object(custom_domains, "_LOOKUP_DEADLINE", 0.5), patch.object(
+            custom_domains, "_nameserver_ips", return_value=nameservers
+        ), patch.object(custom_domains, "_query_nameserver", side_effect=slow):
+            resolved = custom_domains.resolve_a_records("acme.com")
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(resolved, [])
+        self.assertEqual(resolved.problems, ("DNS lookup timed out",))
 
     def test_zone_lookup_failure_returns_empty(self):
         with patch.object(
@@ -153,6 +206,23 @@ class VerifyRuleTests(TestCase):
         self.assertEqual(self._verify([TARGET_IP]), (True, [TARGET_IP]))
         self.cd.refresh_from_db()
         self.assertTrue(self.cd.is_verified)
+        self.assertIsNotNone(self.cd.verified_at)
+
+    def test_clean_answer_with_a_failing_authority_does_not_verify(self):
+        answer = custom_domains.DnsAnswer([TARGET_IP], problems=(f"{NS_B}: NXDOMAIN",))
+        verified, _resolved = self._verify(answer)
+        self.assertFalse(verified)
+        self.cd.refresh_from_db()
+        self.assertFalse(self.cd.is_verified)
+
+    def test_reverify_fills_a_missing_verified_at(self):
+        """Rows force-verified before CMS-65 have no stamp; a normal verify
+        must add one or the ACME health check never sees them."""
+        CustomDomain.objects.filter(pk=self.cd.pk).update(is_verified=True)
+        self.cd.refresh_from_db()
+        with patch("core.services.acme_health.probe_certificate", return_value=True):
+            self._verify([TARGET_IP])
+        self.cd.refresh_from_db()
         self.assertIsNotNone(self.cd.verified_at)
 
     def test_target_plus_a_stale_address_does_not_verify(self):

@@ -6,6 +6,7 @@ it. ``check_pending_certificates`` probes each verified-but-unconfirmed domain
 and bumps its router generation when the origin still can't serve a valid
 cert. The TLS probe is the only thing faked.
 """
+import time
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -78,6 +79,38 @@ class CheckPendingCertificatesTests(TestCase):
             now += acme_health.RETRY_INTERVAL
         self.assertEqual(self.cd.acme_generation, acme_health.MAX_AUTO_RETRIES)
 
+    def test_probing_stops_at_the_per_pass_budget(self):
+        for i in range(5):
+            CustomDomain.objects.create(
+                tenant=self.cd.tenant,
+                domain=f"d{i}.acme.com",
+                is_verified=True,
+                verified_at=self.now - timedelta(minutes=10),
+            )
+        probed = []
+
+        def slow_probe(domain):
+            probed.append(domain)
+            time.sleep(0.3)
+            return True
+
+        with patch.object(acme_health, "PROBE_BUDGET_SECONDS", 0.5):
+            acme_health.check_pending_certificates(now=self.now, probe=slow_probe)
+        self.assertLessEqual(len(probed), 2)
+
+    def test_bump_from_a_stale_instance_uses_the_current_row(self):
+        """The syncer can hold a row loaded before a manual re-verify reset
+        it; saving that stale copy must not undo the reset."""
+        stale = CustomDomain.objects.get(pk=self.cd.pk)
+        CustomDomain.objects.filter(pk=self.cd.pk).update(
+            acme_generation=3, acme_retry_count=0
+        )
+        stale.acme_retry_count = 4
+        acme_health._bump(stale, self.now, reset_budget=False)
+        self.cd.refresh_from_db()
+        self.assertEqual(self.cd.acme_generation, 4)
+        self.assertEqual(self.cd.acme_retry_count, 1)
+
     def test_confirmed_and_unverified_domains_are_not_probed(self):
         self.cd.cert_confirmed_at = self.now
         self.cd.save()
@@ -127,6 +160,17 @@ class ReverifyForcesReissueTests(TestCase):
         self._verify(False)
         self.assertEqual(self.cd.acme_generation, 1)
 
+    def test_manual_retry_respects_the_automatic_window(self):
+        """Let's Encrypt counts failures per host no matter who asked: a click
+        5 minutes after an automatic retry must not add another order."""
+        CustomDomain.objects.filter(pk=self.cd.pk).update(
+            acme_generation=2,
+            acme_retried_at=timezone.now() - timedelta(minutes=5),
+        )
+        self.cd.refresh_from_db()
+        self._verify(False)
+        self.assertEqual(self.cd.acme_generation, 2)
+
     def test_first_verification_does_not_probe(self):
         """A domain that just became verified has no router yet."""
         self.cd.is_verified = False
@@ -149,7 +193,7 @@ class SyncCommandRunsHealthCheckTests(TestCase):
     """The route-syncer loop is the only place with a Traefik mount, so the
     health check runs there, before the routes are regenerated."""
 
-    def test_command_checks_certificates_then_syncs(self):
+    def _run(self, bumped):
         import tempfile
 
         from django.core.management import call_command
@@ -159,13 +203,20 @@ class SyncCommandRunsHealthCheckTests(TestCase):
             TRAEFIK_DYNAMIC_DIR=tmp
         ), patch(
             "core.management.commands.sync_traefik_routes.check_pending_certificates",
-            side_effect=lambda: calls.append("check"),
+            side_effect=lambda: calls.append("check") or bumped,
         ), patch(
             "core.management.commands.sync_traefik_routes.sync_custom_domain_routes",
             side_effect=lambda: calls.append("sync") or True,
         ):
             call_command("sync_traefik_routes")
-        self.assertEqual(calls, ["check", "sync"])
+        return calls
+
+    def test_routes_are_written_before_any_probe(self):
+        """Slow probes must never delay a new or removed domain's route."""
+        self.assertEqual(self._run(bumped=0), ["sync", "check"])
+
+    def test_a_bump_is_written_in_the_same_pass(self):
+        self.assertEqual(self._run(bumped=1), ["sync", "check", "sync"])
 
     def test_health_check_error_does_not_block_route_sync(self):
         import tempfile
