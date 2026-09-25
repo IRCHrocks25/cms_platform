@@ -124,12 +124,15 @@ def _parallel(fn, items, deadline: float) -> list:
     finish on their own bounded timeouts)."""
     if not items:
         return []
+    _remaining(deadline)  # nothing is queued once the deadline has passed
     futures = [_EXECUTOR.submit(fn, item) for item in items]
-    _done, pending = futures_wait(futures, timeout=_remaining(deadline))
-    if pending:
-        for future in pending:
-            future.cancel()
-        raise _DeadlineExceeded()
+    try:
+        _done, pending = futures_wait(futures, timeout=_remaining(deadline))
+        if pending:
+            raise _DeadlineExceeded()
+    finally:
+        for future in futures:
+            future.cancel()  # no-op for finished or running ones
     results = []
     for future in futures:
         try:
@@ -177,9 +180,12 @@ def _authoritative_a_records(domain: str, seen: frozenset, deadline: float):
         return set(), []
     seen = seen | {domain}
     nameservers = _nameserver_ips(domain, deadline=deadline)
-    per_query = min(_NS_QUERY_TIMEOUT, _remaining(deadline))
+    # The timeout is taken when the worker starts, so an exchange queued
+    # behind a saturated pool gets only what is left of the deadline.
     responses = _parallel(
-        lambda ns_ip: _query_nameserver(ns_ip, domain, timeout=per_query),
+        lambda ns_ip: _query_nameserver(
+            ns_ip, domain, timeout=min(_NS_QUERY_TIMEOUT, _remaining(deadline))
+        ),
         nameservers,
         deadline,
     )

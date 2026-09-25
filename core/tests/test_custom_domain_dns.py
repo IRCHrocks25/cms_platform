@@ -211,6 +211,15 @@ class AuthoritativeLookupTests(TestCase):
             peak = threading.active_count()
         self.assertLessEqual(peak - baseline, custom_domains._MAX_DNS_WORKERS)
 
+    def test_expired_deadline_queues_no_work(self):
+        ran = []
+        with self.assertRaises(custom_domains._DeadlineExceeded):
+            custom_domains._parallel(
+                lambda item: ran.append(item), list(range(20)), time.monotonic() - 1
+            )
+        time.sleep(0.1)
+        self.assertEqual(ran, [])
+
     def test_zone_lookup_failure_returns_empty(self):
         with patch.object(
             custom_domains, "_nameserver_ips", side_effect=dns.exception.DNSException()
