@@ -44,6 +44,18 @@ class BuildConfigTests(TestCase):
         self.assertEqual(mw["redirectScheme"]["scheme"], "https")
         self.assertTrue(mw["redirectScheme"]["permanent"])
 
+    def test_bumped_generation_renames_both_routers(self):
+        """CMS-65: a new router name is a config change Traefik reacts to with
+        a fresh ACME order, which is how a failed first issuance heals."""
+        t = _tenant()
+        cd = CustomDomain.objects.create(
+            tenant=t, domain="www.acme.com", is_verified=True, acme_generation=2
+        )
+        routers = _build_config([cd])["http"]["routers"]
+        self.assertEqual(
+            sorted(routers), [f"cms-cd-{cd.pk}-g2", f"cms-cd-{cd.pk}-g2-web"]
+        )
+
     def test_empty_set_is_valid_empty_config(self):
         self.assertEqual(_build_config([]), {"http": {"routers": {}}})
 

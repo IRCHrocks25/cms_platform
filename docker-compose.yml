@@ -40,6 +40,7 @@ services:
       # dashboard's verify step checks the domain resolves here. Traefik then
       # auto-issues a Let's Encrypt cert per domain. See deploy/DOKPLOY.md.
       CUSTOM_DOMAIN_TARGET_IP: ${CUSTOM_DOMAIN_TARGET_IP:-5.78.149.237}
+      CUSTOM_DOMAIN_TLS_PROBE_HOST: ${CUSTOM_DOMAIN_TLS_PROBE_HOST:-}
       # AI annotation. Without these forwarded, the container never sees the key
       # Dokploy holds and annotate_html() raises "OPENAI_API_KEY is not set".
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -191,6 +192,9 @@ services:
       DJANGO_DEBUG: "0"
       DATABASE_URL: ${DATABASE_URL}
       TRAEFIK_DYNAMIC_DIR: /traefik-dynamic
+      # The syncer probes custom-domain certs each pass (CMS-65).
+      CUSTOM_DOMAIN_TARGET_IP: ${CUSTOM_DOMAIN_TARGET_IP:-5.78.149.237}
+      CUSTOM_DOMAIN_TLS_PROBE_HOST: ${CUSTOM_DOMAIN_TLS_PROBE_HOST:-}
     volumes:
       # Mounts the dynamic-config ROOT (not a subdir): Traefik's file provider
       # watches `directory:` non-recursively, so a subdir file would be ignored.

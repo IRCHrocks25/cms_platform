@@ -326,6 +326,24 @@ class CustomDomainToolsTests(TestCase):
         row = CustomDomain.objects.get(domain="www.acme.com")
         self.assertFalse(row.is_verified)
 
+    def test_verify_reports_failing_nameservers(self):
+        from core.services.custom_domains import DnsAnswer
+
+        CustomDomain.objects.create(
+            tenant=self.tenant, domain="www.acme.com", is_verified=False
+        )
+        answer = DnsAnswer([TARGET_IP], problems=("192.0.2.2: SERVFAIL",))
+        with patch(
+            "core.services.custom_domains.resolve_a_records", return_value=answer
+        ):
+            r = self._call(
+                "verify_custom_domain",
+                {"site": "existing", "domain": "www.acme.com"},
+            )
+        sc = r.json()["result"]["structuredContent"]
+        self.assertFalse(sc["is_verified"])
+        self.assertEqual(sc["dns_problems"], ["192.0.2.2: SERVFAIL"])
+
     def test_verify_no_a_record_stays_unverified_with_empty_resolved(self):
         CustomDomain.objects.create(
             tenant=self.tenant, domain="www.acme.com", is_verified=False

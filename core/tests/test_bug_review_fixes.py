@@ -496,6 +496,23 @@ class ForceVerifySuperuserTests(TestCase):
         domain.refresh_from_db()
         self.assertFalse(domain.is_verified)
 
+    def test_force_verify_stamps_verified_at(self):
+        """CMS-65: the ACME health check only sees rows with verified_at, so
+        a force-verified domain must get one or it never self-heals."""
+        admin = User.objects.create_superuser("root", password="x")
+        tenant = Tenant.objects.create(
+            name="Acme", subdomain="forcev2", template=_template(), owner=admin,
+        )
+        domain = CustomDomain.objects.create(
+            tenant=tenant, domain="example.org", is_verified=False
+        )
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(admin)
+        c.post(reverse("dashboard:custom_domain_force_verify", args=[domain.pk]))
+        domain.refresh_from_db()
+        self.assertTrue(domain.is_verified)
+        self.assertIsNotNone(domain.verified_at)
+
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class DiagnosticHeaderTests(TestCase):

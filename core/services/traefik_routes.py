@@ -80,7 +80,11 @@ def _build_config(domains):
         # Host(`<domain>`) + certResolver=letsencrypt: Traefik extracts the
         # domain from the rule and ACME-issues a real public LE cert (HTTP-01 on
         # the `web` entrypoint). Direct-to-origin means no Cloudflare for the client.
-        routers[f"cms-cd-{cd.pk}"] = {
+        # A bumped acme_generation renames the routers; Traefik treats that as
+        # a config change and opens a fresh ACME order (CMS-65). Generation 0
+        # keeps the original name so healthy domains never churn.
+        name = f"cms-cd-{cd.pk}" + (f"-g{cd.acme_generation}" if cd.acme_generation else "")
+        routers[name] = {
             "rule": f"Host(`{cd.domain}`)",
             "entryPoints": ["websecure"],
             "service": "cms-web@docker",
@@ -92,7 +96,7 @@ def _build_config(domains):
         # http://<domain> would 404. The ACME HTTP-01 challenge is unaffected:
         # Traefik serves /.well-known/acme-challenge/ on its own higher-priority
         # internal router before this one ever matches.
-        routers[f"cms-cd-{cd.pk}-web"] = {
+        routers[f"{name}-web"] = {
             "rule": f"Host(`{cd.domain}`)",
             "entryPoints": ["web"],
             "service": "cms-web@docker",

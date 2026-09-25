@@ -4449,8 +4449,20 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
                  "within about a minute on first visit. Then your domain is live.",
         )
 
-    if resolved:
+    problems = getattr(resolved, "problems", ())
+    if problems and not resolved:
+        detail = f"its nameservers returned errors ({'; '.join(problems)})"
+    elif problems and resolved == [settings.CUSTOM_DOMAIN_TARGET_IP]:
+        # Points at us, but not every nameserver agrees yet (CMS-65).
+        detail = (
+            "not every nameserver for it agrees yet ("
+            + "; ".join(problems)
+            + "). Usually this clears once DNS finishes propagating"
+        )
+    elif resolved:
         detail = f"it currently points at {', '.join(resolved)}"
+        if problems:
+            detail += f" ({'; '.join(problems)})"
     else:
         detail = "it isn't resolving yet (DNS can take a few minutes to propagate)"
     return _render_custom_domain_partial(
@@ -4523,8 +4535,7 @@ def custom_domain_force_verify(request, pk):
         )
     domain = get_object_or_404(CustomDomain, pk=pk)
     if not domain.is_verified:
-        domain.is_verified = True
-        domain.save(update_fields=["is_verified", "updated_at"])
+        custom_domains.mark_verified(domain)
         custom_domains.sync_tenant_primary_domain(domain.tenant)
         messages.success(request, f"“{domain.domain}” force-marked as verified.")
     else:
