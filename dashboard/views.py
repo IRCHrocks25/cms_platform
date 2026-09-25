@@ -4450,7 +4450,9 @@ def tenant_custom_domain_verify(request, pk, domain_pk):
         )
 
     problems = getattr(resolved, "problems", ())
-    if problems and resolved == [settings.CUSTOM_DOMAIN_TARGET_IP]:
+    if problems and not resolved:
+        detail = f"its nameservers returned errors ({'; '.join(problems)})"
+    elif problems and resolved == [settings.CUSTOM_DOMAIN_TARGET_IP]:
         # Points at us, but not every nameserver agrees yet (CMS-65).
         detail = (
             "not every nameserver for it agrees yet ("

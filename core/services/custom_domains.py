@@ -69,19 +69,28 @@ def _remaining(deadline: float) -> float:
     return left
 
 
-def _nameserver_ips(domain: str, timeout: float = _LOOKUP_DEADLINE) -> list:
+def _nameserver_ips(domain: str, deadline: float) -> list:
     """IPv4 addresses of the authoritative nameservers for ``domain``'s zone.
 
     The zone cut and NS set come from the recursive resolver: those records
     change rarely, and a stale NS set still points at servers that answer
-    for the zone. Raises ``dns.exception.DNSException`` on failure.
+    for the zone. Every step draws on the same absolute ``deadline``. Raises
+    ``dns.exception.DNSException`` or ``_DeadlineExceeded`` on failure.
     """
     resolver = dns.resolver.Resolver()
-    resolver.lifetime = timeout
-    zone = dns.resolver.zone_for_name(domain, resolver=resolver)
-    ns_names = [ns.target for ns in resolver.resolve(zone, "NS")]
+    zone = dns.resolver.zone_for_name(
+        domain, resolver=resolver, lifetime=_remaining(deadline)
+    )
+    ns_names = [
+        ns.target
+        for ns in resolver.resolve(zone, "NS", lifetime=_remaining(deadline))
+    ]
     ips = []
-    for answer in _parallel(lambda n: resolver.resolve(n, "A"), ns_names, timeout):
+    for answer in _parallel(
+        lambda n: resolver.resolve(n, "A", lifetime=_remaining(deadline)),
+        ns_names,
+        deadline,
+    ):
         if not isinstance(answer, Exception):
             ips.extend(r.address for r in answer)
     return sorted(set(ips))
@@ -98,27 +107,36 @@ def _query_nameserver(
     return response
 
 
-def _parallel(fn, items, timeout: float) -> list:
-    """Run ``fn`` over ``items`` concurrently; each result is the return value
-    or the exception raised. Raises ``_DeadlineExceeded`` if any is still
-    running after ``timeout`` (stragglers are abandoned, not joined)."""
+# One small pool for every lookup in the process. A timed-out exchange can't
+# be cancelled once running, so a per-request pool would leave its threads
+# behind; a shared, capped pool bounds that to _MAX_DNS_WORKERS threads, each
+# freed within one per-exchange timeout.
+_MAX_DNS_WORKERS = 8
+_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_MAX_DNS_WORKERS, thread_name_prefix="dns-verify"
+)
+
+
+def _parallel(fn, items, deadline: float) -> list:
+    """Run ``fn`` over ``items`` on the shared pool; each result is the return
+    value or the exception raised. Raises ``_DeadlineExceeded`` if any is
+    still unfinished at ``deadline`` (queued ones are cancelled, running ones
+    finish on their own bounded timeouts)."""
     if not items:
         return []
-    pool = ThreadPoolExecutor(max_workers=len(items))
-    try:
-        futures = [pool.submit(fn, item) for item in items]
-        done, pending = futures_wait(futures, timeout=timeout)
-        if pending:
-            raise _DeadlineExceeded()
-        results = []
-        for future in futures:
-            try:
-                results.append(future.result())
-            except Exception as exc:  # noqa: BLE001; returned as data
-                results.append(exc)
-        return results
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+    futures = [_EXECUTOR.submit(fn, item) for item in items]
+    _done, pending = futures_wait(futures, timeout=_remaining(deadline))
+    if pending:
+        for future in pending:
+            future.cancel()
+        raise _DeadlineExceeded()
+    results = []
+    for future in futures:
+        try:
+            results.append(future.result())
+        except Exception as exc:  # noqa: BLE001; returned as data
+            results.append(exc)
+    return results
 
 
 def _answer_rrset(response, name, rdtype):
@@ -158,12 +176,12 @@ def _authoritative_a_records(domain: str, seen: frozenset, deadline: float):
     if domain in seen or len(seen) >= _MAX_CNAME_DEPTH:
         return set(), []
     seen = seen | {domain}
-    nameservers = _nameserver_ips(domain, timeout=_remaining(deadline))
+    nameservers = _nameserver_ips(domain, deadline=deadline)
     per_query = min(_NS_QUERY_TIMEOUT, _remaining(deadline))
     responses = _parallel(
         lambda ns_ip: _query_nameserver(ns_ip, domain, timeout=per_query),
         nameservers,
-        _remaining(deadline),
+        deadline,
     )
     addresses, problems, chase = set(), [], set()
     for ns_ip, response in zip(nameservers, responses):

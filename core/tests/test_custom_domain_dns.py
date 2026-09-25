@@ -110,7 +110,7 @@ class AuthoritativeLookupTests(TestCase):
             ),
         }
         with patch.object(
-            custom_domains, "_nameserver_ips", side_effect=lambda d, timeout=None: nameservers[d]
+            custom_domains, "_nameserver_ips", side_effect=lambda d, deadline=None: nameservers[d]
         ), patch.object(custom_domains, "_query_nameserver", side_effect=_answers(table)):
             self.assertEqual(custom_domains.resolve_a_records("www.acme.com"), [TARGET_IP])
 
@@ -176,6 +176,40 @@ class AuthoritativeLookupTests(TestCase):
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertEqual(resolved, [])
         self.assertEqual(resolved.problems, ("DNS lookup timed out",))
+
+    def test_nameserver_discovery_shares_the_same_deadline(self):
+        """Zone cut, NS set, and NS host lookups each used to get the full
+        budget, so one "8s" deadline could take 24s."""
+
+        def slow_zone(domain, *args, **kwargs):
+            time.sleep(min(kwargs.get("lifetime") or 1.0, 1.0))
+            raise dns.exception.Timeout()
+
+        started = time.monotonic()
+        with patch.object(custom_domains, "_LOOKUP_DEADLINE", 0.3), patch(
+            "dns.resolver.zone_for_name", side_effect=slow_zone
+        ):
+            resolved = custom_domains.resolve_a_records("acme.com")
+        self.assertLess(time.monotonic() - started, 0.6)
+        self.assertEqual(resolved, [])
+
+    def test_timed_out_lookups_do_not_pile_up_threads(self):
+        import threading
+
+        nameservers = [f"192.0.2.{i}" for i in range(1, 7)]
+
+        def slow(ns_ip, qname, timeout=None):
+            time.sleep(0.3)
+            raise dns.exception.Timeout()
+
+        baseline = threading.active_count()
+        with patch.object(custom_domains, "_LOOKUP_DEADLINE", 0.05), patch.object(
+            custom_domains, "_nameserver_ips", return_value=nameservers
+        ), patch.object(custom_domains, "_query_nameserver", side_effect=slow):
+            for _ in range(10):
+                custom_domains.resolve_a_records("acme.com")
+            peak = threading.active_count()
+        self.assertLessEqual(peak - baseline, custom_domains._MAX_DNS_WORKERS)
 
     def test_zone_lookup_failure_returns_empty(self):
         with patch.object(

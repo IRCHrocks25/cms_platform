@@ -193,7 +193,7 @@ class SyncCommandRunsHealthCheckTests(TestCase):
     """The route-syncer loop is the only place with a Traefik mount, so the
     health check runs there, before the routes are regenerated."""
 
-    def _run(self, bumped):
+    def _run(self, bumped, synced=True):
         import tempfile
 
         from django.core.management import call_command
@@ -206,7 +206,7 @@ class SyncCommandRunsHealthCheckTests(TestCase):
             side_effect=lambda: calls.append("check") or bumped,
         ), patch(
             "core.management.commands.sync_traefik_routes.sync_custom_domain_routes",
-            side_effect=lambda: calls.append("sync") or True,
+            side_effect=lambda: calls.append("sync") or synced,
         ):
             call_command("sync_traefik_routes")
         return calls
@@ -214,6 +214,10 @@ class SyncCommandRunsHealthCheckTests(TestCase):
     def test_routes_are_written_before_any_probe(self):
         """Slow probes must never delay a new or removed domain's route."""
         self.assertEqual(self._run(bumped=0), ["sync", "check"])
+
+    def test_no_probing_when_routes_could_not_be_written(self):
+        """A bump that can't reach Traefik is a wasted retry from the budget."""
+        self.assertEqual(self._run(bumped=1, synced=False), ["sync"])
 
     def test_a_bump_is_written_in_the_same_pass(self):
         self.assertEqual(self._run(bumped=1), ["sync", "check", "sync"])

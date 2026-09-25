@@ -36,6 +36,13 @@ class Command(BaseCommand):
         except Exception as exc:  # noqa: BLE001; loop must survive any error
             self.stderr.write(f"Route sync errored (will retry): {exc!r}")
             return
+        if not ok:
+            # A bump written nowhere never reaches Traefik; don't spend the
+            # domain's retry budget on it.
+            self.stderr.write(
+                f"Route sync did not complete (dir missing/unwritable: {target_dir})."
+            )
+            return
         # Then probe verified domains without a confirmed cert (CMS-65). Routes
         # are already written, so slow probes never delay a new or removed
         # domain. A bumped router generation is written straight away.
