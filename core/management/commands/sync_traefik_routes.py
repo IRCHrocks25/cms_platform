@@ -10,6 +10,7 @@ safe to run anywhere (dev included).
 """
 from django.core.management.base import BaseCommand
 
+from core.services.acme_health import check_pending_certificates
 from core.services.traefik_routes import (
     ROUTES_FILENAME,
     _dynamic_dir,
@@ -27,6 +28,13 @@ class Command(BaseCommand):
                 "TRAEFIK_DYNAMIC_DIR is not set; nothing to write (no-op)."
             )
             return
+        # Probe verified domains without a confirmed cert first, so a bumped
+        # router generation lands in this same pass (CMS-65). Best-effort: a
+        # probe failure must never stop the routes from being written.
+        try:
+            check_pending_certificates()
+        except Exception as exc:  # noqa: BLE001; loop must survive any error
+            self.stderr.write(f"Certificate health check errored: {exc!r}")
         # Runs in the syncer's `while true` loop. Never raise: on first deploy the
         # DB may not be migrated yet (web owns migrations), so the CustomDomain
         # query can fail transiently. Log and exit 0 so the loop retries cleanly.

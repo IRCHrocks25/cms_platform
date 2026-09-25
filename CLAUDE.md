@@ -586,8 +586,10 @@ public DNS service that resolves all subdomains to `127.0.0.1`).
   `CustomDomain` rows become per-domain Traefik `Host()` routers with
   `certResolver=letsencrypt`, emitted by the `route-syncer`
   (`core/services/traefik_routes.py`). Clients point an A record at
-  `CUSTOM_DOMAIN_TARGET_IP`; Traefik issues the cert via HTTP-01. See
-  `deploy/DOKPLOY.md`. (The legacy `Tenant.custom_domain` char field is vestigial;
+  `CUSTOM_DOMAIN_TARGET_IP`; Traefik issues the cert via HTTP-01. Verify queries
+  the authoritative nameservers (never the caching resolver), and the syncer
+  re-triggers ACME for domains whose cert never came through
+  (`core/services/acme_health.py`). See `deploy/DOKPLOY.md`. (The legacy `Tenant.custom_domain` char field is vestigial;
   resolution uses the `CustomDomain` table.)
 
 ---

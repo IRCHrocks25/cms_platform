@@ -20,6 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import CustomDomain, Tenant
+from core.services import acme_health
 
 
 DOMAIN_RE = re.compile(
@@ -169,7 +170,11 @@ def verify_custom_domain(custom_domain: CustomDomain):
     resolved = resolve_a_records(custom_domain.domain)
 
     if resolved == [target_ip]:
-        if not custom_domain.is_verified:
+        if custom_domain.is_verified:
+            # Re-verify is how an operator reports "still no certificate":
+            # force a new ACME order instead of doing nothing (CMS-65).
+            acme_health.reverify_certificate(custom_domain)
+        else:
             custom_domain.is_verified = True
             custom_domain.verified_at = timezone.now()
             custom_domain.save(

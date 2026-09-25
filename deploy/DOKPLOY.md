@@ -275,11 +275,24 @@ any drift. The `web` container's copy of the command is a no-op (no
 
 **End-to-end custom-domain flow:** operator adds the domain → client points an A
 record at the origin (`CUSTOM_DOMAIN_TARGET_IP`, e.g. `5.78.149.237`) → operator
-clicks verify → the dashboard resolves the domain's A record and, if it points at
-us, flips `is_verified` → within ≤20s the syncer emits the `Host()` router →
+clicks verify → the dashboard asks the domain's **authoritative nameservers**
+directly (not the container's caching resolver) and, if every one of them answers
+with exactly our IP, flips `is_verified` → within ≤20s the syncer emits the `Host()` router →
 Traefik ACME-issues the Let's Encrypt cert on the first HTTPS hit (~seconds) →
 traffic reaches `cms-web`, and `TenantResolverMiddleware` maps the host to the
 tenant via the `CustomDomain` table. No Cloudflare, no per-client Dokploy step.
+
+**Failed first certificate (self-heals, CMS-65).** Traefik retries ACME only
+when a router changes. Each syncer pass therefore probes every verified domain
+without a confirmed cert (TLS to `CUSTOM_DOMAIN_TLS_PROBE_HOST`, default
+`CUSTOM_DOMAIN_TARGET_IP:443`, SNI = the domain, public CA check). If the cert is
+still invalid 3 minutes after verification, the syncer bumps the domain's
+`acme_generation`, which renames its routers to `cms-cd-<pk>-g<n>` and forces a
+new order. At most one bump per 15 minutes (LE allows 5 failed validations per
+host per hour), and it stops after 5; clicking verify again forces one more and
+resets the budget. A domain stuck at the cap logs `still has no valid certificate
+after 5 automatic ACME retries`. If the syncer can't hairpin to the public IP,
+set `CUSTOM_DOMAIN_TLS_PROBE_HOST=dokploy-traefik:443` on it.
 
 ---
 

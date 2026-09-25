@@ -359,6 +359,9 @@ CUSTOM_DOMAIN_TARGET_IP = os.environ.get("CUSTOM_DOMAIN_TARGET_IP", "5.78.149.23
 # container leaves it empty, so route-writing is a no-op there. See
 # core/services/traefik_routes.py + deploy/DOKPLOY.md.
 TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "")
+# host[:port] the ACME health check (core/services/acme_health.py) dials to see
+# which cert Traefik serves for a custom domain. Blank = CUSTOM_DOMAIN_TARGET_IP:443.
+CUSTOM_DOMAIN_TLS_PROBE_HOST = os.environ.get("CUSTOM_DOMAIN_TLS_PROBE_HOST", "")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_ANNOTATE_MODEL = os.environ.get("OPENAI_ANNOTATE_MODEL", "gpt-5.6-luna")
