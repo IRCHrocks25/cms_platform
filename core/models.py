@@ -533,6 +533,15 @@ class CustomDomain(models.Model):
     )
     domain = models.CharField(max_length=253, unique=True)
     is_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    # CMS-65: ACME self-healing. ``cert_confirmed_at`` is set once the origin
+    # serves a publicly valid cert for the domain. Until then the route-syncer
+    # bumps ``acme_generation`` (which renames the Traefik router and so forces
+    # a fresh ACME order) at most once per retry window.
+    cert_confirmed_at = models.DateTimeField(null=True, blank=True)
+    acme_generation = models.PositiveIntegerField(default=0)
+    acme_retry_count = models.PositiveIntegerField(default=0)
+    acme_retried_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -5,10 +5,19 @@ threshold in one place means the two surfaces can never drift.
 from __future__ import annotations
 
 import re
-import socket
 
+import dns.exception
+import dns.flags
+import dns.message
+import dns.name
+import dns.query
+import dns.rcode
+import dns.rdataclass
+import dns.rdatatype
+import dns.resolver
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from core.models import CustomDomain, Tenant
 
@@ -22,14 +31,107 @@ def normalize_domain(raw_domain: str) -> str:
     return (raw_domain or "").strip().lower().rstrip(".")
 
 
+# Per-exchange and whole-lookup timeouts (seconds). The dashboard verify is a
+# synchronous request, so a lame nameserver must not hang it.
+_NS_QUERY_TIMEOUT = 3.0
+_NS_LOOKUP_LIFETIME = 5.0
+_MAX_CNAME_DEPTH = 8
+
+
+def _nameserver_ips(domain: str) -> list:
+    """IPv4 addresses of the authoritative nameservers for ``domain``'s zone.
+
+    The zone cut and NS set come from the recursive resolver: those records
+    change rarely, and a stale NS set still points at servers that answer
+    for the zone. Raises ``dns.exception.DNSException`` on failure.
+    """
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = _NS_LOOKUP_LIFETIME
+    zone = dns.resolver.zone_for_name(domain, resolver=resolver)
+    ips = []
+    for ns in resolver.resolve(zone, "NS"):
+        try:
+            ips.extend(r.address for r in resolver.resolve(ns.target, "A"))
+        except dns.exception.DNSException:
+            continue
+    return sorted(set(ips))
+
+
+def _query_nameserver(ns_ip: str, qname: str) -> dns.message.Message:
+    """One A query sent straight to ``ns_ip``, retried over TCP if truncated."""
+    query = dns.message.make_query(qname, "A")
+    response = dns.query.udp(query, ns_ip, timeout=_NS_QUERY_TIMEOUT)
+    if response.flags & dns.flags.TC:
+        response = dns.query.tcp(query, ns_ip, timeout=_NS_QUERY_TIMEOUT)
+    return response
+
+
+def _answer_rrset(response, name, rdtype):
+    for rrset in response.answer:
+        if (
+            rrset.name == name
+            and rrset.rdclass == dns.rdataclass.IN
+            and rrset.rdtype == rdtype
+        ):
+            return rrset
+    return None
+
+
+def _read_answer(response: dns.message.Message, qname: str):
+    """Walk the answer section from ``qname`` through any CNAMEs it carries.
+
+    Returns ``(addresses, None)`` when the chain ends in A records (or in
+    nothing, e.g. NXDOMAIN), or ``(set(), target)`` when it ends in a CNAME
+    whose target this server didn't include (an out-of-zone alias).
+    """
+    name = dns.name.from_text(qname)
+    for _ in range(_MAX_CNAME_DEPTH):
+        a_rrset = _answer_rrset(response, name, dns.rdatatype.A)
+        if a_rrset is not None:
+            return {r.address for r in a_rrset}, None
+        cname = _answer_rrset(response, name, dns.rdatatype.CNAME)
+        if cname is None:
+            break
+        name = cname[0].target
+    if name != dns.name.from_text(qname):
+        return set(), name.to_text(omit_final_dot=True)
+    return set(), None
+
+
+def _authoritative_a_records(domain: str, seen: frozenset) -> set:
+    if domain in seen or len(seen) >= _MAX_CNAME_DEPTH:
+        return set()
+    seen = seen | {domain}
+    addresses, chase = set(), set()
+    for ns_ip in _nameserver_ips(domain):
+        try:
+            response = _query_nameserver(ns_ip, domain)
+        except (dns.exception.DNSException, OSError):
+            continue  # an unreachable NS doesn't veto the ones that answer
+        if response.rcode() not in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN):
+            continue
+        found, target = _read_answer(response, domain)
+        addresses |= found
+        if target:
+            chase.add(target)
+    for target in chase:
+        addresses |= _authoritative_a_records(target, seen)
+    return addresses
+
+
 def resolve_a_records(domain: str) -> list:
-    """Best-effort A-record lookup for ``domain``. Returns the resolved IPv4
-    addresses (empty list on any failure: NXDOMAIN, timeout, or no A record)."""
+    """A records for ``domain`` as its authoritative nameservers serve them.
+
+    Deliberately bypasses the container's caching resolver (CMS-65): it held
+    a replaced record for the old record's full TTL, long after the zone
+    changed. Every nameserver is asked and the union returned, so a zone
+    that is still propagating shows both the new and the old address, which
+    is also what Let's Encrypt may see. Empty list on any failure.
+    """
     try:
-        infos = socket.getaddrinfo(domain, None, family=socket.AF_INET)
-    except OSError:
+        return sorted(_authoritative_a_records(domain, frozenset()))
+    except (dns.exception.DNSException, OSError):
         return []
-    return sorted({info[4][0] for info in infos})
 
 
 def add_custom_domain(tenant: Tenant, raw_domain: str):
@@ -58,17 +160,21 @@ def add_custom_domain(tenant: Tenant, raw_domain: str):
 
 def verify_custom_domain(custom_domain: CustomDomain):
     """Resolve ``custom_domain``'s A records and flip ``is_verified`` when they
-    include ``settings.CUSTOM_DOMAIN_TARGET_IP``. Returns ``(is_verified,
-    resolved)``. ``resolved`` is always returned (even on success) so callers
-    needing the raw addresses don't have to re-resolve.
+    are exactly ``settings.CUSTOM_DOMAIN_TARGET_IP``. A stale address next to
+    ours fails: Let's Encrypt may validate against it. Returns
+    ``(is_verified, resolved)``. ``resolved`` is always returned (even on
+    success) so callers needing the raw addresses don't have to re-resolve.
     """
     target_ip = settings.CUSTOM_DOMAIN_TARGET_IP
     resolved = resolve_a_records(custom_domain.domain)
 
-    if target_ip in resolved:
+    if resolved == [target_ip]:
         if not custom_domain.is_verified:
             custom_domain.is_verified = True
-            custom_domain.save(update_fields=["is_verified", "updated_at"])
+            custom_domain.verified_at = timezone.now()
+            custom_domain.save(
+                update_fields=["is_verified", "verified_at", "updated_at"]
+            )
         # Sync on every successful check, not only on the flip: re-verifying
         # an already-verified domain is how an operator repairs a drifted
         # Tenant.custom_domain from the dashboard (CMS-63 review fix).
