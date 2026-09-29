@@ -19,6 +19,8 @@ resolves request.tenant directly from `Tenant.subdomain`, so the
 from django.conf import settings
 from django.urls import reverse
 
+from core.tenant_hosts import tenant_host_label
+
 
 def _split_host_port(request):
     raw = (request.get_host() or "") if request else ""
@@ -104,7 +106,7 @@ def tenant_canonical_public_url(tenant, *, page_slug: str | None = None) -> str:
             host = f"{tenant.subdomain}.{base}" if base else tenant.subdomain
             base_url = f"http://{host}/"
         else:
-            base_url = f"https://{tenant.subdomain}.{base}/"
+            base_url = f"https://{tenant_host_label(tenant.subdomain)}.{base}/"
 
     if page_slug:
         return f"{base_url.rstrip('/')}/{page_slug.strip('/')}"
@@ -147,7 +149,7 @@ def tenant_public_url(request, tenant):
         return f"{scheme}://{tenant.subdomain}.{base}{port}/"
     # Real base domain: the client's canonical public URL is https on the
     # standard port, independent of the host the operator is browsing from.
-    return f"https://{tenant.subdomain}.{base}/"
+    return f"https://{tenant_host_label(tenant.subdomain)}.{base}/"
 
 
 def tenant_editor_url(request, tenant):
@@ -208,4 +210,4 @@ def tenant_canonical_base_url(tenant) -> str:
     if is_using_local_dev_base() or not base:
         host = f"{tenant.subdomain}.{base}" if base else tenant.subdomain
         return f"http://{host}/"
-    return f"https://{tenant.subdomain}.{base}/"
+    return f"https://{tenant_host_label(tenant.subdomain)}.{base}/"

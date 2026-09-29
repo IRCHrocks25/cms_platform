@@ -98,6 +98,41 @@ class TenantResolverProductionDomainTests(TestCase):
         self.assertIsNone(request.tenant)
 
 
+@override_settings(
+    TENANT_BASE_DOMAIN="sites.example.test",
+    TENANT_SUBDOMAIN_SUFFIX="-staging",
+)
+class TenantResolverSuffixedDomainTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        owner = User.objects.create_user("staging-owner", password="x")
+        self.tenant = Tenant.objects.create(
+            name="Acme Staging",
+            subdomain="acme",
+            template=_make_template(),
+            owner=owner,
+        )
+        self.middleware = TenantResolverMiddleware(lambda request: request)
+        self.factory = RequestFactory()
+
+    def _get(self, host):
+        request = self.factory.get("/", HTTP_HOST=host)
+        self.middleware(request)
+        return request
+
+    def test_suffixed_tenant_host_resolves(self):
+        request = self._get("acme-staging.sites.example.test")
+        self.assertEqual(request.tenant, self.tenant)
+
+    def test_unsuffixed_production_shape_does_not_resolve(self):
+        request = self._get("acme.sites.example.test")
+        self.assertIsNone(request.tenant)
+
+    def test_nested_staging_host_does_not_resolve(self):
+        request = self._get("acme.staging.sites.example.test")
+        self.assertIsNone(request.tenant)
+
+
 @override_settings(TENANT_BASE_DOMAIN="katek.app", ALLOWED_HOSTS=["*"])
 class TenantResolverCustomDomainTests(TestCase):
     """Direct-to-origin model: a verified custom domain arrives as the Host
@@ -131,4 +166,3 @@ class TenantResolverCustomDomainTests(TestCase):
         request = self.factory.get("/", HTTP_HOST="www.clientbrand.com")
         self.middleware(request)
         self.assertIsNone(request.tenant)
-

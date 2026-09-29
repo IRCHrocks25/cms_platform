@@ -168,6 +168,45 @@ class CreateClientAccountToolTests(TestCase):
             ).exists()
         )
 
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_staging_create_returns_suffixed_site_url(self):
+        r = self._call(
+            self._valid_args(subdomain="stagingco", username="stagingco-owner")
+        )
+
+        self.assertEqual(r.status_code, 200, r.content)
+        result = r.json()["result"]
+        self.assertFalse(result.get("isError", False), result)
+        self.assertEqual(
+            result["structuredContent"]["site_url"],
+            "https://stagingco-staging.sites.example.test/",
+        )
+
+    def test_reserved_staging_suffix_is_rejected_through_mcp_tool(self):
+        r = self._call(
+            self._valid_args(
+                subdomain="reserved-staging",
+                username="reserved-owner",
+            )
+        )
+
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain="reserved-staging").exists())
+        self.assertFalse(User.objects.filter(username="reserved-owner").exists())
+
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_suffix_overflow_is_rejected_through_mcp_tool(self):
+        subdomain = "a" * 56
+        r = self._call(
+            self._valid_args(subdomain=subdomain, username="long-owner")
+        )
+
+        result = r.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertFalse(Tenant.objects.filter(subdomain=subdomain).exists())
+        self.assertFalse(User.objects.filter(username="long-owner").exists())
+
     def test_password_returned_once_absent_from_audit_and_logs(self):
         with self.assertLogs("api.mcp", level=logging.DEBUG) as captured:
             # Ensure the logger is enabled even if no DEBUG handlers exist yet.

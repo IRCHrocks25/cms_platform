@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Prefetch, Q, prefetch_related_objects
 from django.db.models.deletion import ProtectedError
@@ -27,6 +28,7 @@ from core.models import (
     BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
     Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
+    tenant_subdomain_max_length, validate_tenant_subdomain,
 )
 from core.permissions import agency_operator_required, agency_admin_required, tenant_member_required
 from core.renderer import (
@@ -211,7 +213,6 @@ def _warn_ignored_submitted_field_markers(request, html_source, schema):
 
 
 GA_ID_RE = re.compile(r"^(G-[A-Za-z0-9]+|UA-\d+-\d+)$")
-SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 SESSION_CREDS_KEY = "agency_one_time_creds"
 CREDS_TTL_MINUTES = 10
 
@@ -1231,7 +1232,11 @@ def check_subdomain(request):
 
 def _validate_subdomain(value):
     """Return None if available, otherwise a reason code."""
-    if not value or not SUBDOMAIN_RE.match(value):
+    try:
+        validate_tenant_subdomain(value)
+    except ValidationError:
+        if value and value.endswith("-staging"):
+            return "reserved"
         return "invalid"
     reserved = set(getattr(settings, "TENANT_RESERVED_SUBDOMAINS", set()))
     if value in reserved:
@@ -1247,7 +1252,7 @@ def _generate_unique_subdomain_from_name(name):
 
     Starts with slugified name and appends numeric suffixes on collisions.
     """
-    max_len = 63
+    max_len = tenant_subdomain_max_length()
     base = slugify(name or "").strip("-")
     if not base:
         base = "site"

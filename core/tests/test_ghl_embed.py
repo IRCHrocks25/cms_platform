@@ -66,6 +66,20 @@ class GhlEmbedViewTests(TestCase):
         self.assertEqual(r["Location"], "https://acme.sites.katek.app/dashboard/")
 
     @_enable_auto_login()
+    @override_settings(
+        TENANT_BASE_DOMAIN="sites.katek.app",
+        TENANT_SUBDOMAIN_SUFFIX="-staging",
+    )
+    def test_staging_member_redirects_to_suffixed_tenant_host_dashboard(self):
+        r = self.client.get("/embed/?location_id=LOC123&email=owner@acme.com")
+
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(
+            r["Location"],
+            "https://acme-staging.sites.katek.app/dashboard/",
+        )
+
+    @_enable_auto_login()
     def test_local_dev_stays_on_agency_host(self):
         # No per-subdomain TLS on localhost, so don't try to redirect there.
         with override_settings(TENANT_BASE_DOMAIN="localhost"):

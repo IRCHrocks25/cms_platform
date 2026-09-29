@@ -22,6 +22,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from . import ghl_oauth
 from .ghl_crypto import TokenCryptoError, encrypt_token
 from .models import GhlAgencyInstall, GhlInstall, Tenant
+from .tenant_hosts import tenant_host_label
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -86,7 +87,9 @@ def embed_view(request):
     if not base or base in {"localhost", "127.0.0.1"}:
         # Local dev: there's no per-subdomain TLS, so stay on the agency host.
         return redirect("/dashboard/")
-    return redirect(f"https://{tenant.subdomain}.{base}/dashboard/")
+    return redirect(
+        f"https://{tenant_host_label(tenant.subdomain)}.{base}/dashboard/"
+    )
 
 
 def _build_redirect_uri(request) -> str:

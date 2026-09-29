@@ -158,6 +158,25 @@ class TenantUrlCustomDomainTests(TestCase):
             "https://acme.sites.example.test/login/",
         )
 
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_staging_suffix_keeps_tenant_host_one_level_below_base(self):
+        self.assertEqual(
+            tenant_public_url(self.request, self.tenant),
+            "https://acme-staging.sites.example.test/",
+        )
+        self.assertEqual(
+            tenant_canonical_public_url(self.tenant),
+            "https://acme-staging.sites.example.test/",
+        )
+
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_staging_suffix_does_not_change_local_preview_hosts(self):
+        local = RequestFactory(HTTP_HOST="lvh.me:8000").get("/dashboard/")
+        self.assertEqual(
+            tenant_public_url(local, self.tenant),
+            "http://acme.lvh.me:8000/",
+        )
+
     def test_local_dev_request_path_is_unchanged_by_verified_domain(self):
         CustomDomain.objects.create(
             tenant=self.tenant, domain="www.acme.com", is_verified=True

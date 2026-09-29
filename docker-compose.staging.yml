@@ -23,25 +23,29 @@
 #    (_dynamic_dir() returns None → the writer refuses).
 #
 # Consequence, by design: custom-domain routing does not work on staging. Test
-# that on production only. Free tenant subdomains are also unavailable here —
-# see the HOST section below.
+# that on production only. Free staging tenant hosts use the suffix described
+# in the HOST section below.
 #
-# HOST. Staging serves the dashboard at `staging.sites.katek.app` only.
+# HOST. Staging serves the dashboard at `staging.sites.katek.app` and tenants at
+# `<tenant>-staging.sites.katek.app`.
 # HostRegexp (not Host) for the same reason production uses it: the websecure
 # entrypoint defaults to certResolver=letsencrypt, and a tls=true router with an
 # extractable domain would try to ACME-issue. HostRegexp exposes no extractable
 # domain, so Traefik serves the default-store cert — the Cloudflare Origin CA,
-# whose *.sites.katek.app wildcard covers `staging.sites.katek.app`.
+# whose *.sites.katek.app wildcard covers `staging.sites.katek.app`. Cloudflare
+# Advanced/Total TLS supplies the matching edge certificate; Universal SSL
+# covers only *.katek.app.
 #
 # Priority 200 beats production's `cms-tenants` wildcard (priority 10), which
 # would otherwise also match this host — `staging` is a valid [a-z0-9-]+ label.
 # That is the documented escape hatch in docker-compose.yml: an exact anchored
 # router at higher priority outranks the wildcard.
 #
-# Tenant subdomains under staging (acme.staging.sites.katek.app) are two labels
-# deep and NOT covered by the *.sites.katek.app wildcard cert, so they would
-# fail TLS. Verify tenant public renders locally (`manage.py runserver`) or on
-# production. The editor's preview iframe is same-host and works fine here.
+# Keeping `-staging` inside the tenant label avoids the invalid two-level
+# `acme.staging.sites.katek.app` shape. `acme-staging.sites.katek.app` is one
+# label below `sites.katek.app`, so the existing wildcard DNS and certificate
+# cover it without a Cloudflare plan or DNS change. Dedicated priority-200
+# routers below beat production's priority-10 wildcard for these hosts.
 
 services:
   web:
@@ -62,7 +66,9 @@ services:
       # Points at the staging-only Postgres created in this Dokploy environment.
       # Never point this at the production database.
       DATABASE_URL: ${DATABASE_URL}
-      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-staging.sites.katek.app}
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-sites.katek.app}
+      TENANT_SUBDOMAIN_SUFFIX: ${TENANT_SUBDOMAIN_SUFFIX:--staging}
+      MONITOR_BASE_HOST: ${MONITOR_BASE_HOST:-staging.sites.katek.app}
       # Explicit production-safety opt-in for `manage.py seed_demo_data`.
       # This variable must never be copied to docker-compose.yml.
       ALLOW_DEMO_SEED: "1"
@@ -155,6 +161,14 @@ services:
       - traefik.http.routers.cmsstg-apex.service=cmsstg-web
       - traefik.http.routers.cmsstg-apex.priority=200
 
+      # Tenant public/login hosts on HTTPS. The suffix stays inside one DNS
+      # label, so the existing wildcard certificate covers every match.
+      - traefik.http.routers.cmsstg-tenants.rule=HostRegexp(`^[a-z0-9-]+-staging\.sites\.katek\.app$`)
+      - traefik.http.routers.cmsstg-tenants.entrypoints=websecure
+      - traefik.http.routers.cmsstg-tenants.tls=true
+      - traefik.http.routers.cmsstg-tenants.service=cmsstg-web
+      - traefik.http.routers.cmsstg-tenants.priority=200
+
       # Own redirect middleware — NOT production's cms-redirect-to-https.
       - traefik.http.middlewares.cmsstg-redirect-to-https.redirectscheme.scheme=https
       - traefik.http.middlewares.cmsstg-redirect-to-https.redirectscheme.permanent=true
@@ -164,6 +178,12 @@ services:
       - traefik.http.routers.cmsstg-apex-web.middlewares=cmsstg-redirect-to-https
       - traefik.http.routers.cmsstg-apex-web.service=cmsstg-web
       - traefik.http.routers.cmsstg-apex-web.priority=200
+
+      - traefik.http.routers.cmsstg-tenants-web.rule=HostRegexp(`^[a-z0-9-]+-staging\.sites\.katek\.app$`)
+      - traefik.http.routers.cmsstg-tenants-web.entrypoints=web
+      - traefik.http.routers.cmsstg-tenants-web.middlewares=cmsstg-redirect-to-https
+      - traefik.http.routers.cmsstg-tenants-web.service=cmsstg-web
+      - traefik.http.routers.cmsstg-tenants-web.priority=200
 
       # No catch-all router, same reasoning as production: this Docker host is
       # shared with other stacks.
