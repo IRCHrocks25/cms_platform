@@ -26,6 +26,8 @@ COMPOSE_ENV_ALLOWLIST = frozenset(
         "TENANT_DEV_BASE_DOMAIN",
         # Staging-only one-label tenant host suffix; production stays empty.
         "TENANT_SUBDOMAIN_SUFFIX",
+        # Staging-only agency hostname for the off-box monitor endpoint.
+        "MONITOR_BASE_HOST",
         # route-syncer sets this; web must leave it empty (no Traefik mount).
         "TRAEFIK_DYNAMIC_DIR",
         # Hardcoded prod-ready defaults; override rarely enough to stay here.

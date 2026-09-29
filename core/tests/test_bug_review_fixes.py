@@ -323,6 +323,23 @@ class SubdomainValidatorTests(TestCase):
         with self.assertRaises(ValidationError):
             validate_tenant_subdomain("sample_website")
 
+    def test_staging_suffix_is_reserved(self):
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Subdomains ending in -staging are reserved",
+        ):
+            validate_tenant_subdomain("sample-staging")
+
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_staging_suffix_counts_toward_dns_label_limit(self):
+        validate_tenant_subdomain("a" * 55)
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "configured tenant host label exceeds 63 characters",
+        ):
+            validate_tenant_subdomain("a" * 56)
+
     def test_clean_lowercases_and_rejects_underscore(self):
         owner = User.objects.create_user("slugowner", password="x")
         tenant = Tenant(

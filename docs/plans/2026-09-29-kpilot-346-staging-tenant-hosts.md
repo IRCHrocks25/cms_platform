@@ -57,6 +57,7 @@
 2. Require dedicated HTTP and HTTPS staging tenant routers for `^[a-z0-9-]+-staging\\.sites\\.katek\\.app$`, using staging's service names and priority 200.
 3. Assert the production compose contract retains its existing unsuffixed priority-10 tenant routers and does not configure a suffix.
 4. Run the compose contract tests under the flock lock, observe red, update compose, and rerun to green.
+5. Give the staging monitor endpoint its explicit agency host so it never reports the production agency URL.
 
 ### Task 5: Document operations and acceptance
 
@@ -64,7 +65,7 @@
 - Modify: `deploy/STAGING.md`
 
 1. Document the agency and tenant staging host patterns.
-2. Explain why the one-level pattern works with the existing Universal/Origin wildcard certificate and wildcard DNS.
+2. Explain why the one-level pattern works with the existing Advanced/Total TLS edge certificate, Origin wildcard certificate, and wildcard DNS; Universal SSL covers only `*.katek.app`.
 3. Document router priority isolation from production and state that custom domains remain disabled on staging.
 4. Document the live acceptance sequence: TLS check, tenant login, External MCP OAuth consent, and successful MCP connection.
 

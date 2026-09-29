@@ -170,6 +170,32 @@ class AgencyHostClientLoginRoutingTests(TestCase):
         self.assertEqual(r["Location"], next_url)
         self.assertIn("_auth_user_id", c.session)
 
+    def test_client_login_rejects_cross_host_authorization_next(self):
+        next_url = "https://attacker.example/authorize/?client_id=external-mcp"
+        c = Client(HTTP_HOST="localhost")
+        login_url = f"{reverse('login')}?{urlencode({'next': next_url})}"
+        r = c.post(
+            login_url,
+            data={"username": "alice", "password": "secret"},
+        )
+
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "http://acme.localhost/login/")
+        self.assertNotIn("_auth_user_id", c.session)
+
+    def test_client_login_does_not_preserve_non_authorize_next(self):
+        next_url = "/dashboard/"
+        c = Client(HTTP_HOST="localhost")
+        login_url = f"{reverse('login')}?{urlencode({'next': next_url})}"
+        r = c.post(
+            login_url,
+            data={"username": "alice", "password": "secret"},
+        )
+
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "http://acme.localhost/login/")
+        self.assertNotIn("_auth_user_id", c.session)
+
     def test_orphan_oauth_login_is_still_refused(self):
         next_url = "/authorize/?client_id=external-mcp&response_type=code"
         c = Client(HTTP_HOST="localhost")

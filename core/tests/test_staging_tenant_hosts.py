@@ -24,6 +24,10 @@ class StagingTenantHostContractTests(unittest.TestCase):
             "TENANT_SUBDOMAIN_SUFFIX: ${TENANT_SUBDOMAIN_SUFFIX:--staging}",
             self.staging,
         )
+        self.assertIn(
+            "MONITOR_BASE_HOST: ${MONITOR_BASE_HOST:-staging.sites.katek.app}",
+            self.staging,
+        )
 
     def test_staging_https_router_owns_suffixed_hosts(self):
         self.assertIn(

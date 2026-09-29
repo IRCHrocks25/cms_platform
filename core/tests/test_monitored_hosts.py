@@ -31,9 +31,9 @@ class MonitoredHostsTests(TestCase):
             tenant=self.published, domain="pending.example", is_verified=False
         )
 
-    def get(self, token=TOKEN):
+    def get(self, token=TOKEN, *, host="sites.katek.app"):
         headers = {"HTTP_X_MONITOR_TOKEN": token} if token is not None else {}
-        return self.client.get(URL, **headers)
+        return self.client.get(URL, HTTP_HOST=host, **headers)
 
     @mock.patch.dict(os.environ, {"MONITOR_TOKEN": TOKEN})
     def test_lists_agency_hosts_and_verified_custom_domains(self):
@@ -53,6 +53,18 @@ class MonitoredHostsTests(TestCase):
         # They share one wildcard router, and an unknown subdomain returns 200
         # anyway, so a check against one proves nothing.
         self.assertNotIn("https://acme.sites.katek.app/", self.get().json()["hosts"])
+
+    @override_settings(
+        TENANT_SUBDOMAIN_SUFFIX="-staging",
+        MONITOR_BASE_HOST="staging.sites.katek.app",
+    )
+    @mock.patch.dict(os.environ, {"MONITOR_TOKEN": TOKEN})
+    def test_staging_watches_its_configured_agency_host(self):
+        hosts = self.get(host="sites.katek.app").json()["hosts"]
+
+        self.assertIn("https://staging.sites.katek.app/", hosts)
+        self.assertIn("https://staging.sites.katek.app/login/", hosts)
+        self.assertNotIn("https://sites.katek.app/", hosts)
 
     @mock.patch.dict(os.environ, {"MONITOR_TOKEN": TOKEN})
     def test_wrong_token_is_rejected(self):

@@ -42,10 +42,12 @@ Traefik directory. `TRAEFIK_DYNAMIC_DIR` is left unset; `_dynamic_dir()` returns
 
 ## Staging tenant host pattern
 
-Cloudflare Universal SSL and the Cloudflare Origin CA certificate in Traefik's
-default store cover `*.sites.katek.app`. That wildcard covers exactly one DNS
-label. Both `staging.sites.katek.app` and `acme-staging.sites.katek.app` fit
-that shape; `acme.staging.sites.katek.app` does not.
+Cloudflare Advanced/Total TLS at the edge and the Cloudflare Origin CA
+certificate in Traefik's default store cover `*.sites.katek.app`. That wildcard
+covers exactly one DNS label. Both `staging.sites.katek.app` and
+`acme-staging.sites.katek.app` fit that shape; `acme.staging.sites.katek.app`
+does not. Universal SSL covers only `*.katek.app` and is not the certificate
+providing this tenant-host coverage.
 
 Staging therefore keeps its agency host at `staging.sites.katek.app` and puts
 the environment marker inside each tenant label:
@@ -60,9 +62,15 @@ site, login, editor, and External MCP OAuth flow. The app gets this shape from
 Production leaves the suffix empty, so its host contract remains
 `acme.sites.katek.app`.
 
-The existing `*.sites.katek.app` wildcard DNS record and certificate cover the
-staging pattern. No additional DNS record, advanced Cloudflare certificate, or
-Cloudflare plan change is required.
+Staging also sets `MONITOR_BASE_HOST=staging.sites.katek.app`. The protected
+`/api/monitored-hosts` endpoint therefore returns the staging agency URL when
+called on staging instead of accidentally asking the off-box checker to probe
+production. Production leaves this setting empty and falls back to
+`TENANT_BASE_DOMAIN`.
+
+The existing `*.sites.katek.app` wildcard DNS record and Advanced/Total TLS
+certificate cover the staging pattern. No additional DNS record, certificate,
+or Cloudflare plan change is required.
 
 The routers use `HostRegexp`, not `Host`, for the same reason production does: the
 `websecure` entrypoint defaults to `certResolver=letsencrypt`, and a `tls=true`

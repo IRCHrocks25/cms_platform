@@ -25,6 +25,7 @@ from core.services.templates import (
     FieldLossError,
     save_template_version,
 )
+from core.tenant_hosts import tenant_host_label
 from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
@@ -374,7 +375,7 @@ def _public_site_url(subdomain: str) -> str:
     base = (settings.TENANT_BASE_DOMAIN or "").strip(".").lower()
     if not base or base == "localhost" or base.endswith(".local"):
         return f"http://{subdomain}.{base or 'localhost'}/"
-    return f"https://{subdomain}.{base}/"
+    return f"https://{tenant_host_label(subdomain)}.{base}/"
 
 
 #: Meta namespaces that change what a visitor sees: per-element styling, hidden

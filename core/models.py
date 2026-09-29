@@ -20,6 +20,14 @@ def validate_tenant_subdomain(value):
             "Subdomain may only use lowercase letters, digits, and hyphens "
             "(no underscores)."
         )
+    if value.endswith("-staging"):
+        raise ValidationError("Subdomains ending in -staging are reserved.")
+
+    suffix = (getattr(settings, "TENANT_SUBDOMAIN_SUFFIX", "") or "").strip()
+    if len(value) + len(suffix) > 63:
+        raise ValidationError(
+            "Subdomain plus the configured tenant host label exceeds 63 characters."
+        )
 
 
 BLOG_TEMPLATE_MINIMAL = "minimal"

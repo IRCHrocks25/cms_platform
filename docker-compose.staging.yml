@@ -32,7 +32,9 @@
 # entrypoint defaults to certResolver=letsencrypt, and a tls=true router with an
 # extractable domain would try to ACME-issue. HostRegexp exposes no extractable
 # domain, so Traefik serves the default-store cert — the Cloudflare Origin CA,
-# whose *.sites.katek.app wildcard covers `staging.sites.katek.app`.
+# whose *.sites.katek.app wildcard covers `staging.sites.katek.app`. Cloudflare
+# Advanced/Total TLS supplies the matching edge certificate; Universal SSL
+# covers only *.katek.app.
 #
 # Priority 200 beats production's `cms-tenants` wildcard (priority 10), which
 # would otherwise also match this host — `staging` is a valid [a-z0-9-]+ label.
@@ -66,6 +68,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-sites.katek.app}
       TENANT_SUBDOMAIN_SUFFIX: ${TENANT_SUBDOMAIN_SUFFIX:--staging}
+      MONITOR_BASE_HOST: ${MONITOR_BASE_HOST:-staging.sites.katek.app}
       # Explicit production-safety opt-in for `manage.py seed_demo_data`.
       # This variable must never be copied to docker-compose.yml.
       ALLOW_DEMO_SEED: "1"

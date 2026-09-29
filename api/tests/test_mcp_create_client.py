@@ -168,6 +168,20 @@ class CreateClientAccountToolTests(TestCase):
             ).exists()
         )
 
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_staging_create_returns_suffixed_site_url(self):
+        r = self._call(
+            self._valid_args(subdomain="stagingco", username="stagingco-owner")
+        )
+
+        self.assertEqual(r.status_code, 200, r.content)
+        result = r.json()["result"]
+        self.assertFalse(result.get("isError", False), result)
+        self.assertEqual(
+            result["structuredContent"]["site_url"],
+            "https://stagingco-staging.sites.example.test/",
+        )
+
     def test_password_returned_once_absent_from_audit_and_logs(self):
         with self.assertLogs("api.mcp", level=logging.DEBUG) as captured:
             # Ensure the logger is enabled even if no DEBUG handlers exist yet.

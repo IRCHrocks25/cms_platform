@@ -32,7 +32,12 @@ def monitored_hosts(request):
     if request.headers.get("X-Monitor-Token") != expected:
         raise HttpError(401, "bad token")
 
-    base = settings.TENANT_BASE_DOMAIN
+    # Staging's agency host differs from TENANT_BASE_DOMAIN, which intentionally
+    # remains sites.katek.app for suffixed tenant URLs. An explicit setting also
+    # avoids turning an untrusted Host header into a monitor target.
+    base = (
+        getattr(settings, "MONITOR_BASE_HOST", "") or settings.TENANT_BASE_DOMAIN
+    ).strip(".").lower()
     hosts = [f"https://{base}/", f"https://{base}/login/"]
     hosts += [
         f"https://{d}/"

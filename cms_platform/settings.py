@@ -37,6 +37,9 @@ TENANT_ADDITIONAL_BASE_DOMAINS = _tenant_base_domains[1:]
 TENANT_SUBDOMAIN_SUFFIX = (
     os.environ.get("TENANT_SUBDOMAIN_SUFFIX", "").strip().lower()
 )
+# Public agency hostname returned to the off-box uptime checker. Staging's
+# agency host differs from TENANT_BASE_DOMAIN, while production's does not.
+MONITOR_BASE_HOST = os.environ.get("MONITOR_BASE_HOST", "").strip().lower()
 # kept for backwards-compat with existing references
 _additional_tenant_base_domains = TENANT_ADDITIONAL_BASE_DOMAINS
 
