@@ -30,6 +30,13 @@ _tenant_base_domains = [
 ]
 TENANT_BASE_DOMAIN = _tenant_base_domains[0] if _tenant_base_domains else "localhost"
 TENANT_ADDITIONAL_BASE_DOMAINS = _tenant_base_domains[1:]
+# Optional suffix kept inside the tenant's single DNS label. Staging uses
+# ``-staging`` so ``acme-staging.sites.katek.app`` remains covered by the
+# existing ``*.sites.katek.app`` DNS and certificate. Production leaves this
+# empty and continues to serve ``acme.sites.katek.app``.
+TENANT_SUBDOMAIN_SUFFIX = (
+    os.environ.get("TENANT_SUBDOMAIN_SUFFIX", "").strip().lower()
+)
 # kept for backwards-compat with existing references
 _additional_tenant_base_domains = TENANT_ADDITIONAL_BASE_DOMAINS
 

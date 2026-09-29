@@ -58,6 +58,17 @@ class TenantAwareLoginView(LoginView):
         # their own site rather than refusing.
         home_tenant = self._pick_home_tenant(user)
         if home_tenant is not None:
+            safe_next = self._safe_next()
+            if (
+                safe_next
+                and urlsplit(safe_next).path == reverse("oauth2_provider:authorize")
+            ):
+                # External MCP starts OAuth on the agency host. Keep its
+                # validated same-origin authorization request here so the
+                # consent parameters survive login instead of being discarded
+                # by the normal home-tenant redirect.
+                auth_login(request, user)
+                return HttpResponseRedirect(safe_next)
             editor_url = tenant_editor_url(request, home_tenant)
             if _cookie_reaches(editor_url):
                 # Production: the session cookie spans the parent domain

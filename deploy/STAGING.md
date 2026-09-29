@@ -11,7 +11,7 @@ of every hazard documented here.
 | Compose file | `docker-compose.yml` | `docker-compose.staging.yml` |
 | Branch tracked | `main` | `main` |
 | Docker image tag | `cms-platform:latest` | `cms-platform-staging:latest` |
-| Host | `sites.katek.app` + `*.sites.katek.app` | `staging.sites.katek.app` |
+| Host | `sites.katek.app` + `<tenant>.sites.katek.app` | `staging.sites.katek.app` + `<tenant>-staging.sites.katek.app` |
 | Database | production Postgres | `cms-staging-db`, own container |
 | route-syncer | runs | **absent** |
 | Custom domains | work | do not work, by design |
@@ -40,27 +40,53 @@ domain from Traefik's config. Staging runs **no** syncer and mounts **no**
 Traefik directory. `TRAEFIK_DYNAMIC_DIR` is left unset; `_dynamic_dir()` returns
 `None` and the writer refuses, so even a manual `sync_traefik_routes` is inert.
 
-## Why `staging.sites.katek.app` and not a wildcard
+## Staging tenant host pattern
 
-TLS at the origin is the Cloudflare Origin CA cert in Traefik's default store,
-covering `*.sites.katek.app`. That is a **single** label of wildcard:
-`staging.sites.katek.app` is covered, `acme.staging.sites.katek.app` is not.
+Cloudflare Universal SSL and the Cloudflare Origin CA certificate in Traefik's
+default store cover `*.sites.katek.app`. That wildcard covers exactly one DNS
+label. Both `staging.sites.katek.app` and `acme-staging.sites.katek.app` fit
+that shape; `acme.staging.sites.katek.app` does not.
 
-So staging serves the agency dashboard and the tenant editor, both same-host —
-including the editor's preview iframe, which loads
-`/dashboard/sites/<id>/preview/` on the same origin. What it cannot serve is a
-tenant's *public* site on its own subdomain. Verify those locally with
-`manage.py runserver` (`acme.localhost:8000` resolves per RFC 6761) or on
-production.
+Staging therefore keeps its agency host at `staging.sites.katek.app` and puts
+the environment marker inside each tenant label:
 
-Giving staging real tenant subdomains means a DNS-01 wildcard cert for
-`*.staging.sites.katek.app`. Not done; not needed for UI review.
+```text
+<tenant>-staging.sites.katek.app
+```
 
-The router is `HostRegexp`, not `Host`, for the same reason production is: the
+For example, tenant `acme` uses `acme-staging.sites.katek.app` for its public
+site, login, editor, and External MCP OAuth flow. The app gets this shape from
+`TENANT_BASE_DOMAIN=sites.katek.app` and `TENANT_SUBDOMAIN_SUFFIX=-staging`.
+Production leaves the suffix empty, so its host contract remains
+`acme.sites.katek.app`.
+
+The existing `*.sites.katek.app` wildcard DNS record and certificate cover the
+staging pattern. No additional DNS record, advanced Cloudflare certificate, or
+Cloudflare plan change is required.
+
+The routers use `HostRegexp`, not `Host`, for the same reason production does: the
 `websecure` entrypoint defaults to `certResolver=letsencrypt`, and a `tls=true`
 router with an extractable domain inherits it and tries to ACME-issue. Priority
-is 200 so it outranks production's `cms-tenants` wildcard (priority 10), which
-matches `staging.sites.katek.app` too — `staging` is a valid `[a-z0-9-]+` label.
+is 200 for both the staging agency and staging tenant routers, so they outrank
+production's `cms-tenants` wildcard at priority 10. All staging router, service,
+and middleware names retain the `cmsstg-` prefix. Custom-domain routing remains
+disabled on staging because there is still no staging route-syncer.
+
+## Live acceptance after deployment
+
+1. Confirm `https://<tenant>-staging.sites.katek.app/login/` completes TLS
+   validation with no browser or `curl` certificate error.
+2. Sign in as a member of that staging tenant and confirm the tenant editor
+   loads on the suffixed host.
+3. Start an External MCP connection from the CMS authorization endpoint while
+   signed out, sign in on the agency host, and confirm the original
+   `/authorize/` request reaches the consent screen.
+4. Approve consent and confirm the MCP client completes its connection and can
+   perform its agreed read-only smoke check.
+
+Keep KPILOT-346 in review until these deployed checks are recorded on the
+ticket. KPILOT-318 cannot resume until the TLS, login, consent, and MCP
+connection checks pass.
 
 ## First deploy
 

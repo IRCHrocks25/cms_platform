@@ -4,6 +4,7 @@ from http import cookies as http_cookies
 from django.conf import settings
 
 from .models import CustomDomain, Tenant
+from .tenant_hosts import tenant_subdomain_from_host_label
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,7 @@ class TenantResolverMiddleware:
         # any additional configured bases, plus the local-dev wildcard bases
         # (localhost / lvh.me), but the dev bases only in DEBUG, so production
         # behavior is unchanged.
-        bases = [
+        configured_bases = [
             b for b in (
                 (settings.TENANT_BASE_DOMAIN or "").lower().rstrip("."),
                 *[
@@ -217,27 +218,34 @@ class TenantResolverMiddleware:
                 ],
             ) if b
         ]
+        bases = [(base, True) for base in configured_bases]
         if settings.DEBUG:
             for dev_base in ("localhost", (getattr(settings, "TENANT_DEV_BASE_DOMAIN", "") or "").lower().rstrip(".")):
-                if dev_base and dev_base not in bases:
-                    bases.append(dev_base)
+                if dev_base and dev_base not in configured_bases:
+                    bases.append((dev_base, False))
 
         # Bare base domain (e.g. `localhost`, `yourdomain.com`): agency host.
-        if host in bases:
+        if host in {base for base, _ in bases}:
             return None
 
         # Subdomain pattern: host is `<sub>.<base>` for one of the bases.
-        for base in bases:
+        for base, use_suffix in bases:
             if not host.endswith("." + base):
                 continue
             sub_part = host[: -(len(base) + 1)]
             if sub_part and "." not in sub_part:
+                tenant_subdomain = tenant_subdomain_from_host_label(
+                    sub_part,
+                    use_suffix=use_suffix,
+                )
+                if tenant_subdomain is None:
+                    return None
                 # Reserved subdomain; never fall through to custom-domain lookup.
-                if sub_part in reserved:
+                if tenant_subdomain in reserved:
                     return None
                 tenant = (
                     Tenant.objects.select_related("template")
-                    .filter(subdomain=sub_part)
+                    .filter(subdomain=tenant_subdomain)
                     .first()
                 )
                 if tenant:

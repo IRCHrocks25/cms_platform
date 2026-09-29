@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -154,6 +156,32 @@ class AgencyHostClientLoginRoutingTests(TestCase):
         r = self._post_login("eve")
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r["Location"], reverse("login"))
+
+    def test_client_oauth_login_preserves_agency_authorization_request(self):
+        next_url = "/authorize/?client_id=external-mcp&response_type=code"
+        c = Client(HTTP_HOST="localhost")
+        login_url = f"{reverse('login')}?{urlencode({'next': next_url})}"
+        r = c.post(
+            login_url,
+            data={"username": "alice", "password": "secret"},
+        )
+
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], next_url)
+        self.assertIn("_auth_user_id", c.session)
+
+    def test_orphan_oauth_login_is_still_refused(self):
+        next_url = "/authorize/?client_id=external-mcp&response_type=code"
+        c = Client(HTTP_HOST="localhost")
+        login_url = f"{reverse('login')}?{urlencode({'next': next_url})}"
+        r = c.post(
+            login_url,
+            data={"username": "eve", "password": "secret"},
+        )
+
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], reverse("login"))
+        self.assertNotIn("_auth_user_id", c.session)
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
