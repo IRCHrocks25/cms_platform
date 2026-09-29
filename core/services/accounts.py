@@ -2,7 +2,14 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.crypto import get_random_string
 
-from core.models import CustomDomain, Template, TemplateVersion, Tenant, TenantMembership
+from core.models import (
+    CustomDomain,
+    Template,
+    TemplateVersion,
+    Tenant,
+    TenantMembership,
+    validate_tenant_subdomain,
+)
 from core.services import custom_domains
 from core.services.templates import assign_template
 
@@ -71,6 +78,8 @@ def create_tenant_account(
     than failing deep inside the transaction after the expensive work (inline
     template parsing, password hashing) is already done.
     """
+    validate_tenant_subdomain(subdomain)
+
     seeds = sum(
         [
             template is not None,

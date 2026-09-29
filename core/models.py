@@ -14,6 +14,11 @@ from .parser import build_block_schema, build_schema
 _TENANT_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
+def tenant_subdomain_max_length():
+    suffix = (getattr(settings, "TENANT_SUBDOMAIN_SUFFIX", "") or "").strip()
+    return 63 - len(suffix)
+
+
 def validate_tenant_subdomain(value):
     if not _TENANT_SUBDOMAIN_RE.match(value or ""):
         raise ValidationError(
@@ -23,8 +28,7 @@ def validate_tenant_subdomain(value):
     if value.endswith("-staging"):
         raise ValidationError("Subdomains ending in -staging are reserved.")
 
-    suffix = (getattr(settings, "TENANT_SUBDOMAIN_SUFFIX", "") or "").strip()
-    if len(value) + len(suffix) > 63:
+    if len(value) > tenant_subdomain_max_length():
         raise ValidationError(
             "Subdomain plus the configured tenant host label exceeds 63 characters."
         )

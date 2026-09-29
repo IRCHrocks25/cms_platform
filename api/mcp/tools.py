@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 from django.db import transaction
 
@@ -651,6 +652,8 @@ def create_client_account(
         return tool_error(str(exc))
     except CustomDomainError as exc:
         return tool_error(str(exc))
+    except ValidationError as exc:
+        return tool_error(" ".join(exc.messages))
 
     return tool_success(
         {

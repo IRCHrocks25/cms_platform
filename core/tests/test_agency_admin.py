@@ -246,6 +246,64 @@ class NewClientFlowTests(TestCase):
         tenant = Tenant.objects.get(owner__username="alice_auto_2")
         self.assertEqual(tenant.subdomain, "bellas-restaurant-1")
 
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_blank_subdomain_generation_reserves_space_for_host_suffix(self):
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "A" * 80,
+                "subdomain": "",
+                "template": str(self.template.pk),
+                "custom_domain": "",
+                "client_username": "suffix_auto",
+                "client_email": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        tenant = Tenant.objects.get(owner__username="suffix_auto")
+        self.assertEqual(tenant.subdomain, "a" * 55)
+        self.assertEqual(len(f"{tenant.subdomain}-staging"), 63)
+
+    def test_reserved_staging_suffix_is_rejected_through_create_view(self):
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Reserved",
+                "subdomain": "reserved-staging",
+                "template": str(self.template.pk),
+                "custom_domain": "",
+                "client_username": "reserved-owner",
+                "client_email": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Tenant.objects.filter(subdomain="reserved-staging").exists())
+        self.assertFalse(User.objects.filter(username="reserved-owner").exists())
+
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_suffix_overflow_is_rejected_through_create_view(self):
+        subdomain = "a" * 56
+        c = self._client()
+        response = c.post(
+            reverse("dashboard:tenant_create"),
+            data={
+                "name": "Too Long",
+                "subdomain": subdomain,
+                "template": str(self.template.pk),
+                "custom_domain": "",
+                "client_username": "long-owner",
+                "client_email": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Tenant.objects.filter(subdomain=subdomain).exists())
+        self.assertFalse(User.objects.filter(username="long-owner").exists())
+
     def test_credentials_visible_once_then_expired(self):
         c = self._client()
         response = c.post(
@@ -446,6 +504,42 @@ class ResetPasswordTests(TestCase):
         self.client_user.refresh_from_db()
         self.assertTrue(self.client_user.check_password(new_password))
         self.assertFalse(self.client_user.check_password("oldpassword123"))
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class TenantSettingsSubdomainValidationTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = User.objects.create_user("settings-agency", password="x", is_staff=True)
+        cls.tenant = Tenant.objects.create(
+            name="Original",
+            subdomain="original",
+            template=_make_template(),
+            owner=cls.staff,
+        )
+
+    def _rename(self, subdomain):
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.staff)
+        return client.post(
+            reverse("dashboard:tenant_settings_update", args=[self.tenant.pk]),
+            data={"name": "Original", "subdomain": subdomain},
+        )
+
+    def test_reserved_staging_suffix_is_rejected_through_rename_view(self):
+        response = self._rename("renamed-staging")
+
+        self.assertEqual(response.status_code, 302)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.subdomain, "original")
+
+    @override_settings(TENANT_SUBDOMAIN_SUFFIX="-staging")
+    def test_suffix_overflow_is_rejected_through_rename_view(self):
+        response = self._rename("a" * 56)
+
+        self.assertEqual(response.status_code, 302)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.subdomain, "original")
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
