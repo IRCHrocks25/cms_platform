@@ -328,6 +328,14 @@ class BlockType(models.Model):
 
 class Tenant(models.Model):
     name = models.CharField(max_length=120)
+    # Immutable cross-product business binding. It is assigned only by the
+    # provisioning/reconciliation service; OIDC callbacks are read-only.
+    global_tenant_id = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
     subdomain = models.SlugField(
         max_length=80,
         unique=True,
@@ -537,6 +545,64 @@ class TenantMembership(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.tenant} ({self.role})"
+
+
+class VerifiedUserEmail(models.Model):
+    """Explicit proof used when linking a local account to central identity.
+
+    Django's built-in User model does not track email verification. A recent
+    password login proves control of the local account, but it does not prove
+    ownership of its email address, so linking requires this separate record.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="verified_email_proof",
+    )
+    normalized_email = models.EmailField(max_length=254, unique=True)
+    source = models.CharField(max_length=40)
+    verified_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        self.normalized_email = (self.normalized_email or "").strip().casefold()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.normalized_email} ({self.source})"
+
+
+class CentralIdentityLink(models.Model):
+    """Durable mapping from an OIDC issuer/subject to a local Django user."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="central_identity_links",
+    )
+    issuer = models.URLField(max_length=500)
+    subject = models.CharField(max_length=255)
+    email_at_link = models.EmailField(max_length=254)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("issuer", "subject"),
+                name="uniq_central_identity_issuer_subject",
+            ),
+            models.UniqueConstraint(
+                fields=("issuer", "user"),
+                name="uniq_central_identity_issuer_user",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email_at_link = (self.email_at_link or "").strip().casefold()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.issuer}#{self.subject} -> {self.user_id}"
 
 
 class CustomDomain(models.Model):

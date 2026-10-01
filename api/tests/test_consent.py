@@ -131,6 +131,21 @@ class ConsentAuthorizeViewTests(TestCase):
         self.assertContains(response, "Acme Cafe")
         self.assertContains(response, "owner")
 
+    @override_settings(KATEK_OIDC_ENABLED=True)
+    def test_unauthenticated_mcp_consent_can_delegate_only_its_login_step(self):
+        response = self.client.get("/authorize/", self._authorize_query())
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith("/login/?next="))
+
+        login = self.client.get(response["Location"])
+        self.assertEqual(login.status_code, 200)
+        self.assertContains(login, "Continue with Katek")
+        self.assertContains(login, "/auth/katek/start/?next=")
+        # django-oauth-toolkit remains the authorization server; central OIDC
+        # appears only as an alternative way to establish the Django session.
+        self.assertEqual(self.app.authorization_grant_type, Application.GRANT_AUTHORIZATION_CODE)
+
     def test_authorization_code_pkce_consent_flow_returns_code(self):
         self.assertTrue(self.client.login(username="owner", password="password123"))
 
