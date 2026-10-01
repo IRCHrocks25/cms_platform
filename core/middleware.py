@@ -1,7 +1,10 @@
 import logging
+import time
 from http import cookies as http_cookies
 
 from django.conf import settings
+from django.contrib.auth import logout as auth_logout
+from django.http import HttpResponseForbidden
 
 from .models import CustomDomain, Tenant
 from .tenant_hosts import tenant_subdomain_from_host_label
@@ -262,3 +265,71 @@ class TenantResolverMiddleware:
             return custom.tenant
 
         return None
+
+
+class CentralIdentityEntitlementMiddleware:
+    """Re-evaluate central sessions after the five-minute success cache.
+
+    Legacy Django sessions do not carry the marker and pass through unchanged.
+    Central sessions fail closed if the feature is disabled, the local account
+    changes, or the registry cannot prove every exposed CMS tenant binding.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        marker = request.session.get("katek_central_identity")
+        if not marker:
+            return self.get_response(request)
+
+        if (
+            not getattr(settings, "KATEK_OIDC_ENABLED", False)
+            or not request.user.is_authenticated
+            or str(request.user.pk) != str(marker.get("user_id"))
+        ):
+            return self._deny(request)
+
+        checked_at = marker.get("checked_at")
+        ttl = getattr(settings, "KATEK_OIDC_ENTITLEMENT_CACHE_SECONDS", 300)
+        if (
+            not isinstance(checked_at, (int, float))
+            or time.time() - checked_at >= ttl
+            or not self._cached_scope_matches(request, marker)
+        ):
+            from core.central_identity import RegistryDenied, admit_central_user
+
+            try:
+                marker["bindings"] = admit_central_user(request, request.user)
+            except RegistryDenied:
+                return self._deny(request)
+            marker["checked_at"] = time.time()
+            request.session["katek_central_identity"] = marker
+            request.session.modified = True
+
+        return self.get_response(request)
+
+    @staticmethod
+    def _cached_scope_matches(request, marker) -> bool:
+        cached_ids = {
+            str(binding.get("tenant_id"))
+            for binding in marker.get("bindings", [])
+            if binding.get("tenant_id") is not None
+        }
+        requested_tenant = getattr(request, "tenant", None)
+        if requested_tenant is not None:
+            return str(requested_tenant.pk) in cached_ids
+        current_ids = {
+            str(tenant_id)
+            for tenant_id in Tenant.objects.filter(
+                memberships__user=request.user
+            ).values_list("pk", flat=True)
+        }
+        return bool(current_ids) and current_ids == cached_ids
+
+    @staticmethod
+    def _deny(request):
+        auth_logout(request)
+        return HttpResponseForbidden(
+            "Central identity entitlement could not be confirmed."
+        )

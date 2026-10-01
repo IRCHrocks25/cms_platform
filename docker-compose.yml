@@ -63,6 +63,19 @@ services:
       # Comma-separated browser Origins allowed to call /mcp. Empty denies
       # every browser Origin (non-browser clients that omit Origin still ok).
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      # Central Katek customer identity. The feature is inert unless the flag
+      # is exactly true; partial enabled configuration fails startup.
+      KATEK_OIDC_ENABLED: ${KATEK_OIDC_ENABLED:-false}
+      KATEK_OIDC_ISSUER: ${KATEK_OIDC_ISSUER:-}
+      KATEK_OIDC_CLIENT_ID: ${KATEK_OIDC_CLIENT_ID:-}
+      KATEK_OIDC_CLIENT_SECRET: ${KATEK_OIDC_CLIENT_SECRET:-}
+      KATEK_OIDC_AUTHORIZATION_ENDPOINT: ${KATEK_OIDC_AUTHORIZATION_ENDPOINT:-}
+      KATEK_OIDC_TOKEN_ENDPOINT: ${KATEK_OIDC_TOKEN_ENDPOINT:-}
+      KATEK_OIDC_USERINFO_ENDPOINT: ${KATEK_OIDC_USERINFO_ENDPOINT:-}
+      KATEK_OIDC_JWKS_ENDPOINT: ${KATEK_OIDC_JWKS_ENDPOINT:-}
+      KATEK_TENANT_REGISTRY_URL: ${KATEK_TENANT_REGISTRY_URL:-}
+      KATEK_TENANT_REGISTRY_TOKEN: ${KATEK_TENANT_REGISTRY_TOKEN:-}
+      KATEK_OIDC_REQUEST_TIMEOUT_SECONDS: ${KATEK_OIDC_REQUEST_TIMEOUT_SECONDS:-5}
       # Optional GHL marketplace app version id; falls back to CLIENT_ID prefix.
       GHL_APP_VERSION_ID: ${GHL_APP_VERSION_ID:-}
       # Transactional email (Resend).

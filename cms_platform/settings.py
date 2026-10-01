@@ -4,8 +4,48 @@ import dj_database_url
 from django.utils.functional import lazy
 from dotenv import load_dotenv
 
+from core.central_identity_config import load_central_identity_config
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+
+CENTRAL_IDENTITY_CONFIG = load_central_identity_config(
+    {
+        "KATEK_OIDC_ENABLED": os.environ.get("KATEK_OIDC_ENABLED", "false"),
+        "KATEK_OIDC_ISSUER": os.environ.get("KATEK_OIDC_ISSUER", ""),
+        "KATEK_OIDC_CLIENT_ID": os.environ.get("KATEK_OIDC_CLIENT_ID", ""),
+        "KATEK_OIDC_CLIENT_SECRET": os.environ.get("KATEK_OIDC_CLIENT_SECRET", ""),
+        "KATEK_OIDC_AUTHORIZATION_ENDPOINT": os.environ.get(
+            "KATEK_OIDC_AUTHORIZATION_ENDPOINT", ""
+        ),
+        "KATEK_OIDC_TOKEN_ENDPOINT": os.environ.get(
+            "KATEK_OIDC_TOKEN_ENDPOINT", ""
+        ),
+        "KATEK_OIDC_USERINFO_ENDPOINT": os.environ.get(
+            "KATEK_OIDC_USERINFO_ENDPOINT", ""
+        ),
+        "KATEK_OIDC_JWKS_ENDPOINT": os.environ.get(
+            "KATEK_OIDC_JWKS_ENDPOINT", ""
+        ),
+        "KATEK_TENANT_REGISTRY_URL": os.environ.get(
+            "KATEK_TENANT_REGISTRY_URL", ""
+        ),
+        "KATEK_TENANT_REGISTRY_TOKEN": os.environ.get(
+            "KATEK_TENANT_REGISTRY_TOKEN", ""
+        ),
+        "KATEK_OIDC_REQUEST_TIMEOUT_SECONDS": os.environ.get(
+            "KATEK_OIDC_REQUEST_TIMEOUT_SECONDS", "5"
+        ),
+    }
+)
+KATEK_OIDC_ENABLED = CENTRAL_IDENTITY_CONFIG.enabled
+KATEK_OIDC_ISSUER = CENTRAL_IDENTITY_CONFIG.issuer
+KATEK_TENANT_REGISTRY_URL = CENTRAL_IDENTITY_CONFIG.registry_url
+KATEK_TENANT_REGISTRY_TOKEN = CENTRAL_IDENTITY_CONFIG.registry_token
+KATEK_OIDC_REQUEST_TIMEOUT_SECONDS = CENTRAL_IDENTITY_CONFIG.request_timeout_seconds
+KATEK_OIDC_ENTITLEMENT_CACHE_SECONDS = (
+    CENTRAL_IDENTITY_CONFIG.entitlement_cache_seconds
+)
 
 _SECRET_KEY_FALLBACK = "dev-only-secret-change-me-in-production"
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _SECRET_KEY_FALLBACK)
@@ -179,6 +219,8 @@ INSTALLED_APPS = [
     "core",
     "dashboard",
 ]
+if KATEK_OIDC_ENABLED:
+    INSTALLED_APPS.append("mozilla_django_oidc")
 
 
 MIDDLEWARE = [
@@ -199,6 +241,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 
     "core.middleware.TenantResolverMiddleware",
+    "core.middleware.CentralIdentityEntitlementMiddleware",
     "core.middleware.DiagnosticHeaderMiddleware",
     "core.middleware.FrameAncestorsCspMiddleware",
 ]
@@ -269,6 +312,35 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/login/"
+
+AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
+if KATEK_OIDC_ENABLED:
+    AUTHENTICATION_BACKENDS.insert(0, "core.central_identity.KatekOIDCBackend")
+
+# mozilla-django-oidc supplies the authorization-code protocol mechanics. The
+# CMS backend adds exact issuer/audience/azp validation, immutable subject
+# mapping, fresh linking, and registry admission.
+OIDC_OP_AUTHORIZATION_ENDPOINT = CENTRAL_IDENTITY_CONFIG.authorization_endpoint
+OIDC_OP_TOKEN_ENDPOINT = CENTRAL_IDENTITY_CONFIG.token_endpoint
+OIDC_OP_USER_ENDPOINT = CENTRAL_IDENTITY_CONFIG.userinfo_endpoint
+OIDC_OP_JWKS_ENDPOINT = CENTRAL_IDENTITY_CONFIG.jwks_endpoint
+OIDC_RP_CLIENT_ID = CENTRAL_IDENTITY_CONFIG.client_id
+OIDC_RP_CLIENT_SECRET = CENTRAL_IDENTITY_CONFIG.client_secret
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_RP_SCOPES = "openid profile email"
+OIDC_USE_NONCE = True
+OIDC_USE_PKCE = True
+OIDC_PKCE_CODE_CHALLENGE_METHOD = "S256"
+OIDC_PKCE_CODE_VERIFIER_SIZE = 64
+OIDC_CREATE_USER = False
+OIDC_ALLOW_UNSECURED_JWT = False
+OIDC_VERIFY_KID = True
+OIDC_TOKEN_USE_BASIC_AUTH = True
+OIDC_TIMEOUT = CENTRAL_IDENTITY_CONFIG.request_timeout_seconds
+OIDC_AUTHENTICATION_CALLBACK_URL = "katek_oidc_callback"
+OIDC_REDIRECT_ALLOWED_HOSTS = []
+OIDC_REDIRECT_REQUIRE_HTTPS = not DEBUG
+LOGIN_REDIRECT_URL_FAILURE = "/login/?central=failed"
 
 OAUTH2_PROVIDER = {
     # CMS-24: open RFC 7591 registration (claude.ai self-registers, matching

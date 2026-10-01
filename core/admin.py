@@ -7,7 +7,7 @@ from django.db.models import ProtectedError
 from .models import (
     BlockType, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
     BlogPost, Page, AnnotationJob, EmbeddableAssistant, GhlAgencyInstall,
-    GhlInstall,
+    GhlInstall, CentralIdentityLink, VerifiedUserEmail,
 )
 
 
@@ -92,12 +92,20 @@ class TenantMembershipInline(admin.TabularInline):
 
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
-    list_display = ("name", "subdomain", "template", "owner", "is_published", "updated_at")
+    list_display = (
+        "name",
+        "subdomain",
+        "global_tenant_id",
+        "template",
+        "owner",
+        "is_published",
+        "updated_at",
+    )
     list_filter = ("is_published", "template")
     search_fields = ("name", "subdomain")
     # content is read-only here: writes must go through the content services so
     # the stored shape stays canonical.
-    readonly_fields = ("content",)
+    readonly_fields = ("content", "global_tenant_id")
     inlines = [TenantMembershipInline]
 
 
@@ -107,6 +115,27 @@ class TenantMembershipAdmin(admin.ModelAdmin):
     list_filter = ("role",)
     search_fields = ("tenant__name", "tenant__subdomain", "user__username", "user__email")
     autocomplete_fields = ("tenant", "user")
+
+
+@admin.register(VerifiedUserEmail)
+class VerifiedUserEmailAdmin(admin.ModelAdmin):
+    list_display = ("normalized_email", "user", "source", "verified_at")
+    search_fields = ("normalized_email", "user__username", "user__email")
+    autocomplete_fields = ("user",)
+    readonly_fields = ("verified_at",)
+
+
+@admin.register(CentralIdentityLink)
+class CentralIdentityLinkAdmin(admin.ModelAdmin):
+    list_display = ("issuer", "subject", "user", "email_at_link", "created_at")
+    search_fields = ("issuer", "subject", "user__username", "user__email")
+    readonly_fields = ("issuer", "subject", "user", "email_at_link", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Page)

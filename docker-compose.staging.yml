@@ -113,6 +113,20 @@ services:
 
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
+      # Central Katek identity remains default-off. Use staging issuer/client
+      # and registry credentials only when live acceptance is authorized.
+      KATEK_OIDC_ENABLED: ${KATEK_OIDC_ENABLED:-false}
+      KATEK_OIDC_ISSUER: ${KATEK_OIDC_ISSUER:-}
+      KATEK_OIDC_CLIENT_ID: ${KATEK_OIDC_CLIENT_ID:-}
+      KATEK_OIDC_CLIENT_SECRET: ${KATEK_OIDC_CLIENT_SECRET:-}
+      KATEK_OIDC_AUTHORIZATION_ENDPOINT: ${KATEK_OIDC_AUTHORIZATION_ENDPOINT:-}
+      KATEK_OIDC_TOKEN_ENDPOINT: ${KATEK_OIDC_TOKEN_ENDPOINT:-}
+      KATEK_OIDC_USERINFO_ENDPOINT: ${KATEK_OIDC_USERINFO_ENDPOINT:-}
+      KATEK_OIDC_JWKS_ENDPOINT: ${KATEK_OIDC_JWKS_ENDPOINT:-}
+      KATEK_TENANT_REGISTRY_URL: ${KATEK_TENANT_REGISTRY_URL:-}
+      KATEK_TENANT_REGISTRY_TOKEN: ${KATEK_TENANT_REGISTRY_TOKEN:-}
+      KATEK_OIDC_REQUEST_TIMEOUT_SECONDS: ${KATEK_OIDC_REQUEST_TIMEOUT_SECONDS:-5}
+
       # Self-seeding admin, staging only. Port 22 is firewalled on this host and
       # Dokploy's web terminal is the only interactive shell, so a staging DB
       # that can only be seeded by hand is a staging DB nobody logs into. These
