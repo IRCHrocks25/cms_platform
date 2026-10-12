@@ -1204,7 +1204,9 @@ def _absorb_split_glue(primary, primary_ids) -> None:
     The renderer mounts only the ``data-section`` wrapper of each fragment, so
     glue left as a sibling is dropped and carousels (proof, showcase) render
     as unstyled stacked slides. Style prepends into the next root; script
-    appends onto the previous root.
+    appends onto the previous root only while nothing else (footer, modal)
+    sits between them. Scripts past such an element are page-level and must
+    stay after it, or they run before the markup they look up exists.
     """
     pending: list = []
     last_root = None
@@ -1220,6 +1222,8 @@ def _absorb_split_glue(primary, primary_ids) -> None:
             last_root.append(child)
         elif _is_script_glue(child):
             pending.append(child)
+        elif isinstance(child, Tag):
+            last_root = None
     if pending and last_root is not None:
         for node in pending:
             last_root.append(node)
