@@ -2738,7 +2738,9 @@ def render_page_from_blocks(
     flat_content = merge_with_defaults(shell_schema, chrome_content)
 
     soup = BeautifulSoup(shell_html, "lxml")
-    paint_header = should_paint_header(soup, header_meta)
+    # Judge "customized" from what the client saved, not the nav_pages/regions
+    # fallback menu, or published pages would wipe a designed navbar.
+    paint_header = should_paint_header(soup, normalize_header(content.get("_header")))
     region_slots = soup.find_all(attrs={"data-region": True})
     for region_el in region_slots:
         name = (region_el.get("data-region") or "main").strip() or "main"
