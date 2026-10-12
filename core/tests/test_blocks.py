@@ -423,6 +423,81 @@ class NormalizeHeaderTests(TestCase):
         self.assertEqual(blocks.normalize_header({"logo_size": 200})["logo_size"], 80)
         self.assertEqual(blocks.normalize_header({"logo_size": 10})["logo_size"], 24)
 
+    def test_custom_menu_item_round_trips(self):
+        for href in ("#about", "/#about", "https://example.com/about"):
+            with self.subTest(href=href):
+                raw = {"menu": [{
+                    "id": "nav_abcd1234", "label": "About", "href": href,
+                    "page_id": None, "custom": True,
+                }]}
+                first = blocks.normalize_header(raw)
+                again = blocks.normalize_header(first)
+                for header in (first, again):
+                    item = header["menu"][0]
+                    self.assertTrue(item["custom"])
+                    self.assertEqual(item["href"], href)
+                    self.assertIsNone(item["page_id"])
+
+    def test_custom_flag_wins_over_page_id(self):
+        header = blocks.normalize_header(
+            {"menu": [{
+                "id": "nav_abcd1234", "label": "About", "href": "#about",
+                "page_id": 7, "custom": True,
+            }]},
+            pages=[{"id": 7, "url": "/about"}],
+        )
+        item = header["menu"][0]
+        self.assertTrue(item["custom"])
+        self.assertIsNone(item["page_id"])
+        self.assertEqual(item["href"], "#about")
+
+    def test_custom_item_still_rejects_script_hrefs(self):
+        for href in ("javascript:alert(1)", "vbscript:x", "data:text/html,x"):
+            with self.subTest(href=href):
+                header = blocks.normalize_header({"menu": [{
+                    "id": "nav_abcd1234", "label": "X", "href": href, "custom": True,
+                }]})
+                self.assertEqual(header["menu"][0]["href"], "/")
+                self.assertTrue(header["menu"][0]["custom"])
+
+    def test_page_items_are_not_custom(self):
+        header = blocks.normalize_header(
+            {"menu": [
+                {"id": "nav_aaaa1111", "label": "Home", "href": "/", "page_id": None},
+                {"id": "nav_bbbb2222", "label": "About", "href": "/about", "page_id": 7,
+                 "custom": False},
+            ]},
+            pages=[{"id": 7, "url": "/about"}],
+        )
+        self.assertFalse(header["menu"][0]["custom"])
+        self.assertFalse(header["menu"][1]["custom"])
+        self.assertEqual(header["menu"][1]["href"], "/about")
+
+    def test_legacy_free_href_reads_as_custom(self):
+        header = blocks.normalize_header({"menu": [
+            {"id": "nav_aaaa1111", "label": "Contact", "href": "#contact", "page_id": None},
+        ]})
+        self.assertTrue(header["menu"][0]["custom"])
+
+    def test_custom_href_renders_on_published_page(self):
+        from core.services.blocks import upgrade_shell_chrome_slots
+        from bs4 import BeautifulSoup
+
+        shell = upgrade_shell_chrome_slots(SHELL)
+        catalog = blocks.build_catalog([])
+        content = {
+            "regions": {"main": []},
+            "_header": {"menu": [{
+                "id": "nav_abcd1234", "label": "About", "href": "/#about",
+                "page_id": None, "custom": True,
+            }]},
+        }
+        blocks.ensure_header(content)
+        html = render_page_from_blocks(shell, content, catalog)
+        link = BeautifulSoup(html, "lxml").find(attrs={"data-header-link": "nav_abcd1234"})
+        self.assertIsNotNone(link)
+        self.assertEqual(link.get("href"), "/#about")
+
     def test_ensure_header_clears_header_regions(self):
         content = {
             "regions": {

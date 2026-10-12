@@ -346,17 +346,24 @@
     renderHeaderPanel();
     scheduleSave();
   }
-  function pageOptionHtml(selectedId, selectedHref) {
+  // Links saved before the explicit flag existed count as custom when they
+  // point somewhere other than Home without a page.
+  function isCustomHeaderLink(item) {
+    if (typeof item.custom === "boolean") return item.custom;
+    return item.page_id == null && !!item.href && item.href !== "/";
+  }
+  function pageOptionHtml(item) {
+    var custom = isCustomHeaderLink(item);
     var html = "";
     HEADER_PAGES.forEach(function (page) {
       var pid = page.id == null ? "" : String(page.id);
       var sel = "";
-      if (selectedId != null && String(selectedId) === pid) sel = " selected";
-      else if (selectedId == null && !pid && (selectedHref === page.url || selectedHref === "/")) sel = " selected";
+      if (!custom && item.page_id != null && String(item.page_id) === pid) sel = " selected";
+      else if (!custom && item.page_id == null && !pid) sel = " selected";
       html += '<option value="' + pid + '" data-url="' + String(page.url || "/").replace(/"/g, "") + '"' + sel + ">" +
         String(page.title || "Page").replace(/</g, "") + "</option>";
     });
-    html += '<option value="__custom__"' + (selectedId == null && selectedHref && selectedHref !== "/" ? " selected" : "") + ">Custom URL</option>";
+    html += '<option value="__custom__"' + (custom ? " selected" : "") + ">Custom URL</option>";
     return html;
   }
   function renderHeaderPanel() {
@@ -397,12 +404,12 @@
     var list = panel.querySelector("[data-header-menu]");
     if (list) {
       list.innerHTML = h.menu.map(function (item, index) {
-        var custom = item.page_id == null && item.href && item.href !== "/";
+        var custom = isCustomHeaderLink(item);
         return (
           '<div class="cms-header-menu-row" data-header-row="' + item.id + '">' +
             '<input type="text" class="input" data-header-label maxlength="80" value="">' +
-            '<select class="select" data-header-page>' + pageOptionHtml(item.page_id, item.href) + "</select>" +
-            '<input type="text" class="input" data-header-href maxlength="500"' + (custom ? "" : " hidden") + ">" +
+            '<select class="select" data-header-page>' + pageOptionHtml(item) + "</select>" +
+            '<input type="text" class="input" data-header-href maxlength="500" placeholder="#section or https://…"' + (custom ? "" : " hidden") + ">" +
             '<div class="cms-header-menu-ops">' +
               '<button type="button" data-header-move="-1" title="Move up" aria-label="Move up"' + (index === 0 ? " disabled" : "") + ">↑</button>" +
               '<button type="button" data-header-move="1" title="Move down" aria-label="Move down"' + (index === h.menu.length - 1 ? " disabled" : "") + ">↓</button>" +
@@ -415,7 +422,7 @@
         var row = list.querySelector('[data-header-row="' + item.id + '"]');
         if (!row) return;
         row.querySelector("[data-header-label]").value = item.label || "";
-        row.querySelector("[data-header-href]").value = item.href || "/";
+        row.querySelector("[data-header-href]").value = item.href || "";
       });
     }
     var on = panel.querySelector("[data-header-btn-on]");
@@ -475,7 +482,7 @@
       var item = h.menu.filter(function (rowItem) { return rowItem.id === row.getAttribute("data-header-row"); })[0];
       if (!item) return;
       if (t.hasAttribute("data-header-label")) item.label = t.value.slice(0, 80) || "Link";
-      if (t.hasAttribute("data-header-href")) item.href = t.value.slice(0, 500) || "/";
+      if (t.hasAttribute("data-header-href")) item.href = t.value.slice(0, 500);
       scheduleSave();
     });
     panel.addEventListener("change", function (e) {
@@ -496,10 +503,16 @@
       var item = h.menu.filter(function (rowItem) { return rowItem.id === row.getAttribute("data-header-row"); })[0];
       if (!item) return;
       if (t.value === "__custom__") {
+        if (!isCustomHeaderLink(item)) item.href = "";
+        item.custom = true;
         item.page_id = null;
         renderHeaderPanel();
+        var hrefInput = panel.querySelector('[data-header-row="' + item.id + '"] [data-header-href]');
+        if (hrefInput) hrefInput.focus();
+        scheduleSave();
         return;
       }
+      item.custom = false;
       var opt = t.selectedOptions && t.selectedOptions[0];
       item.page_id = t.value === "" ? null : parseInt(t.value, 10);
       if (isNaN(item.page_id)) item.page_id = null;

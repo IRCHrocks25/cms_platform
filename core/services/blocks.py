@@ -183,9 +183,17 @@ def normalize_header(
                 page_id = int(page_id) if page_id not in (None, "") else None
             except (TypeError, ValueError):
                 page_id = None
-            if page_id is not None and page_id in page_map:
+            custom = item.get("custom")
+            if not isinstance(custom, bool):
+                custom = page_id is None and href != "/"
+            if custom:
+                page_id = None
+            elif page_id is not None and page_id in page_map:
                 href = _safe_header_href(page_map[page_id])
-            menu.append({"id": nid, "label": label, "href": href, "page_id": page_id})
+            menu.append({
+                "id": nid, "label": label, "href": href,
+                "page_id": page_id, "custom": custom,
+            })
     if not menu:
         menu = _menu_from_regions(regions)
         if not menu and nav_pages:
