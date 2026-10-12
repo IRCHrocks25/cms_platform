@@ -870,6 +870,34 @@ class EnsureBlockEditorTests(TestCase):
         self.assertIn("© 2026 Katalyst", rendered)
         self.assertIn("Ready to see your business on autopilot?", rendered)
 
+    def test_page_scripts_after_footer_and_modals_stay_in_shell(self):
+        """CMS-69: popup scripts after the footer must not move into the last band."""
+        html = (
+            "<!doctype html><html><body>"
+            "<header data-section='nav' data-group='Header'>Nav</header>"
+            "<section data-section='hero' data-label='Hero'>Hero</section>"
+            "<section data-section='contact' data-label='Contact'>Contact</section>"
+            "<script>window.CONTACT_READY=1</script>"
+            "<footer data-section='footer' data-group='Footer'>Foot</footer>\n"
+            "<!-- popup -->\n"
+            "<div class='fgm' id='fgModal'>Guide form</div>\n"
+            "<script>var m=document.getElementById('fgModal'); if(!m) return;</script>\n"
+            "<script src='https://link.example.com/js/form_embed.js'></script>"
+            "</body></html>"
+        )
+        shell, fragments = blocks.split_shell_and_blocks(html)
+        by_key = dict(fragments)
+        self.assertEqual(list(by_key), ["hero", "contact"])
+        self.assertIn("window.CONTACT_READY=1", by_key["contact"])
+        for leaked in ("fgModal", "form_embed.js", "popup"):
+            self.assertNotIn(leaked, by_key["contact"])
+        self.assertIn("<!-- popup -->", shell)
+        footer_at = shell.index("<footer")
+        modal_at = shell.index('id="fgModal"')
+        self.assertLess(footer_at, modal_at)
+        self.assertLess(modal_at, shell.index("getElementById('fgModal')"))
+        self.assertLess(modal_at, shell.index("form_embed.js"))
+
     def test_nested_sections_stay_inside_parent_block(self):
         html = (
             "<!doctype html><html><body>"
