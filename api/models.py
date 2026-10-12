@@ -45,3 +45,17 @@ class McpAuditLog(models.Model):
         who = getattr(self.actor, "username", "?")
         site = getattr(self.tenant, "subdomain", "-")
         return f"{self.timestamp:%Y-%m-%d %H:%M} {who} {self.action} @{site}"
+
+
+class ServiceCredential(models.Model):
+    """One runtime credential for one Sites tenant; no user or platform role."""
+
+    key_id = models.UUIDField(unique=True, editable=False)
+    tenant = models.ForeignKey(
+        "core.Tenant", on_delete=models.CASCADE, related_name="service_credentials"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    scopes = models.JSONField(default=list)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

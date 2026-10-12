@@ -13,6 +13,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from api.auth import resolve_access_token
+from api.service_auth import resolve_service_token
 from api.mcp.dispatch import PROTOCOL_VERSION, dispatch
 from api.mcp.errors import INVALID_REQUEST, PARSE_ERROR, rpc_error
 
@@ -110,11 +111,14 @@ class McpView(View):
         token = _bearer_token(request)
         scheme = "https" if request.is_secure() else "http"
         audience = f"{scheme}://{request.get_host()}/mcp"
-        auth = (
-            resolve_access_token(token, audience=audience)
-            if token
-            else None
-        )
+        auth = None
+        if token:
+            # Service tokens never fall through to user OAuth authority.
+            auth = (
+                resolve_service_token(token)
+                if token.startswith("sites_")
+                else resolve_access_token(token, audience=audience)
+            )
         if auth is None:
             return _unauthorized(request)
 

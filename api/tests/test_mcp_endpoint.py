@@ -821,3 +821,77 @@ class McpEndpointTests(TestCase):
             )
         self.assertFalse(result.get("isError", False))
         self.assertEqual(result["structuredContent"]["value"], "A")
+
+    # S03: a service credential resolves one tenant independent of site arguments.
+    def test_service_credential_reads_and_drafts_only_its_tenant(self):
+        from api.service_auth import issue_service_credential
+
+        _, token = issue_service_credential(self.tenant_a, scopes={"read", "draft"})
+        sites = self._result(self._call("list_sites", token=token))
+        self.assertEqual(
+            [row["subdomain"] for row in sites["structuredContent"]["sites"]],
+            ["alpha"],
+        )
+        allowed = self._result(self._call("list_pages", {"site": "alpha"}, token=token))
+        self.assertFalse(allowed["isError"])
+        forbidden = self._result(self._call("list_pages", {"site": "beta"}, token=token))
+        self.assertTrue(forbidden["isError"])
+        denied_write = self._result(
+            self._call("push_page", {"site": "beta", "page": "stolen", "html": SAMPLE_HTML}, token=token)
+        )
+        self.assertTrue(denied_write["isError"])
+        self.assertFalse(Page.objects.filter(tenant=self.tenant_b, slug="stolen").exists())
+        own_draft = self._result(
+            self._call("push_page", {"site": "alpha", "page": "draft", "html": SAMPLE_HTML}, token=token)
+        )
+        self.assertFalse(own_draft["isError"])
+        self.assertTrue(Page.objects.filter(tenant=self.tenant_a, slug="draft", is_published=False).exists())
+
+    def test_service_credential_cannot_create_tenants_or_publish_without_activation(self):
+        from api.service_auth import issue_service_credential
+
+        _, token = issue_service_credential(
+            self.tenant_a, scopes={"read", "draft", "publish", "domain"}
+        )
+        before = Tenant.objects.count()
+        create = self._result(self._call("create_client_account", {}, token=token))
+        self.assertTrue(create["isError"])
+        self.assertEqual(Tenant.objects.count(), before)
+        publish = self._result(
+            self._call("publish_page", {"site": "alpha", "page": "about"}, token=token)
+        )
+        self.assertTrue(publish["isError"])
+        self.page_a.refresh_from_db()
+        self.assertFalse(self.page_a.is_published)
+
+    def test_service_read_scope_cannot_mutate_and_oauth_read_still_works(self):
+        from api.service_auth import issue_service_credential
+
+        _, token = issue_service_credential(self.tenant_a, scopes={"read"})
+        denied = self._result(
+            self._call("push_page", {"site": "alpha", "page": "draft", "html": SAMPLE_HTML}, token=token)
+        )
+        self.assertTrue(denied["isError"])
+        self.assertFalse(Page.objects.filter(tenant=self.tenant_a, slug="draft").exists())
+        oauth = self._result(self._call("list_pages", {"site": "alpha"}, token="tok-read"))
+        self.assertFalse(oauth["isError"])
+        oauth_write = self._result(self._call("push_page", {}, token="tok-read"))
+        self.assertTrue(oauth_write["isError"])
+
+    def test_service_draft_scope_cannot_change_published_page(self):
+        from api.service_auth import issue_service_credential
+
+        self.page_a.is_published = True
+        self.page_a.save(update_fields=["is_published"])
+        _, token = issue_service_credential(self.tenant_a, scopes={"read", "draft"})
+        before = self.page_a.template.html_source
+        result = self._result(
+            self._call(
+                "push_page",
+                {"site": "alpha", "page": "about", "html": SAMPLE_HTML.replace("Welcome", "Changed")},
+                token=token,
+            )
+        )
+        self.assertTrue(result["isError"])
+        self.page_a.template.refresh_from_db()
+        self.assertEqual(self.page_a.template.html_source, before)
