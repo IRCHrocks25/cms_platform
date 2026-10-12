@@ -1212,6 +1212,63 @@ class EnsureBlockEditorTests(TestCase):
         self.assertIn("Start the course", html)
 
 
+DESIGNED_NAV_SHELL = (
+    "<!doctype html><html><body>"
+    '<header class="nav" id="nav" data-section="nav" data-group="Header">'
+    '<a class="brand" href="/">Compass</a>'
+    '<button class="burger" id="navToggle" type="button"></button>'
+    '<nav class="nav-links" id="navLinks">'
+    '<a href="/">Home</a><a href="/#about">About</a>'
+    '<a href="#" data-fg-open>Free Guide Download</a>'
+    "</nav></header>"
+    '<main data-region="main"></main>'
+    '<footer data-section="footer" data-group="Footer">Foot</footer>'
+    "</body></html>"
+)
+NAV_PAGES = [
+    {"title": "Privacy Policy", "url": "/privacy-policy"},
+    {"title": "Terms & Conditions", "url": "/terms-and-conditions"},
+]
+
+
+class DesignedHeaderNavPagesTests(TestCase):
+    """CMS-68: published nav pages must not replace a designed navbar."""
+
+    def nav_links(self, content):
+        from bs4 import BeautifulSoup
+
+        html = render_page_from_blocks(
+            DESIGNED_NAV_SHELL, content, {}, nav_pages=NAV_PAGES,
+        )
+        return BeautifulSoup(html, "lxml").find("header")
+
+    def test_designed_nav_survives_nav_pages_without_saved_menu(self):
+        for content in ({"regions": {"main": []}},
+                        {"regions": {"main": []}, "_header": {}}):
+            with self.subTest(content=content):
+                header = self.nav_links(content)
+                links = header.find(id="navLinks").find_all("a")
+                self.assertEqual(
+                    [a.get_text() for a in links],
+                    ["Home", "About", "Free Guide Download"],
+                )
+                self.assertTrue(links[2].has_attr("data-fg-open"))
+                self.assertIsNotNone(header.find(id="navToggle"))
+                self.assertIsNone(header.find(attrs={"data-header-link": True}))
+                self.assertNotIn("Privacy Policy", str(header))
+
+    def test_saved_menu_still_paints(self):
+        header = self.nav_links({
+            "regions": {"main": []},
+            "_header": {"menu": [
+                {"id": "nav_abcd1234", "label": "Contact", "href": "/#contact"},
+            ]},
+        })
+        painted = header.find_all(attrs={"data-header-link": True})
+        self.assertEqual([a.get_text() for a in painted], ["Contact"])
+        self.assertEqual(painted[0].get("href"), "/#contact")
+
+
 ROW2 = (
     '<div data-block="row-2" data-label="2 Column" data-category="Rows" '
     'style="display:grid;grid-template-columns:1fr 1fr;">'
