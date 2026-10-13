@@ -25,12 +25,12 @@
         <div class="editor-bar-title">{{ target_title }}</div>
         <div class="editor-bar-sub">{{ target_subtitle }}</div>
       </div>
-      {% comment %}Visibility status. is_published is a pure visibility gate — the
+      {% comment %}Visibility status. is_published is a pure visibility gate: the
       public site renders the same canonical content, so a save on a Live page is
       instantly public (there is no separate draft copy). The pill + its tooltip
       make that explicit so clients aren't surprised.{% endcomment %}
       <span class="editor-status-pill {% if target_is_published %}is-live{% else %}is-draft{% endif %}"
-            title="{% if target_is_published %}Live — visitors can see this page, and saved changes go public immediately.{% else %}Draft — only you can see this. Publish to make it visible to visitors.{% endif %}">
+            title="{% if target_is_published %}Live: visitors can see this page, and saved changes go public immediately.{% else %}Draft: only you can see this. Publish to make it visible to visitors.{% endif %}">
         <span class="editor-status-pill-dot" aria-hidden="true"></span>
         {% if target_is_published %}Live{% else %}Draft{% endif %}
       </span>
@@ -94,7 +94,7 @@
             data-target-title="{{ target_title }}">
         {% csrf_token %}
         <button type="submit" class="ui-btn {% if target_is_published %}ui-btn--subtle{% else %}ui-btn--primary{% endif %}"
-                title="{% if target_is_published %}Take this page offline — visitors will get a “not found” page.{% else %}Make this page visible to visitors.{% endif %}">
+                title="{% if target_is_published %}Take this page offline; visitors will get a “not found” page.{% else %}Make this page visible to visitors.{% endif %}">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
           {% if target_is_published %}Unpublish page{% else %}Publish page{% endif %}
         </button>
@@ -265,7 +265,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
               </div>
               <h3>Start building your page</h3>
-              <p>Add your first block, then rearrange, duplicate or edit anything — nothing is permanent.</p>
+              <p>Add your first block, then rearrange, duplicate or edit anything. Nothing is permanent.</p>
               <button type="button" class="btn btn-primary" id="zero-add-block">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
                 Add your first block
@@ -707,7 +707,7 @@
           <button type="button" class="btn btn-primary btn-sm" data-replace-gallery>Replace from gallery</button>
           <button type="button" class="btn btn-secondary btn-sm" data-replace-upload>Upload</button>
         </div>
-        <p class="cms-layout-hint" data-replace-status>This is the picture on the page — not the section background.</p>
+        <p class="cms-layout-hint" data-replace-status>This is the picture on the page, not the section background.</p>
         <input type="file" accept="image/*" hidden data-replace-file>
       </div>
       <div class="cms-drawer-body" data-drawer-body></div>

@@ -143,7 +143,7 @@ def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpR
 
 def _visible_page_or_404(request, tenant: Tenant, slug: str) -> Page:
     page = get_object_or_404(Page, tenant=tenant, slug=slug)
-    # Two gates, matching home/blog. First the SITE must be visible — an
+    # Two gates, matching home/blog. First the SITE must be visible: an
     # unpublished site must not leak any inner page to the public, even a
     # per-page-published one (C1). Then the page itself must be published.
     # Editors/operators bypass both via user_can_edit.

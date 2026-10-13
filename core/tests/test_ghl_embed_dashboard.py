@@ -225,6 +225,28 @@ class GhlEmbedDashboardWriteTests(TestCase):
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.content["contact"]["embed"], "form:existing")
 
+    def test_published_block_form_cannot_be_unset_after_editor_conversion(self):
+        self.client.get(reverse("dashboard:tenant_home"))
+        self.tenant.refresh_from_db()
+        self.assertTrue(self.tenant.template.is_block_shell)
+        content = json.loads(json.dumps(self.tenant.content))
+        form_block = next(
+            block for block in content["regions"]["main"]
+            if "embed" in block["fields"]
+        )
+        form_block["fields"]["embed"] = ""
+
+        response = self._save(content)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("published page", response.json()["error"])
+        self.tenant.refresh_from_db()
+        persisted_form = next(
+            block for block in self.tenant.content["regions"]["main"]
+            if "embed" in block["fields"]
+        )
+        self.assertEqual(persisted_form["fields"]["embed"], "form:existing")
+
     @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
     def test_selected_form_must_exist_in_this_tenants_list(self, list_forms):
         list_forms.return_value = [{"id": "alpha_form", "name": "Alpha"}]

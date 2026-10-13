@@ -83,7 +83,7 @@ Output JSON shape (and nothing else: no markdown, no prose):
 Rules:
 1. sections: one per existing top-level content band. Prefer the element that
    already is that band: every `<section>`, `<header>`, and `<footer>` is
-   listed on THAT wrapper's ref — never on a child, and never invent a new
+   listed on THAT wrapper's ref: never on a child, and never invent a new
    wrapper. `id` is unique, snake_case. Do not skip a band because it is long,
    decorative, or a logo strip. If the page has 12 `<section>` tags, return
    those 12 plus header/footer.
@@ -1022,7 +1022,7 @@ def _backfill_landmark_sections(soup) -> int:
     whole band (logo strip). Without a ``data-section`` on the existing
     ``<section>`` / ``<header>`` / ``<footer>``, later backfill cannot attach
     fields and the parser drops the band. This never invents wrappers and
-    never marks overlays (``.menu``, ``.modal``) — those stay in the shell.
+    never marks overlays (``.menu``, ``.modal``): those stay in the shell.
     """
     body = soup.body or soup
     used = _existing_section_ids(soup)
@@ -1659,7 +1659,7 @@ def annotate_fragment(raw_html: str) -> str:
 
     Runs the standard document annotator, then extracts the first editable
     section and promotes it to a ``data-block`` wrapper so it can seed a
-    :class:`~core.models.BlockType`. Field ids stay ``<key>.<field>`` — exactly
+    :class:`~core.models.BlockType`. Field ids stay ``<key>.<field>``: exactly
     what ``core.parser.build_block_schema`` expects. Raises ``AnnotatorError``
     when no editable section comes back (same diagnostics as ``annotate_html``).
     """

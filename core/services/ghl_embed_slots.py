@@ -21,7 +21,8 @@ def iter_embed_fields(schema: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 
 def get_embed_slots(
-    schema: dict[str, Any], content: dict[str, Any] | None
+    schema: dict[str, Any], content: dict[str, Any] | None,
+    *, catalog: dict[str, dict] | None = None,
 ) -> list[dict[str, str]]:
     merged = merge_with_defaults(schema, content or {})
     slots = []
@@ -36,6 +37,33 @@ def get_embed_slots(
                 "value": str((merged.get(section_id) or {}).get(value_id) or ""),
             }
         )
+    if catalog:
+
+        def walk(instances):
+            for instance in instances or []:
+                if not isinstance(instance, dict):
+                    continue
+                block = catalog.get(str(instance.get("type") or "")) or {}
+                values = instance.get("fields") or {}
+                if not isinstance(values, dict):
+                    values = {}
+                for field in (block.get("schema") or {}).get("fields", []) or []:
+                    if field.get("type") != "ghl-embed":
+                        continue
+                    field_id = str(field.get("id") or "")
+                    slots.append({
+                        "id": f"{instance.get('id')}.{field_id}",
+                        "label": str(field.get("label") or field_id),
+                        "kind": str(field.get("ghl_kind") or ""),
+                        "value": str(values.get(field_id) or ""),
+                    })
+                children_by_region = instance.get("children") or {}
+                if isinstance(children_by_region, dict):
+                    for children in children_by_region.values():
+                        walk(children)
+
+        for instances in ((content or {}).get("regions") or {}).values():
+            walk(instances)
     return slots
 
 
@@ -46,6 +74,7 @@ def validate_embed_content_update(
     current_content: dict[str, Any] | None,
     new_content: dict[str, Any],
     is_published: bool,
+    catalog: dict[str, dict] | None = None,
 ) -> None:
     """Validate changed embed values before any content is persisted.
 
@@ -53,8 +82,14 @@ def validate_embed_content_update(
     when a form selection actually changes. Ordinary text saves therefore do
     not depend on GHL availability.
     """
-    current = {slot["id"]: slot for slot in get_embed_slots(schema, current_content)}
-    proposed = {slot["id"]: slot for slot in get_embed_slots(schema, new_content)}
+    current = {
+        slot["id"]: slot
+        for slot in get_embed_slots(schema, current_content, catalog=catalog)
+    }
+    proposed = {
+        slot["id"]: slot
+        for slot in get_embed_slots(schema, new_content, catalog=catalog)
+    }
     changed: list[tuple[str, str]] = []
 
     for field_id, slot in proposed.items():

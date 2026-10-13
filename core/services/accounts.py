@@ -65,7 +65,7 @@ def create_tenant_account(
     outside Django's password hash.
 
     ``is_published`` defaults to False so a brand-new client site starts as a
-    draft — the operator (or client) publishes deliberately once content is
+    draft: the operator (or client) publishes deliberately once content is
     ready, matching the "Publish, then visit public" smoke test. MCP
     ``create_client_account`` already passed False (A6).
 

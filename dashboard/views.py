@@ -385,7 +385,7 @@ def template_create(request):
                 request,
                 f"Block site “{template.name}” created with the full block "
                 "library. Assign it to a client site, then build pages from the "
-                "block palette — no HTML needed.",
+                "block palette, no HTML needed.",
             )
         else:
             _warn_ignored_submitted_field_markers(
@@ -1109,7 +1109,7 @@ def tenant_create(request):
         if not new_template_html.strip():
             errors.append("New template HTML is required.")
     elif blocks_new_template:
-        # Blank block site — no HTML required; the shell + library make it fully
+        # Blank block site: no HTML required; the shell + library make it fully
         # client-buildable. Name falls back to the site name.
         if not new_template_name:
             new_template_name = name or "Site template"
@@ -1219,7 +1219,7 @@ def tenant_create(request):
 def check_subdomain(request):
     """JSON endpoint: GET /dashboard/sites/check-subdomain/?value=..."""
     # Lowercase first, exactly like the submit path (tenant_create) does, so the
-    # live AJAX check and the actual creation agree — "MySite" is available, not
+    # live AJAX check and the actual creation agree: "MySite" is available, not
     # "invalid" (A13).
     value = (request.GET.get("value") or "").strip().lower()
     if not value:
@@ -1645,7 +1645,7 @@ def tenant_member_remove(request, pk, membership_id):
     )
     # The owner's own membership is load-bearing (Tenant.owner is required and
     # now PROTECTed). Removing it would leave the site with an owner who has no
-    # membership row — confusing and inconsistent with the Team self-serve copy.
+    # membership row: confusing and inconsistent with the Team self-serve copy.
     if membership.user_id == tenant.owner_id:
         messages.error(
             request,
@@ -1814,7 +1814,7 @@ def user_reset_password(request, pk):
     password = generate_password()
     user_obj.set_password(password)
     user_obj.save(update_fields=["password"])
-    # Reset invalidates the old credential everywhere — kill live sessions so a
+    # Reset invalidates the old credential everywhere: kill live sessions so a
     # compromised session can't outlive the reset (C4).
     _flush_user_sessions(user_obj)
     token = _stash_credentials_in_session(request, user_obj, password)
@@ -2191,7 +2191,7 @@ def _page_row_urls(request, scope, tenant, page):
         # `/site/<sub>/` fallback, so the page opens on <sub>.<base>/<slug>.
         "live": f"{tenant_public_url(request, tenant)}{page.slug}",
     }
-    # Shared-shell pages reuse the site template — Edit HTML would rewrite
+    # Shared-shell pages reuse the site template: Edit HTML would rewrite
     # home + every sibling. Only offer the action when this page owns its
     # own template (classic paste-HTML pages) (A1).
     if page.template_id and page.template_id != tenant.template_id:
@@ -2205,7 +2205,7 @@ def _user_can_manage_pages(request):
     """Page create / rename / delete / nav-order.
 
     Agency staff always may. Tenant members (clients) may too when their site
-    runs on a block *shell*. The default path is blank or copy-from — compose
+    runs on a block *shell*. The default path is blank or copy-from: compose
     from the curated palette. Advanced HTML (paste / fetch / annotate) is
     allowed when they opt in; that HTML is converted to blocks on create, so
     they still cannot keep a locked classic page. Caps are enforced at create.
@@ -2261,7 +2261,7 @@ def _wants_html_page(request, *, require_explicit=False):
     """True when this POST should create a page from pasted / annotated HTML.
 
     Blank and copy-from stay on the shared shell. ``start_from=html`` is the
-    advanced opt-in. Classic agency forms have no radios — any pasted HTML
+    advanced opt-in. Classic agency forms have no radios: any pasted HTML
     still counts. Clients must pick Advanced so a hidden ``html_source``
     field cannot sneak a custom template onto a blank page.
     """
@@ -2338,7 +2338,7 @@ def _page_create(request, tenant, scope):
 
 
 def _page_create_shared(request, tenant, scope):
-    """Client-safe page creation — no HTML paste.
+    """Client-safe page creation: no HTML paste.
 
     The new page shares the site's block *shell* template and starts empty (or
     copies the home page's blocks), so a client composes it entirely from the
@@ -2376,7 +2376,7 @@ def _page_create_shared(request, tenant, scope):
     if not slug:
         errors.append("A URL slug is required.")
     elif slug in RESERVED_PAGE_SLUGS:
-        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+        errors.append(f"'/{slug}/' is reserved. Choose a different slug.")
     elif tenant.pages.filter(slug=slug).exists():
         errors.append(f"This site already has a page at /{slug}/.")
     if errors:
@@ -2416,7 +2416,7 @@ def _page_create_shared(request, tenant, scope):
         tenant=tenant, template=shell, title=title, slug=slug,
         content=content, nav_order=next_order,
     )
-    messages.success(request, f"Page “{page.title}” created — start adding sections.")
+    messages.success(request, f"Page “{page.title}” created. Start adding sections.")
     if scope == "tenant":
         return redirect("dashboard:page_editor_self", page_pk=page.pk)
     return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
@@ -2436,7 +2436,7 @@ def _page_rename(request, tenant, scope, page_pk):
     if not slug:
         errors.append("A URL slug is required.")
     elif slug in RESERVED_PAGE_SLUGS:
-        errors.append(f"'/{slug}/' is reserved — choose a different slug.")
+        errors.append(f"'/{slug}/' is reserved. Choose a different slug.")
     elif tenant.pages.filter(slug=slug).exclude(pk=page.pk).exists():
         errors.append(f"This site already has a page at /{slug}/.")
     if errors:
@@ -2453,7 +2453,7 @@ def _page_rename(request, tenant, scope, page_pk):
 
 def _page_nav_reorder(request, tenant, scope):
     """Persist menu order + visibility from the Pages UI. Body (JSON):
-    ``{"order": [{"id": 3, "show_in_nav": true}, ...]}`` — array position is the
+    ``{"order": [{"id": 3, "show_in_nav": true}, ...]}``: array position is the
     new ``nav_order``."""
     try:
         payload = json.loads(request.body or "{}")
@@ -2791,7 +2791,7 @@ def page_edit_html(request, pk, page_pk):
         messages.error(
             request,
             f"“{page.title}” shares the site shell. Edit the site template "
-            f"to change header/footer HTML — this action would affect every page.",
+            f"to change header/footer HTML; this action would affect every page.",
         )
         return redirect("dashboard:template_detail", pk=tenant.template.pk)
     if request.method == "POST":
@@ -3180,7 +3180,7 @@ def _render_editor(request, tenant, *, scope, page=None):
         grouped.setdefault(section.get("group", "Sections"), []).append(section)
 
     # Layout mode is driven by how many entries land in the section nav.
-    # Block pages keep the Layers sidebar even when the canvas is empty —
+    # Block pages keep the Layers sidebar even when the canvas is empty:
     # compact (sidebar hidden) is for classic locked templates only.
     if block_mode:
         layout_mode = "standard" if len(content_sections) <= 15 else "dense"
@@ -3273,7 +3273,9 @@ def _render_editor(request, tenant, *, scope, page=None):
     embed_warnings = []
     if editable.is_published:
         embed_warnings = [
-            slot for slot in ghl_embed_slots.get_embed_slots(schema, editable.content)
+            slot for slot in ghl_embed_slots.get_embed_slots(
+                schema, editable.content, catalog=catalog if block_mode else None
+            )
             if not slot["value"]
         ]
 
@@ -3550,12 +3552,18 @@ def _save_content(request, editable):
 
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
     try:
+        from core.services import blocks as _blocks
+
         ghl_embed_slots.validate_embed_content_update(
             tenant=tenant,
             schema=schema,
             current_content=editable.content,
             new_content=content,
             is_published=editable.is_published,
+            catalog=(
+                _blocks.catalog_for_template(template)
+                if template.is_block_shell else None
+            ),
         )
     except ghl_embed_slots.GhlEmbedValidationError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
@@ -3654,8 +3662,8 @@ def _normalize_regions(content: dict, template) -> None:
             raise _BlockValidationError("That block isn't available on this site.")
         # Instance ids are emitted into HTML attributes and used verbatim in
         # querySelector lookups, so restrict them to the exact shape
-        # ``new_instance_id`` mints (``blk_`` + hex). Anything else — including a
-        # crafted id carrying markup — is replaced with a fresh safe id (E14).
+        # ``new_instance_id`` mints (``blk_`` + hex). Replace any other shape,
+        # including a crafted id carrying markup, with a fresh safe id (E14).
         iid = str(inst.get("id") or "").strip()
         if not _INSTANCE_ID_RE.match(iid) or iid in seen_ids:
             iid = blocks.new_instance_id()
@@ -3942,7 +3950,7 @@ def _usable_image_url(url: str) -> bool:
 
 def _gallery_display_url(url: str) -> bool:
     """URLs we will actually show as tiles. Legacy Cloudinary links 401 now
-    that media lives on Iceberg — listing them just produces broken images."""
+    that media lives on Iceberg: listing them just produces broken images."""
     if not _usable_image_url(url):
         return False
     return "res.cloudinary.com" not in url.lower()
@@ -4170,7 +4178,7 @@ def _media_item_mutate(request, tenant, asset_id):
         if url:
             # Deleting an in-use image rewrites content (fields fall back to the
             # template default). Route that through save_editable_content so it
-            # snapshots first and stays undoable — a raw .save() would silently
+            # snapshots first and stays undoable: a raw .save() would silently
             # drop the image with no way back (C3).
             from core.services import content_versions as cv
 
@@ -4362,7 +4370,7 @@ def tenant_site_settings_self(request):
 
 # Common two-label public suffixes. Used so ``example.co.uk`` is treated as
 # an apex (DNS name ``@``) rather than a host ``example`` (A15). Not a full
-# PSL — no extra dependency.
+# PSL: no extra dependency.
 _MULTI_PART_TLDS = frozenset({
     ("co", "uk"), ("org", "uk"), ("ac", "uk"), ("gov", "uk"),
     ("com", "au"), ("net", "au"), ("org", "au"),
@@ -4533,7 +4541,7 @@ def custom_domain_list(request):
 @require_POST
 def custom_domain_force_verify(request, pk):
     # Force-verify bypasses the real HTTP-01/DNS check and immediately routes a
-    # domain — a strong override reserved for superusers (A10).
+    # domain: a strong override reserved for superusers (A10).
     if not request.user.is_superuser:
         return HttpResponseForbidden(
             "Only a superuser can force-verify a custom domain."
