@@ -81,6 +81,70 @@ class McpBlockTests(TestCase):
         _, inner = self.call("get_page", {"site": "alpha", "page": "about"})
         self.assertEqual(inner["structuredContent"]["fields"]["blk_55555555.title"]["value"], "About")
 
+    def test_list_blocks_discovers_fieldless_layout_and_nested_instances_in_order(self):
+        _, page = self.call("get_page", {"site": "alpha"})
+        self.assertNotIn("blk_33333333.title", page["structuredContent"]["fields"])
+
+        status, listed = self.call("list_blocks", {"site": "alpha"})
+        self.assertEqual(status, 200)
+        self.assertFalse(listed["isError"], listed)
+        data = listed["structuredContent"]
+        self.assertIsNone(data["page"])
+        self.assertEqual(data["content_etag"], content_etag(self.tenant.content))
+        self.assertEqual(data["blocks"], [
+            {"id": "blk_11111111", "type": "hero", "parent_id": None,
+             "region": "main", "position": 0, "depth": 0, "available": True},
+            {"id": "blk_22222222", "type": "hero", "parent_id": None,
+             "region": "main", "position": 1, "depth": 0, "available": True},
+            {"id": "blk_33333333", "type": "row", "parent_id": None,
+             "region": "main", "position": 2, "depth": 0, "available": True},
+            {"id": "blk_44444444", "type": "hero", "parent_id": "blk_33333333",
+             "region": "col", "position": 0, "depth": 1, "available": True},
+        ])
+        _, html = self.call("get_block_html", {"site": "alpha", "instance_id": data["blocks"][2]["id"]})
+        self.assertFalse(html["isError"], html)
+        self.assertIn("blk_44444444", html["structuredContent"]["html"])
+
+        self.tenant.content["regions"]["main"].reverse()
+        self.tenant.save(update_fields=["content"])
+        _, reordered = self.call("list_blocks", {"site": "alpha"})
+        self.assertEqual([row["id"] for row in reordered["structuredContent"]["blocks"]],
+                         ["blk_33333333", "blk_44444444", "blk_22222222", "blk_11111111"])
+        self.assertEqual(reordered["structuredContent"]["blocks"][0]["position"], 0)
+
+    def test_list_blocks_inner_classic_unavailable_type_and_permission(self):
+        _, inner = self.call("list_blocks", {"site": "alpha", "page": "about"})
+        self.assertEqual(inner["structuredContent"]["blocks"][0]["id"], "blk_55555555")
+        self.assertEqual(inner["structuredContent"]["page"], "about")
+        classic_tpl = Template.objects.create(name="Classic", editing_mode=Template.EDITING_EDITABLE,
+            html_source='<section data-section="hero"><h1 data-edit="hero.title">Hi</h1></section>')
+        classic = Tenant.objects.create(name="Classic", subdomain="classic", owner=self.owner,
+            template=classic_tpl, content={"hero": {"title": "Hello"}})
+        TenantMembership.objects.create(tenant=classic, user=self.member,
+            role=TenantMembership.ROLE_EDITOR)
+        _, classic_result = self.call("list_blocks", {"site": "classic"})
+        self.assertEqual(classic_result["structuredContent"]["blocks"], [])
+
+        self.tenant.content["regions"]["main"].append(
+            {"id": "blk_66666666", "type": "retired", "fields": {}})
+        self.tenant.save(update_fields=["content"])
+        _, retired = self.call("list_blocks", {"site": "alpha"})
+        self.assertEqual(retired["structuredContent"]["blocks"][-1],
+            {"id": "blk_66666666", "type": "retired", "parent_id": None,
+             "region": "main", "position": 3, "depth": 0, "available": False})
+        response = self.client.post("/mcp", data=json.dumps({"jsonrpc": "2.0", "id": 1,
+            "method": "tools/call", "params": {"name": "list_blocks", "arguments": {"site": "alpha"}}}),
+            content_type="application/json", HTTP_HOST="localhost",
+            HTTP_AUTHORIZATION="Bearer block-other", HTTP_MCP_PROTOCOL_VERSION="2025-06-18",
+            HTTP_ACCEPT="application/json")
+        self.assertEqual(response.status_code, 401)
+
+    def test_list_blocks_rejects_ambiguous_instance_ids(self):
+        self.tenant.content["regions"]["main"][1]["id"] = "blk_11111111"
+        self.tenant.save(update_fields=["content"])
+        _, result = self.call("list_blocks", {"site": "alpha"})
+        self.assertTrue(result["isError"])
+
     def test_patch_targets_one_instance_versions_and_rejects_stale_etag(self):
         old = content_etag(self.tenant.content)
         status, result = self.call("patch_content", {"site": "alpha", "field": "blk_22222222.title",

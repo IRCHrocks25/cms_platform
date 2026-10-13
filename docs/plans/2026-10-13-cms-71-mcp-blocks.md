@@ -14,3 +14,9 @@
 4. Add `get_block_html` and `push_block_html`. Require exact instance ID and current content etag; accept text/richtext changes only when all noneditable markup and attributes match the current rendered fragment. Save through the same content write path.
 5. Reject whole-page `push_page` for existing block-backed pages before template ownership or version changes. Document tool descriptions and contract.
 6. Run targeted and full Django suites, local build, and hosted PR CI; report unrun deployment checks.
+
+## PM review follow-up
+
+7. Reproduce the fieldless-layout discovery gap through MCP JSON-RPC and the tool manifest before changing the handler.
+8. Add read-only `list_blocks(site, page?)` with preorder instance IDs, type, parent ID, region, zero-based position, depth, and allowlist availability. Include fieldless and nested instances, preserve classic-page behavior, and reject ambiguous trees.
+9. Run targeted SQLite and Postgres JSON-RPC tests, the full Django suite, and exact-head hosted CI. Keep structural connector mutation in CMS-73.

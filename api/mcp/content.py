@@ -59,7 +59,9 @@ def _field_present_in_stored(stored: dict, field_id: str) -> bool:
 def block_instances(stored: dict, catalog: dict) -> dict[str, tuple[dict, dict]]:
     """Index current, allowlisted instances by stable ID, including children."""
     found = {}
-    regions = (stored or {}).get("regions") or {}
+    regions = (stored or {}).get("regions")
+    if regions is None:
+        regions = {}
     if not isinstance(regions, dict):
         raise ValueError("Invalid block region tree.")
 
@@ -83,6 +85,63 @@ def block_instances(stored: dict, catalog: dict) -> dict[str, tuple[dict, dict]]
     for instances in regions.values():
         walk(instances)
     return found
+
+
+def list_block_instances(stored: dict, catalog: dict) -> list[dict[str, Any]]:
+    """Preorder inventory of stored regions, including fieldless or retired blocks.
+
+    ``region`` is the top-level region or the slot on ``parent_id``. Positions
+    are zero-based within that region. Listing retired types is read-only;
+    field and HTML tools still enforce the active template allowlist.
+    """
+    regions = (stored or {}).get("regions")
+    if regions is None:
+        regions = {}
+    if not isinstance(regions, dict):
+        raise ValueError("Invalid block region tree.")
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def walk(instances, *, parent_id, region, depth):
+        if not isinstance(instances, list):
+            raise ValueError("Invalid block instance list.")
+        for position, instance in enumerate(instances):
+            if not isinstance(instance, dict):
+                raise ValueError("Invalid block instance tree.")
+            instance_id = instance.get("id")
+            block_type = instance.get("type")
+            if (
+                not isinstance(instance_id, str) or not instance_id
+                or instance_id in seen
+                or not isinstance(block_type, str) or not block_type
+            ):
+                raise ValueError("Invalid or ambiguous block instance tree.")
+            seen.add(instance_id)
+            rows.append({
+                "id": instance_id,
+                "type": block_type,
+                "parent_id": parent_id,
+                "region": region,
+                "position": position,
+                "depth": depth,
+                "available": block_type in catalog,
+            })
+            children = instance.get("children")
+            if children is None:
+                children = {}
+            if not isinstance(children, dict):
+                raise ValueError("Invalid nested block region tree.")
+            for child_region, child_instances in children.items():
+                if not isinstance(child_region, str):
+                    raise ValueError("Invalid nested block region tree.")
+                walk(child_instances, parent_id=instance_id,
+                     region=child_region, depth=depth + 1)
+
+    for region, instances in regions.items():
+        if not isinstance(region, str):
+            raise ValueError("Invalid block region tree.")
+        walk(instances, parent_id=None, region=region, depth=0)
+    return rows
 
 
 def block_field(stored: dict, catalog: dict, field_id: str):

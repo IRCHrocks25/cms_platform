@@ -151,6 +151,30 @@ def list_pages(auth: ResolvedAuth, *, site: str) -> dict[str, Any]:
     return tool_success({"pages": pages})
 
 
+def list_blocks(
+    auth: ResolvedAuth, *, site: str, page: Optional[str] = None
+) -> dict[str, Any]:
+    """List every stored block instance in region order, including fieldless ones."""
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, _schema, stored = content_mod.resolve_editable(scope.tenant, page)
+    except LookupError:
+        return page_access_denied(site, page or "")
+    try:
+        rows = content_mod.list_block_instances(
+            stored, blocks.catalog_for_template(editable.template)
+        )
+    except ValueError as exc:
+        return tool_error(str(exc))
+    return tool_success({
+        "page": None if isinstance(editable, Tenant) else editable.slug,
+        "blocks": rows,
+        "content_etag": content_mod.content_etag(stored),
+    })
+
+
 def get_page(
     auth: ResolvedAuth, *, site: str, page: Optional[str] = None
 ) -> dict[str, Any]:
@@ -1305,6 +1329,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "list_sites": list_sites,
     "get_connection_context": get_connection_context,
     "list_pages": list_pages,
+    "list_blocks": list_blocks,
     "get_page": get_page,
     "get_page_html": get_page_html,
     "get_block_html": get_block_html,
@@ -1437,6 +1462,54 @@ TOOLS_LIST: list[dict[str, Any]] = [
                         },
                     },
                 }
+            },
+        },
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "list_blocks",
+        "description": (
+            "List every stored block instance on a page in preorder, including "
+            "fieldless layouts and nested children. region is the top-level "
+            "slot or a slot on parent_id; position is zero-based within it. "
+            "available=false means the type is no longer allowlisted and cannot "
+            "be edited. Use an ID with get_block_html or a field ID with get_content."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["site"],
+            "additionalProperties": False,
+            "properties": {
+                "site": {"type": "string"},
+                "page": {"type": ["string", "null"],
+                         "description": "Page slug; omit/null for home"},
+            },
+        },
+        "outputSchema": {
+            "type": "object",
+            "required": ["page", "blocks", "content_etag"],
+            "additionalProperties": False,
+            "properties": {
+                "page": {"type": ["string", "null"]},
+                "blocks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "type", "parent_id", "region",
+                                     "position", "depth", "available"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "string"},
+                            "type": {"type": "string"},
+                            "parent_id": {"type": ["string", "null"]},
+                            "region": {"type": "string"},
+                            "position": {"type": "integer"},
+                            "depth": {"type": "integer"},
+                            "available": {"type": "boolean"},
+                        },
+                    },
+                },
+                "content_etag": {"type": "string"},
             },
         },
         "annotations": ANNOTATIONS,
