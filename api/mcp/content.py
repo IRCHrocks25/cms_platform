@@ -58,31 +58,22 @@ def _field_present_in_stored(stored: dict, field_id: str) -> bool:
 
 def block_instances(stored: dict, catalog: dict) -> dict[str, tuple[dict, dict]]:
     """Index current, allowlisted instances by stable ID, including children."""
+    # Validate the entire stored tree before filtering retired types. An ID
+    # reused by an unavailable block still makes any addressed write ambiguous.
+    available_ids = {row["id"] for row in list_block_instances(stored, catalog)
+                     if row["available"]}
     found = {}
-    regions = (stored or {}).get("regions")
-    if regions is None:
-        regions = {}
-    if not isinstance(regions, dict):
-        raise ValueError("Invalid block region tree.")
 
     def walk(instances):
-        if not isinstance(instances, list):
-            raise ValueError("Invalid block instance list.")
-        for instance in instances or []:
-            if not isinstance(instance, dict):
-                continue
+        for instance in instances:
             instance_id = instance.get("id")
-            block = catalog.get(instance.get("type"))
-            if not isinstance(instance_id, str) or not block or instance_id in found:
-                raise ValueError("Invalid or ambiguous block instance tree.")
-            found[instance_id] = (instance, block)
+            if instance_id in available_ids:
+                found[instance_id] = (instance, catalog[instance["type"]])
             children_by_region = instance.get("children") or {}
-            if not isinstance(children_by_region, dict):
-                raise ValueError("Invalid nested block region tree.")
             for children in children_by_region.values():
                 walk(children)
 
-    for instances in regions.values():
+    for instances in ((stored or {}).get("regions") or {}).values():
         walk(instances)
     return found
 

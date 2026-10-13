@@ -145,6 +145,63 @@ class McpBlockTests(TestCase):
         _, result = self.call("list_blocks", {"site": "alpha"})
         self.assertTrue(result["isError"])
 
+    def test_retired_sibling_does_not_hide_current_block_or_allow_ambiguous_writes(self):
+        main = self.tenant.content["regions"]["main"]
+        main.append({"id": "blk_66666666", "type": "retired",
+                     "fields": {"title": "Retired copy"}})
+        self.tenant.save(update_fields=["content"])
+
+        _, listed = self.call("list_blocks", {"site": "alpha"})
+        self.assertFalse(listed["isError"], listed)
+        availability = {row["id"]: row["available"]
+                        for row in listed["structuredContent"]["blocks"]}
+        self.assertTrue(availability["blk_11111111"])
+        self.assertFalse(availability["blk_66666666"])
+
+        _, page = self.call("get_page", {"site": "alpha"})
+        self.assertFalse(page["isError"], page)
+        self.assertEqual(page["structuredContent"]["fields"]["blk_11111111.title"]["value"], "One")
+        self.assertNotIn("blk_66666666.title", page["structuredContent"]["fields"])
+        _, current = self.call("get_content", {"site": "alpha", "field": "blk_11111111.title"})
+        self.assertFalse(current["isError"], current)
+        self.assertEqual(current["structuredContent"]["value"], "One")
+        _, html = self.call("get_block_html", {"site": "alpha", "instance_id": "blk_11111111"})
+        self.assertFalse(html["isError"], html)
+        self.assertIn("One", html["structuredContent"]["html"])
+
+        for name, arguments in (
+            ("get_content", {"site": "alpha", "field": "blk_66666666.title"}),
+            ("get_block_html", {"site": "alpha", "instance_id": "blk_66666666"}),
+            ("patch_content", {"site": "alpha", "field": "blk_66666666.title",
+                               "value": "Denied", "if_match": content_etag(self.tenant.content)}),
+        ):
+            _, denied = self.call(name, arguments)
+            self.assertTrue(denied["isError"], (name, denied))
+
+        _, written = self.call("patch_content", {"site": "alpha", "field": "blk_11111111.title",
+            "value": "Updated", "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(written["isError"], written)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content["regions"]["main"][0]["fields"]["title"], "Updated")
+        self.assertEqual(self.tenant.content["regions"]["main"][-1]["fields"]["title"], "Retired copy")
+
+        self.tenant.content["regions"]["main"][-1]["id"] = "blk_11111111"
+        self.tenant.save(update_fields=["content"])
+        _, ambiguous = self.call("list_blocks", {"site": "alpha"})
+        self.assertTrue(ambiguous["isError"])
+        _, ambiguous_read = self.call("get_page", {"site": "alpha"})
+        self.assertTrue(ambiguous_read["isError"])
+        _, ambiguous_html = self.call("get_block_html", {"site": "alpha",
+            "instance_id": "blk_11111111"})
+        self.assertTrue(ambiguous_html["isError"])
+        before = self.tenant.content
+        _, ambiguous_write = self.call("patch_content", {"site": "alpha",
+            "field": "blk_11111111.title", "value": "Wrong target",
+            "if_match": content_etag(before)})
+        self.assertTrue(ambiguous_write["isError"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
     def test_patch_targets_one_instance_versions_and_rejects_stale_etag(self):
         old = content_etag(self.tenant.content)
         status, result = self.call("patch_content", {"site": "alpha", "field": "blk_22222222.title",
