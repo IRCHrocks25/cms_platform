@@ -30,6 +30,10 @@ services:
       # Fernet key for encrypting GHL OAuth tokens at rest. Without it the
       # connect/callback/bind flows fail closed (503). See settings.py.
       GHL_TOKEN_ENCRYPTION_KEY: ${GHL_TOKEN_ENCRYPTION_KEY:-}
+      # S11 form capture stays off until provisioned; encrypt its per-business
+      # signing secrets when enabled.
+      SITES_BUSINESS_FORMS_ENABLED: ${SITES_BUSINESS_FORMS_ENABLED:-0}
+      SITES_FORM_ENCRYPTION_KEY: ${SITES_FORM_ENCRYPTION_KEY:-}
       # GHL global Ed25519 webhook public key (PEM, \n-escaped one-liner ok).
       # When set, /connect/webhook/ enforces X-GHL-Signature verification.
       GHL_WEBHOOK_PUBLIC_KEY: ${GHL_WEBHOOK_PUBLIC_KEY:-}

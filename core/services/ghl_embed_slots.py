@@ -39,6 +39,19 @@ def get_embed_slots(
     return slots
 
 
+def external_form_slots(schema: dict[str, Any], content: dict[str, Any] | None) -> list[str]:
+    """Report GHL form slots that native Sites capture cannot observe.
+
+    S11's native-form flag does not silently treat an iframe submission as a
+    captured lead. S14 publication readiness consumes this inventory when the
+    paired receiver is available.
+    """
+    return [
+        slot["id"] for slot in get_embed_slots(schema, content)
+        if slot["kind"] == "form" and slot["value"]
+    ]
+
+
 def validate_embed_content_update(
     *,
     tenant,

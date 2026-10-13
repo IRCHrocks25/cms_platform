@@ -2331,6 +2331,62 @@ def render_site(
     return str(soup)
 
 
+def render_business_form_slots(html: str, tenant, page=None, *, request=None) -> str:
+    """Turn agency-authored native form slots into tenant-bound forms."""
+    from django.conf import settings
+    from core.services.business_forms import form_token
+
+    if not getattr(settings, "SITES_BUSINESS_FORMS_ENABLED", False) or "data-cms-form" not in html:
+        return html
+    soup = BeautifulSoup(html, "lxml")
+    for slot in soup.find_all(attrs={"data-cms-form": True}):
+        form_id = str(slot.get("data-cms-form") or "").strip()
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", form_id):
+            continue
+        action = "/api/site-forms/submit/"
+        if request is not None and request.path.startswith(f"/site/{tenant.subdomain}/"):
+            action = f"/site/{tenant.subdomain}/api/site-forms/submit/"
+        form = soup.new_tag("form", action=action, method="post")
+        form["data-cms-form"] = form_id
+        token = soup.new_tag("input", attrs={"type": "hidden", "name": "form_token"})
+        token["value"] = form_token(tenant, page, form_id)
+        form.append(token)
+        if request is not None:
+            for key in ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"):
+                value = request.GET.get(key, "").strip()[:200]
+                if value:
+                    utm = soup.new_tag("input", attrs={"type": "hidden", "name": key})
+                    utm["value"] = value
+                    form.append(utm)
+        for field, field_type in (("name", "text"), ("email", "email"), ("phone", "tel")):
+            label = soup.new_tag("label")
+            label.string = field.title() + " "
+            control = soup.new_tag("input", attrs={"type": field_type, "name": field})
+            if field == "email":
+                control["required"] = ""
+            label.append(control)
+            form.append(label)
+        label = soup.new_tag("label")
+        label.string = "Message "
+        label.append(soup.new_tag("textarea", attrs={"name": "message"}))
+        form.append(label)
+        consent = soup.new_tag("label")
+        consent.append(soup.new_tag("input", attrs={"type": "checkbox", "name": "consent", "value": "yes"}))
+        consent.append(" I agree to be contacted")
+        form.append(consent)
+        honeypot = soup.new_tag("input", attrs={"type": "text", "name": "website"})
+        honeypot["autocomplete"] = "off"
+        honeypot["tabindex"] = "-1"
+        honeypot["aria-hidden"] = "true"
+        honeypot["style"] = "position:absolute;left:-9999px"
+        form.append(honeypot)
+        button = soup.new_tag("button", type="submit")
+        button.string = "Send"
+        form.append(button)
+        slot.replace_with(form)
+    return str(soup)
+
+
 _PREVIEW_REVEAL_CSS = (
     ".rv,.reveal,[class*=\"reveal-\"]{opacity:1!important;transform:none!important;"
     "visibility:visible!important;}"

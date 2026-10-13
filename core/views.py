@@ -15,7 +15,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from .models import EmbeddableAssistant, Page, Tenant
-from .renderer import render_site, merge_with_defaults, apply_head_settings
+from .renderer import render_site, merge_with_defaults, apply_head_settings, render_business_form_slots
 from .services import blocks, blog_render
 
 
@@ -51,6 +51,7 @@ def _render_tenant(tenant: Tenant, request=None, *, blog_base: str = "/blog/") -
         nav_pages=blocks.nav_pages_for(tenant),
     )
     html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
+    html = render_business_form_slots(html, tenant, request=request)
     return HttpResponse(html)
 
 
@@ -138,6 +139,7 @@ def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpR
         nav_pages=blocks.nav_pages_for(tenant),
     )
     html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
+    html = render_business_form_slots(html, tenant, page, request=request)
     return HttpResponse(html)
 
 
