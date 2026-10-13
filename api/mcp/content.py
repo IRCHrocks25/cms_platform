@@ -78,7 +78,8 @@ def block_instances(stored: dict, catalog: dict) -> dict[str, tuple[dict, dict]]
     return found
 
 
-def list_block_instances(stored: dict, catalog: dict) -> list[dict[str, Any]]:
+def list_block_instances(stored: dict, catalog: dict,
+                         region_order: list[str] | None = None) -> list[dict[str, Any]]:
     """Preorder inventory of stored regions, including fieldless or retired blocks.
 
     ``region`` is the top-level region or the slot on ``parent_id``. Positions
@@ -128,7 +129,11 @@ def list_block_instances(stored: dict, catalog: dict) -> list[dict[str, Any]]:
                 walk(child_instances, parent_id=instance_id,
                      region=child_region, depth=depth + 1)
 
-    for region, instances in regions.items():
+    ordered_regions = dict.fromkeys([*(region_order or []), *regions.keys()])
+    for region in ordered_regions:
+        if region not in regions:
+            continue
+        instances = regions[region]
         if not isinstance(region, str):
             raise ValueError("Invalid block region tree.")
         walk(instances, parent_id=None, region=region, depth=0)

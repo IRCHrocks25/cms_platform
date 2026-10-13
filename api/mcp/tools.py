@@ -34,6 +34,7 @@ from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
 from api.mcp import content as content_mod
+from api.mcp import structure as structure_mod
 from api.mcp.errors import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
@@ -163,8 +164,14 @@ def list_blocks(
     except LookupError:
         return page_access_denied(site, page or "")
     try:
+        shell = BeautifulSoup(editable.template.html_source or "", "html.parser")
+        shell_regions = [
+            (slot.get("data-region") or "main").strip() or "main"
+            for slot in shell.find_all(attrs={"data-region": True})
+        ]
         rows = content_mod.list_block_instances(
-            stored, blocks.catalog_for_template(editable.template)
+            stored, blocks.catalog_for_template(editable.template),
+            region_order=shell_regions,
         )
     except ValueError as exc:
         return tool_error(str(exc))
@@ -902,6 +909,83 @@ def patch_content(
     return tool_success({"content_etag": new_etag, "url": url})
 
 
+@transaction.atomic
+def _apply_block_structure(auth: ResolvedAuth, *, site: str, page: Optional[str],
+                           if_match: str, change) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, schema, _stored = content_mod.resolve_editable(scope.tenant, page)
+    except LookupError:
+        return page_access_denied(site, page or "")
+    editable = type(editable).objects.select_for_update().get(pk=editable.pk)
+    if not editable.template.is_block_shell:
+        return tool_error("Structural block edits require a block-backed page.")
+    if not editable.template.is_client_editable and not (
+        auth.user.is_superuser or auth.user.is_staff
+    ):
+        return tool_error("This site isn't set up for editing yet — contact your agency.")
+    stored = editable.content or {}
+    if content_mod.content_etag(stored) != if_match:
+        return tool_conflict("Conflict (409): content changed; re-read list_blocks and retry.")
+    catalog = blocks.catalog_for_template(editable.template)
+    try:
+        proposed, instance_id = change(stored, catalog, editable.template.html_source)
+        if proposed == stored:
+            raise structure_mod.BlockStructureError("No structural change was requested.")
+        ghl_embed_slots.validate_embed_content_update(
+            tenant=scope.tenant, schema=_current_schema(editable, schema),
+            current_content=stored, new_content=proposed,
+            is_published=editable.is_published, catalog=catalog,
+        )
+    except (ValueError, ghl_embed_slots.GhlEmbedValidationError) as exc:
+        return tool_error(str(exc))
+    cv.save_editable_content(editable, proposed, user=auth.user, source=cv.SOURCE_MCP)
+    editable.refresh_from_db()
+    url = tenant_canonical_public_url(
+        scope.tenant, page_slug=editable.slug if isinstance(editable, Page) else None
+    )
+    return tool_success({"content_etag": content_mod.content_etag(editable.content or {}),
+                         "url": url, "instance_id": instance_id})
+
+
+def add_block(auth: ResolvedAuth, *, site: str, block_type: str, region: str,
+              position: int, if_match: str, parent_id: Optional[str] = None,
+              page: Optional[str] = None) -> dict[str, Any]:
+    def change(stored, catalog, shell):
+        return structure_mod.add_block(stored, catalog, shell, block_type=block_type,
+                                       parent_id=parent_id, region=region, position=position)
+    return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
+
+
+def remove_block(auth: ResolvedAuth, *, site: str, instance_id: str,
+                 if_match: str, page: Optional[str] = None) -> dict[str, Any]:
+    def change(stored, catalog, _shell):
+        return structure_mod.remove_block(stored, catalog, instance_id=instance_id), instance_id
+    return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
+
+
+def move_block(auth: ResolvedAuth, *, site: str, instance_id: str, region: str,
+               position: int, if_match: str, parent_id: Optional[str] = None,
+               page: Optional[str] = None) -> dict[str, Any]:
+    def change(stored, catalog, shell):
+        return (structure_mod.move_block(stored, catalog, shell, instance_id=instance_id,
+                                         parent_id=parent_id, region=region, position=position),
+                instance_id)
+    return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
+
+
+def append_block_richtext(auth: ResolvedAuth, *, site: str, field: str,
+                          operation: str, text: str, if_match: str,
+                          page: Optional[str] = None) -> dict[str, Any]:
+    def change(stored, catalog, _shell):
+        return (structure_mod.append_block_richtext(
+            stored, catalog, field=field, operation=operation, text=text),
+            field.split(".", 1)[0])
+    return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
+
+
 # Indistinguishable denial for missing / foreign template_id (no enumeration).
 _TEMPLATE_DENIED = tool_error(
     "No accessible template for this site. "
@@ -1011,7 +1095,7 @@ def push_page(
     # ---- Home (page omitted) ----
     if page_slug is None:
         if tenant.template.is_block_shell or (tenant.content or {}).get("regions"):
-            return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for block copy and the visual editor for structure.")
+            return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for copy, or the bounded block structure tools for add/remove/move.")
         if explicit_tpl is not None:
             tpl = explicit_tpl
         else:
@@ -1057,7 +1141,7 @@ def push_page(
     if existing is not None and (
         existing.template.is_block_shell or (existing.content or {}).get("regions")
     ):
-        return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for block copy and the visual editor for structure.")
+        return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for copy, or the bounded block structure tools for add/remove/move.")
     page_title = title or page_slug.replace("-", " ").title()
 
     if existing is None:
@@ -1343,6 +1427,10 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "publish_site": publish_site,
     "publish_page": publish_page,
     "patch_content": patch_content,
+    "add_block": add_block,
+    "remove_block": remove_block,
+    "move_block": move_block,
+    "append_block_richtext": append_block_richtext,
     "push_page": push_page,
     "delete_page": delete_page,
     "add_custom_domain": add_custom_domain,
@@ -1469,7 +1557,7 @@ TOOLS_LIST: list[dict[str, Any]] = [
     {
         "name": "list_blocks",
         "description": (
-            "List every stored block instance on a page in preorder, including "
+            "List every stored block instance on a page in shell render order, including "
             "fieldless layouts and nested children. region is the top-level "
             "slot or a slot on parent_id; position is zero-based within it. "
             "available=false means the type is no longer allowlisted and cannot "
@@ -1627,7 +1715,7 @@ TOOLS_LIST: list[dict[str, Any]] = [
     },
     {
         "name": "push_block_html",
-        "description": "Write text/richtext values in one rendered block fragment. Requires current content_etag; rejects changes to structure, attributes, nested blocks, and non-text fields. Use the visual editor for structural changes.",
+        "description": "Write text/richtext values in one rendered block fragment. Requires current content_etag; rejects changes to structure, attributes, nested blocks, and non-text fields. Use bounded block structure tools or the visual editor for structural changes.",
         "inputSchema": {"type": "object", "required": ["site", "instance_id", "html", "if_match"],
             "additionalProperties": False, "properties": {
                 "site": {"type": "string"}, "page": {"type": ["string", "null"]},
@@ -2041,7 +2129,8 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "description": (
             "Create or replace a page's HTML for a site. Omit page (or pass null) "
             "to push the site home. Existing block-backed pages reject this "
-            "tool before mutation; use get_block_html / push_block_html for copy. "
+            "tool before mutation; use get_block_html / push_block_html for copy "
+            "and bounded block structure tools for add/remove/move. "
             "New pages get a tenant-owned template in "
             "editing_mode=raw. Re-pushes append a TemplateVersion. Use if_match "
             "(html etag from get_page_html or a prior push) to guard concurrent "
@@ -2243,6 +2332,63 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "annotations": WRITE_ANNOTATIONS,
     },
 ]
+
+
+_STRUCTURE_RESULT = {
+    "type": "object", "required": ["content_etag", "url", "instance_id"],
+    "additionalProperties": False,
+    "properties": {"content_etag": {"type": "string"}, "url": {"type": "string"},
+                   "instance_id": {"type": "string"}},
+}
+_STRUCTURE_COMMON = {
+    "site": {"type": "string", "description": "Tenant subdomain"},
+    "page": {"type": ["string", "null"], "description": "Omit/null for home"},
+    "if_match": {"type": "string", "description": "Current list_blocks content_etag"},
+}
+_STRUCTURE_DESTINATION = {
+    "parent_id": {"type": ["string", "null"],
+                  "description": "Omit/null for a body shell region; otherwise a layout block ID"},
+    "region": {"type": "string", "description": "Shell body region or declared child slot"},
+    "position": {"type": "integer", "description": "Zero-based insertion index; for moves, after removal"},
+}
+TOOLS_LIST.extend([
+    {
+        "name": "add_block",
+        "description": "Insert one allowlisted block in a body or declared layout region. Generates a fresh stable ID; enforces the 40-block and depth-2 caps. No raw HTML input.",
+        "inputSchema": {"type": "object", "required": ["site", "block_type", "region", "position", "if_match"],
+                        "additionalProperties": False,
+                        "properties": {**_STRUCTURE_COMMON, **_STRUCTURE_DESTINATION,
+                                       "block_type": {"type": "string"}}},
+        "outputSchema": _STRUCTURE_RESULT, "annotations": WRITE_ANNOTATIONS,
+    },
+    {
+        "name": "remove_block",
+        "description": "Remove one available block and its nested children. Published GHL forms cannot be removed. The previous content is versioned for undo.",
+        "inputSchema": {"type": "object", "required": ["site", "instance_id", "if_match"],
+                        "additionalProperties": False,
+                        "properties": {**_STRUCTURE_COMMON, "instance_id": {"type": "string"}}},
+        "outputSchema": _STRUCTURE_RESULT, "annotations": WRITE_ANNOTATIONS,
+    },
+    {
+        "name": "move_block",
+        "description": "Move one available block, preserving its ID and children. Position is zero-based in the destination after source removal. Descendant and over-depth moves are rejected.",
+        "inputSchema": {"type": "object", "required": ["site", "instance_id", "region", "position", "if_match"],
+                        "additionalProperties": False,
+                        "properties": {**_STRUCTURE_COMMON, **_STRUCTURE_DESTINATION,
+                                       "instance_id": {"type": "string"}}},
+        "outputSchema": _STRUCTURE_RESULT, "annotations": WRITE_ANNOTATIONS,
+    },
+    {
+        "name": "append_block_richtext",
+        "description": "Append a plain-text paragraph or unordered list item to an available richtext block field. Accepts no HTML; text is escaped. Existing content and non-richtext fields are protected.",
+        "inputSchema": {"type": "object", "required": ["site", "field", "operation", "text", "if_match"],
+                        "additionalProperties": False,
+                        "properties": {**_STRUCTURE_COMMON, "field": {"type": "string"},
+                                       "operation": {"type": "string", "enum": ["paragraph", "list_item"]},
+                                       "text": {"type": "string"}}},
+        "outputSchema": _STRUCTURE_RESULT, "annotations": WRITE_ANNOTATIONS,
+    },
+])
 
 
 TOOL_REQUIRED_OAUTH_SCOPES: dict[str, str] = {
