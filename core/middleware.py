@@ -2,11 +2,16 @@ import logging
 from http import cookies as http_cookies
 
 from django.conf import settings
+from django.shortcuts import render
 
 from .models import CustomDomain, Tenant
 from .tenant_hosts import tenant_subdomain_from_host_label
 
 logger = logging.getLogger(__name__)
+
+HOST_AGENCY = "agency"
+HOST_TENANT = "tenant"
+HOST_UNKNOWN = "unknown"
 
 
 # Teach Python's stdlib SimpleCookie about the CHIPS "Partitioned" attribute
@@ -168,6 +173,25 @@ def _x_forwarded_host_first(request, fallback_host: str) -> str:
     return forwarded.split(":")[0].rstrip(".")
 
 
+def unknown_host_response(request, *, pending_domain=False):
+    """Branded Katek 404 for a host that no published site owns."""
+    host, _, port = request.get_host().partition(":")
+    agency_host = (
+        getattr(settings, "MONITOR_BASE_HOST", "") or settings.TENANT_BASE_DOMAIN or ""
+    ).lower().rstrip(".")
+    agency_url = f"{request.scheme}://{agency_host}{':' + port if port else ''}/"
+    return render(
+        request,
+        "unknown_host.html",
+        {
+            "host": host,
+            "agency_url": agency_url,
+            "pending_domain": pending_domain,
+        },
+        status=404,
+    )
+
+
 class TenantResolverMiddleware:
     """
     Resolves a tenant from the host's leftmost subdomain when the host is
@@ -178,6 +202,12 @@ class TenantResolverMiddleware:
     The resolved tenant is attached to ``request.tenant``. If the host is
     the bare base domain or a reserved subdomain, ``request.tenant`` is
     ``None`` and the custom-domain fallback is skipped.
+
+    ``request.host_kind`` tells the ``None`` cases apart: ``"tenant"``,
+    ``"agency"`` (app hosts, bare bases, reserved subdomains, hosts we know
+    nothing about) or ``"unknown"`` (an unclaimed subdomain of a base domain,
+    or a custom domain that is not verified yet). Unknown hosts get the
+    branded 404 for every path so they never serve platform surfaces.
     """
 
     APP_HOSTS = {"127.0.0.1", "0.0.0.0"}
@@ -186,10 +216,13 @@ class TenantResolverMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        request.tenant = self._resolve_tenant(request)
+        request.host_kind, request.tenant, pending_domain = self._resolve_tenant(request)
+        if request.host_kind == HOST_UNKNOWN:
+            return unknown_host_response(request, pending_domain=pending_domain)
         return self.get_response(request)
 
     def _resolve_tenant(self, request):
+        """Return ``(host_kind, tenant, pending_custom_domain)``."""
         http_host = request.META.get("HTTP_HOST")
         host = request.get_host().split(":")[0].lower().rstrip(".")
         lookup_host = _x_forwarded_host_first(request, host)
@@ -200,8 +233,9 @@ class TenantResolverMiddleware:
             lookup_host,
         )
 
+        agency = (HOST_AGENCY, None, False)
         if not host or host in self.APP_HOSTS:
-            return None
+            return agency
 
         reserved = set(getattr(settings, "TENANT_RESERVED_SUBDOMAINS", set()))
 
@@ -226,39 +260,46 @@ class TenantResolverMiddleware:
 
         # Bare base domain (e.g. `localhost`, `yourdomain.com`): agency host.
         if host in {base for base, _ in bases}:
-            return None
+            return agency
 
         # Subdomain pattern: host is `<sub>.<base>` for one of the bases.
+        under_base = False
         for base, use_suffix in bases:
             if not host.endswith("." + base):
                 continue
+            under_base = True
             sub_part = host[: -(len(base) + 1)]
             if sub_part and "." not in sub_part:
                 tenant_subdomain = tenant_subdomain_from_host_label(
                     sub_part,
                     use_suffix=use_suffix,
                 )
+                # No env suffix: another environment's host or staging's own
+                # agency host (`staging.sites.katek.app`).
                 if tenant_subdomain is None:
-                    return None
+                    return agency
                 # Reserved subdomain; never fall through to custom-domain lookup.
                 if tenant_subdomain in reserved:
-                    return None
+                    return agency
                 tenant = (
                     Tenant.objects.select_related("template")
                     .filter(subdomain=tenant_subdomain)
                     .first()
                 )
                 if tenant:
-                    return tenant
+                    return (HOST_TENANT, tenant, False)
             break
 
-        # Fallback: verified custom domain (e.g. `training.acme.com`).
+        # Fallback: custom domain (e.g. `training.acme.com`).
         custom = (
             CustomDomain.objects.select_related("tenant__template")
-            .filter(domain=lookup_host, is_verified=True)
+            .filter(domain=lookup_host)
             .first()
         )
+        if custom and custom.is_verified:
+            return (HOST_TENANT, custom.tenant, False)
         if custom:
-            return custom.tenant
-
-        return None
+            return (HOST_UNKNOWN, None, True)
+        if under_base:
+            return (HOST_UNKNOWN, None, False)
+        return agency

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#030d2a">
+<title>No website here yet | Katek Sites</title>
+<link rel="icon" href="https://cdn.katalyst-crm.com/t1/cloudinary/katek_logo_white_p1evh7.svg" type="image/svg+xml">
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{min-height:100vh;display:flex;flex-direction:column;background:#030d2a;color:#fff;
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.6}
+  header{padding:28px 32px}
+  header img{height:30px;width:auto;display:block;filter:brightness(0) invert(1)}
+  main{flex:1;display:flex;align-items:center;justify-content:center;padding:32px}
+  .card{max-width:560px;text-align:center}
+  h1{font-size:clamp(28px,5vw,40px);line-height:1.2;margin-bottom:16px}
+  p{color:#c7cde0;font-size:17px;margin-bottom:32px}
+  .host{color:#fff;font-weight:600;word-break:break-all}
+  .cta{display:inline-block;background:#0040FF;color:#fff;text-decoration:none;font-weight:600;
+    padding:14px 28px;border-radius:999px}
+  .cta:hover,.cta:focus-visible{background:#2a5cff}
+  .cta:focus-visible{outline:3px solid #fff;outline-offset:3px}
+</style>
+</head>
+<body>
+<header>
+  <a href="{{ agency_url }}"><img src="https://cdn.katalyst-crm.com/t1/cloudinary/katek_logo_white_p1evh7.svg" alt="Katek Sites"></a>
+</header>
+<main>
+  <div class="card">
+    <h1>There's no website here yet</h1>
+    {% if pending_domain %}
+    <p><span class="host">{{ host }}</span> is pointed at Katek Sites and we can see it. The domain is still being verified, so the site will appear here once that finishes.</p>
+    {% else %}
+    <p><span class="host">{{ host }}</span> is a Katek Sites address, but no website has been published here.</p>
+    {% endif %}
+    <a class="cta" href="{{ agency_url }}">Get a website built</a>
+  </div>
+</main>
+</body>
+</html>
