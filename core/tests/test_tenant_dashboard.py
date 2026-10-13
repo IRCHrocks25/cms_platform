@@ -167,7 +167,7 @@ class TenantDashboardAccessTests(TestCase):
         self.assertContains(response, "<span>Pages</span>", html=True)
         self.assertNotContains(response, "New client")
 
-    def test_tenant_page_list_has_active_nav_and_client_safe_empty_state(self):
+    def test_tenant_page_list_has_active_nav_and_block_page_creation(self):
         c = self._client("acme.localhost")
         c.force_login(self.member)
 
@@ -176,11 +176,11 @@ class TenantDashboardAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["nav_section"], "pages")
         self.assertContains(response, "No inner pages yet")
-        self.assertContains(response, "Ask your agency")
-        self.assertNotContains(response, "HTML source")
-        self.assertNotContains(response, "Add page")
+        self.assertContains(response, "New page")
+        self.assertContains(response, "Add page")
+        self.assertContains(response, "Advanced")
 
-    def test_tenant_page_list_exposes_structured_edit_without_html_or_delete(self):
+    def test_tenant_page_list_exposes_structured_edit_and_block_page_management(self):
         page = Page.objects.create(
             tenant=self.tenant_a,
             template=self.tenant_a.template,
@@ -196,7 +196,7 @@ class TenantDashboardAccessTests(TestCase):
         self.assertContains(response, reverse("dashboard:page_editor_self", args=[page.pk]))
         self.assertContains(response, 'aria-label="More actions for About us"')
         self.assertNotContains(response, "Edit HTML")
-        self.assertNotContains(response, reverse("dashboard:page_delete_self", args=[page.pk]))
+        self.assertContains(response, reverse("dashboard:page_delete_self", args=[page.pk]))
 
     def test_tenant_page_editor_keeps_pages_nav_active(self):
         page = Page.objects.create(

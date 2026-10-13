@@ -3,9 +3,9 @@
 A classic template is one annotated document: fixed chrome (nav/footer) plus a
 run of body sections. The block-instance model splits that into
 
-* a **shell** — the same chrome with a single ``<div data-region="main">`` slot
+* a **shell**: the same chrome with a single ``<div data-region="main">`` slot
   where client-inserted blocks render, and
-* a **block catalog** — one :class:`~core.models.BlockType` per former body
+* a **block catalog**: one :class:`~core.models.BlockType` per former body
   section, allowlisted on the template.
 
 Every tenant home and inner page that uses the template has its
@@ -64,14 +64,14 @@ class Command(BaseCommand):
 
         if template.is_block_shell:
             raise CommandError(
-                f"Template '{template.name}' is already a block shell — nothing to do."
+                f"Template '{template.name}' is already a block shell; nothing to do."
             )
 
         old_html = template.html_source
         _shell_html, fragments = blocks.split_shell_and_blocks(old_html, region=region)
         if not fragments:
             raise CommandError(
-                "No body sections found to convert — every section is chrome."
+                "No body sections found to convert; every section is chrome."
             )
 
         block_keys = [k for k, _ in fragments]

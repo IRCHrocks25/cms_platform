@@ -178,7 +178,7 @@ def optimize_image_upload(upload):
 
         size = buf.tell()
         # If we didn't shrink dimensions and the re-encode isn't smaller, the
-        # original was already lean — keep it rather than risk a larger file.
+        # original was already lean: keep it rather than risk a larger file.
         if not downscaled and upload.size and size >= upload.size:
             return _original()
 

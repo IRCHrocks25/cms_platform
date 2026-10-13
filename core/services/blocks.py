@@ -1,4 +1,4 @@
-"""Curated block palette — catalog, instance helpers, and shell conversion.
+"""Curated block palette: catalog, instance helpers, and shell conversion.
 
 The block-instance model lets a client add / reorder / remove / duplicate
 agency-designed blocks inside a *region* of an otherwise locked template shell.
@@ -6,10 +6,10 @@ This module is the seam between the data model (``BlockType`` +
 ``Template.allowed_block_types``) and the renderer
 (``core.renderer.render_page_from_blocks``):
 
-* ``catalog_for_template`` / ``palette_for_template`` — what a client may insert.
-* ``render_content`` — the dual-read dispatcher (block shell vs classic page).
-* ``new_instance_id`` / ``seed_instance`` / ``count_region_blocks`` — editing.
-* ``split_shell_and_blocks`` / ``convert_content_to_regions`` — one-time
+* ``catalog_for_template`` / ``palette_for_template``: what a client may insert.
+* ``render_content``: the dual-read dispatcher (block shell vs classic page).
+* ``new_instance_id`` / ``seed_instance`` / ``count_region_blocks``: editing.
+* ``split_shell_and_blocks`` / ``convert_content_to_regions``: one-time
   migration of a classic annotated template + its tenants into the shell model,
   with ``normalize_for_diff`` gating the rollout on byte-identical render.
 """
@@ -33,7 +33,7 @@ MAX_BLOCKS_PER_PAGE = 40
 # whose children are depth 2. Anything deeper is dropped on save + at render.
 MAX_BLOCK_DEPTH = 2
 
-# Sections that stay fixed in the shell during migration — the header nav, the
+# Sections that stay fixed in the shell during migration: the header nav, the
 # footer, and the synthetic brand-tokens section. Everything else in the page
 # body becomes an insertable block.
 CHROME_GROUPS = {"header", "footer", "global"}
@@ -883,7 +883,7 @@ def new_instance_id() -> str:
 
 
 def seed_instance(block_key: str, catalog: dict[str, dict] | None = None) -> dict:
-    """A new instance seeded from a block type — empty fields fall back to the
+    """A new instance seeded from a block type: empty fields fall back to the
     block's defaults at render time via ``merge_block_defaults``. Layout blocks
     (rows with column slots) get empty ``children`` lists so the client can drop
     blocks into each column."""
@@ -901,7 +901,7 @@ def clone_instance_tree(inst: dict) -> dict | None:
     Used when copying a page's blocks to a new page (copy_home / copy_page): a
     shallow ``{type, fields}`` copy loses every nested column child, so a home
     page built from layout rows would arrive empty. This recurses into
-    ``children`` (column slots) and gives every instance — parent and child — a
+    ``children`` (column slots) and gives every instance, parent and child, a
     new id so the two pages stay fully independent."""
     if not isinstance(inst, dict) or not inst.get("type"):
         return None
@@ -953,7 +953,7 @@ def nav_pages_for(tenant) -> list[dict]:
 
     Returned as ``[{"title", "url"}]`` so the renderer can fill an opt-in
     ``[data-nav-pages]`` container in the shell. Empty when the tenant has no
-    such pages — the renderer then leaves the container untouched.
+    such pages: the renderer then leaves the container untouched.
     """
     if tenant is None or tenant.pk is None:
         return []
@@ -1044,7 +1044,7 @@ def _is_root_block(node) -> bool:
     """True for a designed band that should become an insertable block.
 
     "Top-level" means not nested inside another ``data-section``. Real agency
-    pages wrap those bands in ``<main>`` / a page wrapper — they are still
+    pages wrap those bands in ``<main>`` / a page wrapper: they are still
     root blocks. Nested slides stay inside their parent. Header/footer and
     overlay chrome (``.menu`` / ``.modal``) stay in the shell.
     """
@@ -1216,7 +1216,7 @@ def normalize_for_diff(html: str) -> str:
             if el.has_attr(attr):
                 del el[attr]
     # Assembling instances drops the source whitespace text nodes that sit
-    # between fixed sections, so collapse inter-tag whitespace on BOTH sides —
+    # between fixed sections, so collapse inter-tag whitespace on BOTH sides:
     # it is not visually meaningful for these block-level sections and would
     # otherwise mask an otherwise byte-identical render.
     out = str(soup)
@@ -1455,7 +1455,7 @@ def ensure_block_editor(editable, *, user=None):
 
     Body sections become insertable blocks (so Add section / Quick Add appear)
     and existing copy is dual-written to ``_classic``. Header/footer stay in
-    the designed HTML — chrome slots are not rewritten here. A shared/library
+    the designed HTML: chrome slots are not rewritten here. A shared/library
     template is cloned onto this tenant first so other sites keep their locked
     HTML until they open the editor themselves.
     """
@@ -1484,7 +1484,7 @@ def ensure_block_editor(editable, *, user=None):
         ok, snippet = classic_upgrade_is_safe(template)
         if not ok:
             # Real annotated pages (sections inside <main>, extra chrome) often
-            # miss a byte-identical paint check. Still convert — the agency
+            # miss a byte-identical paint check. Still convert: the agency
             # just annotated this site to get the block editor, not a locked
             # classic form.
             logger.warning(

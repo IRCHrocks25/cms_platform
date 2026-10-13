@@ -1,4 +1,4 @@
-"""Phase 2 — client page management on a block shell (create/rename/nav/delete)."""
+"""Phase 2: client page management on a block shell (create/rename/nav/delete)."""
 import json
 
 from django.contrib.auth import get_user_model
@@ -154,7 +154,7 @@ class ClientPageManagementTests(TestCase):
         self.assertTrue(self.classic_tenant.pages.filter(slug="x").exists())
 
     def test_client_cannot_paste_html(self):
-        # A hidden html_source without Advanced is ignored — they get a
+        # A hidden html_source without Advanced is ignored: they get a
         # shared-shell page, never a pasted-HTML template.
         c = self._client()
         c.post(reverse("dashboard:page_create_self"),
@@ -190,7 +190,7 @@ class ClientPageManagementTests(TestCase):
 
     def test_agency_can_create_block_page_on_shell(self):
         # Agency surface (host = base domain) also composes from the palette on a
-        # block shell — no HTML paste required.
+        # block shell: no HTML paste required.
         c = Client(HTTP_HOST="localhost")
         c.force_login(self.staff)
         resp = c.post(
@@ -256,8 +256,8 @@ class ClientPageManagementTests(TestCase):
         # Agency create on a shell offers blank / copy-home plus advanced HTML.
         self.assertContains(resp, "New page")
         self.assertContains(resp, "Start from")
-        self.assertContains(resp, "Blank page — add sections yourself")
-        self.assertContains(resp, "Advanced — paste designed HTML")
+        self.assertContains(resp, "Blank page: add sections yourself")
+        self.assertContains(resp, "Advanced: paste designed HTML")
         self.assertContains(resp, "HTML source")
         self.assertContains(resp, 'id="page-create-form"', html=False)
         self.assertContains(
@@ -279,7 +279,7 @@ class ClientPageManagementTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Start from")
         self.assertContains(resp, "Add page")
-        self.assertContains(resp, "Advanced — paste designed HTML")
+        self.assertContains(resp, "Advanced: paste designed HTML")
         self.assertContains(resp, "HTML source")
         self.assertNotContains(resp, "New page from HTML")
 

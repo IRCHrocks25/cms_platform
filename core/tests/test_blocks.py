@@ -1,4 +1,4 @@
-"""Curated block palette — parser, renderer, and migration parity."""
+"""Curated block palette: parser, renderer, and migration parity."""
 from pathlib import Path
 
 from django.test import TestCase
@@ -892,7 +892,7 @@ class EnsureBlockEditorTests(TestCase):
         self.assertTrue(matched, snippet)
 
     def test_overlays_stay_in_shell_and_nested_cards_stay_in_parent(self):
-        """Any future client page — not a Burrus special case.
+        """Any future client page: not a Burrus special case.
 
         Header/footer stay designed. Body bands become blocks. A mobile menu
         and video modal stay in the shell even if someone marked them.
@@ -1763,7 +1763,7 @@ class RenderParityTests(TestCase):
     what visitors get on the published page. Publishing is a pure visibility
     toggle (`is_published`) over the same canonical content, so the preview and
     public renders must agree on every block instance, every editable field, and
-    every content value — the only difference being editor-only chrome, which
+    every content value: the only difference being editor-only chrome, which
     must NOT appear publicly.
     """
 
@@ -1773,7 +1773,7 @@ class RenderParityTests(TestCase):
         call_command("seed_builder_blocks")
         self.catalog = blocks.build_catalog(list(BlockType.objects.all()))
         # A realistic mixed page: a top-level headline, a 2-column row with a
-        # nested headline + paragraph, and a button — covering flat + nested +
+        # nested headline + paragraph, and a button: covering flat + nested +
         # multiple field types.
         self.content = {"regions": {"main": [
             {"id": "hd1", "type": "headline", "fields": {"text": "PARITY_HEADLINE"}},

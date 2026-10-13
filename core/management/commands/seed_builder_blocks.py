@@ -1,8 +1,8 @@
 """Seed the primitive "builder" block library (GHL-lite) and, optionally,
 allowlist it on block-shell templates.
 
-These primitives let a client compose a page from small pieces — layout rows
-(1-6 columns) plus leaf elements (headline, paragraph, image, button, form) —
+These primitives let a client compose a page from small pieces: layout rows
+(1-6 columns) plus leaf elements (headline, paragraph, image, button, form):
 inside a template shell's ``data-region`` slot. They are ordinary
 :class:`~core.models.BlockType` rows: annotated HTML in, schema derived on
 save, so nothing here bypasses the "schema is derived, not stored" invariant.
@@ -538,7 +538,7 @@ class Command(BaseCommand):
             if not tpl.is_block_shell:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"  skipped '{tpl.name}' (pk={tpl.pk}) — not a block shell "
+                        f"  skipped '{tpl.name}' (pk={tpl.pk}): not a block shell "
                         "(no data-region slot)."
                     )
                 )

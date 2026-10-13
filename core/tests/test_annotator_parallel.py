@@ -534,7 +534,7 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         with patch(
             "core.services.annotator._make_openai_client",
             return_value=fake_client,
-        ), self.assertRaisesRegex(AnnotatorError, "no editable sections"):
+        ), self.assertRaisesRegex(AnnotatorError, "content section with visible copy but no editable fields"):
             annotate_html_result("<h1>Unwrapped title</h1><p>Unwrapped body</p>")
 
     @override_settings(
@@ -672,7 +672,7 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         self.assertEqual(soup.find("h1")["data-edit"], "hero.title")
 
     def test_text_anchor_href_companions_do_not_break_parity(self):
-        """Five text <a>s add five schema-only ``*_href`` fields — the gate
+        """Five text <a>s add five schema-only ``*_href`` fields: the gate
         that compared raw schema length to data-edit markers rejected those
         pages (309 vs 314 on a real import)."""
         html = (

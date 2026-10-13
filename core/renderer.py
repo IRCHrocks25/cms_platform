@@ -27,8 +27,8 @@ PREVIEW_BRIDGE_SCRIPT = """
     parent.postMessage({ source: 'cms-preview', type: type, payload: payload }, '*');
   }
   // Answer the editor's readiness ping so a missed initial 'ready' (a handshake
-  // race after a reload) always self-heals. Registered FIRST — before any other
-  // setup — so it responds even if later init throws.
+  // race after a reload) always self-heals. Registered before any other
+  // setup so it responds even if later init throws.
   window.addEventListener('message', function (e) {
     if (e.source && e.source !== window.parent) return;
     var d = e && e.data;
@@ -321,7 +321,7 @@ PREVIEW_BRIDGE_SCRIPT = """
   function cmsReadEditable(el) {
     var dt = el.getAttribute('data-type') || 'text';
     // Plain text stays plain unless it carries inline markup (styled spans,
-    // links, <br>) — then store HTML, mirroring apply-content's text branch.
+    // links, <br>): then store HTML, mirroring apply-content's text branch.
     if (dt === 'richtext') return el.innerHTML;
     return el.querySelector('*') ? el.innerHTML : el.textContent;
   }
@@ -411,7 +411,7 @@ PREVIEW_BRIDGE_SCRIPT = """
     }
   });
   // Fixed chrome (nav / footer) is not a block instance. Clicking the bar
-  // itself — not an annotated field — still opens Header/Footer properties.
+  // itself, even when no annotated field is clicked, opens Header/Footer properties.
   document.querySelectorAll('[data-section]').forEach(function (el) {
     if (el.hasAttribute('data-instance-id')) return;
     el.addEventListener('click', function (e) {
@@ -583,7 +583,7 @@ PREVIEW_BRIDGE_SCRIPT = """
     return host;
   }
   // Wrap the current selection in an <a href> (or unwrap it). Stored like the
-  // styled spans above — inside the field's own HTML — so links survive save.
+  // styled spans above inside the field's own HTML so links survive save.
   function cmsLinkSelection(href) {
     if (!cmsSelRange || !href) return null;
     var host = cmsRichHost(cmsSelRange.commonAncestorContainer);
@@ -858,7 +858,7 @@ PREVIEW_BRIDGE_SCRIPT = """
         '<button type="button" data-act="delete" title="Delete (Del)" aria-label="Delete">' + CMS_ICO.del + '</button>' +
       '</span>';
     document.body.appendChild(f);
-    // Keep any text selection intact when a tool is pressed — but NOT the drag
+    // Keep any text selection intact when a tool is pressed, except the drag
     // grip, whose native drag must be allowed to start.
     f.querySelector('.cms-sel-tools').addEventListener('mousedown', function (e) {
       if (e.target.closest && e.target.closest('.cms-sel-drag')) return;
@@ -1333,9 +1333,9 @@ def _apply_select(el, value) -> None:
     """Apply a ``select`` field's chosen value to its element.
 
     The element declares how to apply it via ``data-apply``:
-      * ``class``            — toggle the value into the class list (removing the
+      * ``class``: toggle the value into the class list (removing the
                                other option values so presets never stack).
-      * ``style:<prop>``     — set an inline CSS declaration.
+      * ``style:<prop>``: set an inline CSS declaration.
 
     Only values present in the element's own ``data-options`` are honoured, so a
     tampered content value cannot inject an arbitrary class or CSS declaration.
@@ -1429,7 +1429,7 @@ def _apply_field(el, value: str, ftype: str, *, preview: bool = False) -> None:
         # Client-controlled raw HTML. On the PUBLIC render it is intentionally
         # unsanitized (opt-in raw HTML on the client's own site). In PREVIEW the
         # iframe is same-origin with the dashboard, so executing it would let a
-        # client's markup run in an agency operator's authenticated session —
+        # client's markup run in an agency operator's authenticated session:
         # render it as inert, escaped text instead.
         el.clear()
         if value:
@@ -1606,7 +1606,7 @@ def _set_css_prop(el, prop: str, value: str) -> None:
 
 
 def _safe_gradient_value(value: str) -> str | None:
-    """Accept ``180deg,#111111,#ffffff`` only — no freeform CSS gradients."""
+    """Accept ``180deg,#111111,#ffffff`` only: no freeform CSS gradients."""
     raw = str(value or "").strip()
     match = _SAFE_GRADIENT_RE.match(raw)
     if not match:
@@ -1859,7 +1859,7 @@ def _safe_css_value(value: str) -> str | None:
     return v if _SAFE_CSS_VALUE_RE.match(v) else None
 
 
-# URL schemes that execute in a browser — never allowed in a client-set
+# URL schemes that execute in a browser: never allowed in a client-set
 # href/src. ``data:text/html`` is included because it runs script when navigated
 # to or framed; ``data:image/`` (images only) is allowed separately.
 def _is_executable_url(value: str) -> bool:
@@ -1877,7 +1877,7 @@ def _safe_url_value(
     """Return ``value`` if it is safe to write into an ``href``/``src``, else None.
 
     Accepts http(s), mailto:/tel: (links), absolute (``/``) and relative paths,
-    in-page anchors (``#``, links only), and — images only — ``data:image/``
+    in-page anchors (``#``, links only), and, for images only, ``data:image/``
     URIs. Rejects ``javascript:``, ``vbscript:``, and ``data:text/html`` (the
     schemes that execute in a browser). Empty string is passed through so a
     field can clear/keep its default. This mirrors the sanitizer's
@@ -1960,7 +1960,7 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     if not isinstance(global_styles, dict):
         return
     # These decls are interpolated into a stylesheet, so each value is validated
-    # against the same allowlists as inline styles — an unvalidated value
+    # against the same allowlists as inline styles: an unvalidated value
     # ("#fff} body{...}") would inject arbitrary site-wide CSS.
     body_decls = []
     font_family = _sanitize_font_family(global_styles.get("fontFamily") or "")
@@ -2229,7 +2229,7 @@ def _mark_external_links(soup) -> None:
     """Open http(s) anchors in a new tab. In-page, relative, mailto, and tel stay put.
 
     Runs after field apply so a template whose href already matches the saved
-    value still gets ``target`` — ``_apply_field`` skips that write.
+    value still gets ``target``: ``_apply_field`` skips that write.
     """
     for el in soup.find_all("a", href=True):
         href = str(el.get("href") or "").strip().lower()
@@ -2639,7 +2639,7 @@ def _build_block_instance(
     wrapper["data-section"] = inst_id
     wrapper["data-instance-id"] = inst_id
     wrapper["data-block-type"] = key
-    # Friendly name for the on-canvas selection label — preview-only so the
+    # Friendly name for the on-canvas selection label: preview-only so the
     # public render stays byte-for-byte identical to the classic render
     # (migration parity). Falls back to a title-cased key client-side.
     if preview:
@@ -2673,7 +2673,7 @@ _EMPTY_COLUMN_STYLE = (
 def _empty_slot_button(dest: str) -> str:
     """A clickable "+" placeholder for an empty column (preview only). Clicking
     it asks the editor (via the bridge) to open Quick Add with this column as
-    the preset destination — GHL-style."""
+    the preset destination: GHL-style."""
     return (
         '<button type="button" data-cms-add-here="1" '
         f'data-cms-dest="{dest}" aria-label="Add block to this column" '
@@ -2719,7 +2719,7 @@ def _assemble_instance(
 
     In ``preview`` mode empty column slots get a visible dashed placeholder so
     a just-added (still empty) row is not an invisible band in the editor. The
-    placeholder is preview-only — the public render never emits it."""
+    placeholder is preview-only: the public render never emits it."""
     wrapper, inst_content = _build_block_instance(instance, catalog, preview=preview)
     if wrapper is None:
         return None
@@ -2847,7 +2847,7 @@ def render_page_from_blocks(
 
     assembled_html = str(soup)
     # Reuse render_site verbatim so every apply rule + the preview bridge fire
-    # exactly as they do for classic pages — the assembled page is now just a
+    # exactly as they do for classic pages: the assembled page is now just a
     # normal annotated document whose "sections" are block instances.
     html = render_site(
         assembled_html, flat_content, preview=preview, site_settings=site_settings
