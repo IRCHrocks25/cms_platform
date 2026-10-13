@@ -230,6 +230,19 @@ class FieldLossKeepsCandidateTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(self.tpl.html_source, NEW_DROPS_FIELDS)
 
+    def test_annotation_save_rejects_changed_rendered_copy_even_with_confirmation(self):
+        candidate = OLD.replace("Old headline", "Option AOption BOption C")
+        response = self.client.post(
+            f"/dashboard/templates/{self.tpl.pk}/",
+            {"name": "T", "description": "", "editing_mode": "editable",
+             "html_source": candidate, "preserve_annotated_render": "1",
+             "allow_field_loss": "1", "allow_field_drift": "1"},
+        )
+        self.tpl.refresh_from_db()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.tpl.html_source, OLD)
+        self.assertContains(response, "Annotation would change rendered", status_code=409)
+
 
 class NoOpVersionTest(TestCase):
     """A byte-identical save must not manufacture a version row."""

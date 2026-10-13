@@ -142,6 +142,7 @@
     refresh.addEventListener("click", render);
 
     var annotateBtn = document.getElementById("annotate-btn");
+    var annotationInput = document.querySelector('input[name="preserve_annotated_render"]');
     var statusBox = document.getElementById("annotate-status");
     if (!annotateBtn || !statusBox) return;
 
@@ -242,7 +243,7 @@
     }
     function convertGateSummary(body) {
       if (body.blocks_ready === true) return " Ready for the block editor.";
-      if (body.blocks_ready === false) return " Block editor will still turn on.";
+      if (body.blocks_ready === false) return " Block conversion is unsafe; review the HTML before Save. " + (body.blocks_diff || "");
       return "";
     }
     function fillCompareResult(annotatedHtml, sections, body) {
@@ -309,6 +310,7 @@
     function openCompare(originalHtml, annotatedHtml, sections) {
       if (!compareReady) {
         textarea.value = annotatedHtml;
+        if (annotationInput) annotationInput.value = "1";
         if (sections.length) {
           setStatus("ok", "Annotation applied (compare overlay unavailable).");
         } else {
@@ -343,6 +345,7 @@
       compareCancel.addEventListener("click", closeCompare);
       compareApply.addEventListener("click", function () {
         textarea.value = rightCode.value;
+        if (annotationInput) annotationInput.value = "1";
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
         setStatus("ok", "AI annotations applied. Save the form to keep them.");
         closeCompare();

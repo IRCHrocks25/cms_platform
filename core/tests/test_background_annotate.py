@@ -30,8 +30,8 @@ class BackgroundAnnotateTests(TestCase):
         self.assertEqual(tpl.schema.get("sections", []), [])
 
         annotated = (
-            "<section data-section='hero' data-label='Hero'>"
-            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+            "<div data-section='hero' data-label='Hero'>"
+            "<h1 data-edit='hero.title' data-type='text'>Hi</h1></div>"
         )
         from dashboard.views import _annotate_template_in_background
 
@@ -67,8 +67,8 @@ class BackgroundAnnotateTests(TestCase):
         tpl = Template.objects.create(name="successful", html_source=raw)
         job = AnnotationJob.objects.create()
         annotated = (
-            "<section data-section='hero' data-label='Hero'>"
-            "<h1 data-edit='hero.title'>Hi</h1></section>"
+            "<div data-section='hero' data-label='Hero'>"
+            "<h1 data-edit='hero.title'>Hi</h1></div>"
         )
         from dashboard.views import _annotate_template_in_background
 
@@ -308,7 +308,7 @@ class AnnotationEditorUiTests(TestCase):
         self.assertIn("body.unmarked_text_count", source)
         self.assertIn("body.blocks_ready", source)
         self.assertIn("Ready for the block editor", source)
-        self.assertIn("Block editor will still turn on", source)
+        self.assertIn("Block conversion is unsafe", source)
         self.assertIn("var hasIntegrityWarning", source)
 
     def test_new_site_annotation_ui_has_the_same_terminal_failure_contract(self):

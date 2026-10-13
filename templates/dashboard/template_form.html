@@ -59,6 +59,7 @@
     <div class="card page-section">
       <form id="template-source-form" data-source-edit-form method="post" class="stack-5">
         {% csrf_token %}
+        <input type="hidden" name="preserve_annotated_render" value="{{ form_data.preserve_annotated_render|default:'0' }}">
 
         <div class="field">
           <label class="field-label" for="id_name">Name</label>
