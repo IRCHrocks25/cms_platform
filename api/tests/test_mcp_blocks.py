@@ -145,6 +145,394 @@ class McpBlockTests(TestCase):
         _, result = self.call("list_blocks", {"site": "alpha"})
         self.assertTrue(result["isError"])
 
+    def test_structure_tools_are_discoverable_and_add_repeated_nested_blocks(self):
+        original_home = json.loads(json.dumps(self.tenant.content))
+        response = self.client.post("/mcp", data=json.dumps({"jsonrpc": "2.0", "id": 1,
+            "method": "tools/list", "params": {}}), content_type="application/json",
+            HTTP_HOST="localhost", HTTP_AUTHORIZATION="Bearer block-member",
+            HTTP_MCP_PROTOCOL_VERSION="2025-06-18", HTTP_ACCEPT="application/json")
+        names = {tool["name"] for tool in response.json()["result"]["tools"]}
+        self.assertTrue({"add_block", "remove_block", "move_block", "append_block_richtext"} <= names)
+
+        _, added = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 1, "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(added["isError"], added)
+        added_id = added["structuredContent"]["instance_id"]
+        self.assertNotIn(added_id, {"blk_11111111", "blk_22222222", "blk_33333333", "blk_44444444"})
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content["regions"]["main"][1]["id"], added_id)
+        _, nested = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "parent_id": "blk_33333333", "region": "col", "position": 1,
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(nested["isError"], nested)
+        self.tenant.refresh_from_db()
+        child_ids = [item["id"] for item in self.tenant.content["regions"]["main"][3]["children"]["col"]]
+        self.assertEqual(child_ids, ["blk_44444444", nested["structuredContent"]["instance_id"]])
+        _, listed = self.call("list_blocks", {"site": "alpha"})
+        self.assertEqual([row["id"] for row in listed["structuredContent"]["blocks"]],
+            ["blk_11111111", added_id, "blk_22222222", "blk_33333333", "blk_44444444", child_ids[1]])
+        rendered = blocks.render_content(self.tpl, self.tenant.content)
+        self.assertEqual(rendered.count(f'data-instance-id="{added_id}"'), 1)
+        self.assertEqual(rendered.count(f'data-instance-id="{child_ids[1]}"'), 1)
+
+        original_inner = json.loads(json.dumps(self.page.content))
+        _, inner = self.call("add_block", {"site": "alpha", "page": "about",
+            "block_type": "row", "region": "main", "position": 1,
+            "if_match": content_etag(self.page.content)})
+        self.assertFalse(inner["isError"], inner)
+        self.page.refresh_from_db()
+        self.assertEqual(self.page.content["regions"]["main"][1]["type"], "row")
+        self.assertEqual(self.page.content["regions"]["main"][1]["children"], {"col": []})
+        from core.services import content_versions as cv
+        home_version = ContentVersion.objects.get(tenant=self.tenant, page__isnull=True)
+        inner_version = ContentVersion.objects.get(tenant=self.tenant, page=self.page)
+        cv.restore_editable_content(self.tenant, home_version, user=self.member, pop=True)
+        cv.restore_editable_content(self.page, inner_version, user=self.member, pop=True)
+        self.tenant.refresh_from_db()
+        self.page.refresh_from_db()
+        self.assertEqual(self.tenant.content, original_home)
+        self.assertEqual(self.page.content, original_inner)
+
+    def test_structure_move_remove_and_undo(self):
+        original = json.loads(json.dumps(self.tenant.content))
+        _, moved = self.call("move_block", {"site": "alpha", "instance_id": "blk_22222222",
+            "region": "main", "position": 0, "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(moved["isError"], moved)
+        self.tenant.refresh_from_db()
+        self.assertEqual([item["id"] for item in self.tenant.content["regions"]["main"]],
+            ["blk_22222222", "blk_11111111", "blk_33333333"])
+        self.assertEqual(blocks.render_content(self.tpl, self.tenant.content).count("data-instance-id=\"blk_22222222\""), 1)
+        version = ContentVersion.objects.get(tenant=self.tenant, page__isnull=True)
+        self.assertEqual(version.snapshot, original)
+        from core.services import content_versions as cv
+        cv.restore_editable_content(self.tenant, version, user=self.member, pop=True)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, original)
+
+        _, removed = self.call("remove_block", {"site": "alpha", "instance_id": "blk_33333333",
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(removed["isError"], removed)
+        self.tenant.refresh_from_db()
+        self.assertNotIn("blk_33333333", blocks.render_content(self.tpl, self.tenant.content))
+        self.assertNotIn("blk_44444444", blocks.render_content(self.tpl, self.tenant.content))
+        version = ContentVersion.objects.get(tenant=self.tenant, page__isnull=True)
+        cv.restore_editable_content(self.tenant, version, user=self.member, pop=True)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, original)
+
+    def test_structure_rejects_stale_allowlist_cap_and_cross_tenant(self):
+        before = json.loads(json.dumps(self.tenant.content))
+        for args in (
+            {"block_type": "unknown", "region": "main", "position": 0,
+             "if_match": content_etag(before)},
+            {"block_type": "hero", "region": "missing", "position": 0,
+             "if_match": content_etag(before)},
+            {"block_type": "hero", "region": "main", "position": -1,
+             "if_match": content_etag(before)},
+        ):
+            _, denied = self.call("add_block", {"site": "alpha", **args})
+            self.assertTrue(denied["isError"], denied)
+        status, stale = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 0, "if_match": "stale"})
+        self.assertEqual(status, 409)
+        self.assertTrue(stale["isError"])
+        other_tpl = Template.objects.create(name="Other shell", html_source=SHELL,
+            editing_mode=Template.EDITING_EDITABLE)
+        other_tenant = Tenant.objects.create(name="Beta", subdomain="beta",
+            owner=self.other, template=other_tpl, content={"regions": {"main": []}})
+        TenantMembership.objects.create(tenant=other_tenant, user=self.other,
+            role=TenantMembership.ROLE_EDITOR)
+        response = self.client.post("/mcp", data=json.dumps({"jsonrpc": "2.0", "id": 1,
+            "method": "tools/call", "params": {"name": "add_block", "arguments": {
+                "site": "alpha", "block_type": "hero", "region": "main", "position": 0,
+                "if_match": content_etag(before)}}}), content_type="application/json",
+            HTTP_HOST="localhost", HTTP_AUTHORIZATION="Bearer block-other",
+            HTTP_MCP_PROTOCOL_VERSION="2025-06-18", HTTP_ACCEPT="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["result"]["isError"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+        self.tenant.content["regions"]["main"].extend(
+            {"id": f"blk_{i:08x}", "type": "hero", "fields": {}}
+            for i in range(5, 42))
+        self.tenant.save(update_fields=["content"])
+        _, capped = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 0, "if_match": content_etag(self.tenant.content)})
+        self.assertTrue(capped["isError"], capped)
+
+    def test_structure_append_paragraph_and_list_item_is_plain_text_only(self):
+        rich = BlockType.objects.create(html_source=(
+            '<section data-block="rich"><div data-edit="rich.copy" '
+            'data-type="richtext"><p>Original</p></div></section>'))
+        self.tpl.allowed_block_types.add(rich)
+        self.tenant.content["regions"]["main"].append(
+            {"id": "blk_77777777", "type": "rich", "fields": {}})
+        self.tenant.save(update_fields=["content"])
+        original = json.loads(json.dumps(self.tenant.content))
+        _, paragraph = self.call("append_block_richtext", {"site": "alpha",
+            "field": "blk_77777777.copy", "operation": "paragraph", "text": "New paragraph",
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(paragraph["isError"], paragraph)
+        self.tenant.refresh_from_db()
+        _, item = self.call("append_block_richtext", {"site": "alpha",
+            "field": "blk_77777777.copy", "operation": "list_item", "text": "<script>literal</script>",
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(item["isError"], item)
+        self.tenant.refresh_from_db()
+        value = self.tenant.content["regions"]["main"][-1]["fields"]["copy"]
+        self.assertIn("<p>New paragraph</p>", value)
+        self.assertIn("<li>&lt;script&gt;literal&lt;/script&gt;</li>", value)
+        self.assertNotIn("<script>", value)
+        rendered = blocks.render_content(self.tpl, self.tenant.content)
+        self.assertIn("New paragraph", rendered)
+        self.assertIn("&lt;script&gt;literal&lt;/script&gt;", rendered)
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied = self.call("append_block_richtext", {"site": "alpha",
+            "field": "blk_11111111.title", "operation": "paragraph", "text": "Wrong field",
+            "if_match": content_etag(before)})
+        self.assertTrue(denied["isError"])
+        _, unsupported = self.call("append_block_richtext", {"site": "alpha",
+            "field": "blk_77777777.copy", "operation": "html", "text": "<img>",
+            "if_match": content_etag(before)})
+        self.assertTrue(unsupported["isError"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+        from core.services import content_versions as cv
+        version = ContentVersion.objects.get(tenant=self.tenant, page__isnull=True)
+        cv.restore_editable_content(self.tenant, version, user=self.member, pop=True)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, original)
+
+    def test_structure_rejects_block_markup_in_inline_richtext_host(self):
+        rich = BlockType.objects.create(html_source=(
+            '<section data-block="inline"><p data-edit="inline.copy" '
+            'data-type="richtext">Original</p></section>'))
+        self.tpl.allowed_block_types.add(rich)
+        self.tenant.content["regions"]["main"].append(
+            {"id": "blk_77777777", "type": "inline", "fields": {}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied = self.call("append_block_richtext", {"site": "alpha",
+            "field": "blk_77777777.copy", "operation": "list_item", "text": "Item",
+            "if_match": content_etag(before)})
+        self.assertTrue(denied["isError"], denied)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+    def test_structure_preserves_published_form_and_denies_classic_page(self):
+        form = BlockType.objects.create(html_source=(
+            '<section data-block="form"><div data-edit="form.embed" '
+            'data-type="ghl-embed" data-ghl-kind="form"></div></section>'))
+        self.tpl.allowed_block_types.add(form)
+        self.tenant.content["regions"]["main"][2]["children"]["col"].append(
+            {"id": "blk_77777777", "type": "form", "fields": {"embed": "form:allowed"}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied = self.call("remove_block", {"site": "alpha",
+            "instance_id": "blk_33333333", "if_match": content_etag(before)})
+        self.assertTrue(denied["isError"], denied)
+        self.assertIn("form", denied["content"][0]["text"].lower())
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+        self.assertEqual(ContentVersion.objects.filter(tenant=self.tenant).count(), 0)
+        self.tenant.is_published = False
+        self.tenant.save(update_fields=["is_published"])
+        _, removed = self.call("remove_block", {"site": "alpha",
+            "instance_id": "blk_33333333", "if_match": content_etag(before)})
+        self.assertFalse(removed["isError"], removed)
+
+        classic_tpl = Template.objects.create(name="Classic", editing_mode=Template.EDITING_EDITABLE,
+            html_source='<section data-section="hero"><h1 data-edit="hero.title">Hi</h1></section>')
+        classic = Tenant.objects.create(name="Classic", subdomain="classic", owner=self.owner,
+            template=classic_tpl, content={"hero": {"title": "Hello"}})
+        TenantMembership.objects.create(tenant=classic, user=self.member,
+            role=TenantMembership.ROLE_EDITOR)
+        _, classic_denied = self.call("add_block", {"site": "classic",
+            "block_type": "hero", "region": "main", "position": 0,
+            "if_match": content_etag(classic.content)})
+        self.assertTrue(classic_denied["isError"], classic_denied)
+        classic.refresh_from_db()
+        self.assertEqual(classic.content, {"hero": {"title": "Hello"}})
+
+    def test_structure_rejects_depth_cycle_and_duplicate_ids(self):
+        _, row = self.call("add_block", {"site": "alpha", "block_type": "row",
+            "parent_id": "blk_33333333", "region": "col", "position": 1,
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(row["isError"], row)
+        self.tenant.refresh_from_db()
+        nested_id = row["structuredContent"]["instance_id"]
+        _, leaf = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "parent_id": nested_id, "region": "col", "position": 0,
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(leaf["isError"], leaf)
+        self.tenant.refresh_from_db()
+        before = json.loads(json.dumps(self.tenant.content))
+        _, too_deep = self.call("add_block", {"site": "alpha", "block_type": "row",
+            "parent_id": nested_id, "region": "col", "position": 1,
+            "if_match": content_etag(before)})
+        self.assertTrue(too_deep["isError"], too_deep)
+        _, cycle = self.call("move_block", {"site": "alpha", "instance_id": "blk_33333333",
+            "parent_id": nested_id, "region": "col", "position": 0,
+            "if_match": content_etag(before)})
+        self.assertTrue(cycle["isError"], cycle)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+        self.tenant.content["regions"]["main"].append(
+            {"id": "blk_11111111", "type": "retired", "fields": {}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, ambiguous = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 0, "if_match": content_etag(before)})
+        self.assertTrue(ambiguous["isError"], ambiguous)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+    def test_structure_moves_between_declared_slots_and_undoes_inner_page(self):
+        _, moved = self.call("move_block", {"site": "alpha", "instance_id": "blk_22222222",
+            "parent_id": "blk_33333333", "region": "col", "position": 1,
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(moved["isError"], moved)
+        self.tenant.refresh_from_db()
+        self.assertEqual([item["id"] for item in self.tenant.content["regions"]["main"]],
+            ["blk_11111111", "blk_33333333"])
+        self.assertEqual([item["id"] for item in self.tenant.content["regions"]["main"][1]["children"]["col"]],
+            ["blk_44444444", "blk_22222222"])
+        self.assertEqual(blocks.render_content(self.tpl, self.tenant.content).count('data-instance-id="blk_22222222"'), 1)
+
+        original = json.loads(json.dumps(self.page.content))
+        _, inner = self.call("remove_block", {"site": "alpha", "page": "about",
+            "instance_id": "blk_55555555", "if_match": content_etag(original)})
+        self.assertFalse(inner["isError"], inner)
+        self.page.refresh_from_db()
+        self.assertEqual(self.page.content["regions"]["main"], [])
+        version = ContentVersion.objects.get(tenant=self.tenant, page=self.page)
+        from core.services import content_versions as cv
+        cv.restore_editable_content(self.page, version, user=self.member, pop=True)
+        self.page.refresh_from_db()
+        self.assertEqual(self.page.content, original)
+
+    def test_structure_refuses_header_source_removal(self):
+        self.tpl.html_source = ('<html><body><header data-region="header-right"></header>'
+            '<main data-region="main"></main></body></html>')
+        self.tpl.save(update_fields=["html_source"])
+        self.tenant.content["regions"]["header-right"] = [
+            {"id": "blk_77777777", "type": "hero", "fields": {"title": "Header"}}]
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied = self.call("remove_block", {"site": "alpha",
+            "instance_id": "blk_77777777", "if_match": content_etag(before)})
+        self.assertTrue(denied["isError"], denied)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+    def _assert_invalid_source_region_rejects_all_writes(self, source_region, shell):
+        rich = BlockType.objects.create(html_source=(
+            '<section data-block="rich"><div data-edit="rich.copy" '
+            'data-type="richtext"><p>Original</p></div></section>'))
+        self.tpl.allowed_block_types.add(rich)
+        self.tpl.html_source = shell
+        self.tpl.save(update_fields=["html_source"])
+        self.tenant.content["regions"].setdefault(source_region, []).append(
+            {"id": "blk_77777777", "type": "rich", "fields": {"copy": "<p>Original</p>"}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        etag = content_etag(before)
+        requests = [
+            ("remove_block", {"instance_id": "blk_11111111" if source_region == "main"
+                              else "blk_77777777"}),
+            ("move_block", {"instance_id": "blk_11111111" if source_region == "main"
+                            else "blk_77777777", "region": "body" if source_region == "main"
+                            else "main", "position": 0}),
+            ("append_block_richtext", {"field": "blk_77777777.copy",
+                                       "operation": "paragraph", "text": "New text"}),
+        ]
+        for tool, args in requests:
+            with self.subTest(tool=tool, source_region=source_region):
+                self.tenant.content = json.loads(json.dumps(before))
+                self.tenant.save(update_fields=["content"])
+                ContentVersion.objects.filter(tenant=self.tenant).delete()
+                _, result = self.call(tool, {"site": "alpha", "if_match": etag, **args})
+                self.assertTrue(result["isError"], result)
+                self.tenant.refresh_from_db()
+                self.assertEqual(self.tenant.content, before)
+                self.assertEqual(ContentVersion.objects.filter(tenant=self.tenant).count(), 0)
+
+    def test_structure_refuses_header_owned_main_source_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "main", '<html><body><header data-region="main"></header>'
+                    '<main data-region="body"></main></body></html>')
+
+    def test_structure_refuses_stored_only_source_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "orphan", '<html><body><main data-region="main"></main></body></html>')
+
+    def test_structure_refuses_duplicate_source_slot_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "main", '<html><body><main data-region="main"></main>'
+                    '<aside data-region="main"></aside>'
+                    '<section data-region="body"></section></body></html>')
+
+    def test_structure_refuses_hidden_child_under_retired_parent(self):
+        self.tenant.content["regions"]["main"].append(
+            {"id": "blk_77777777", "type": "retired", "fields": {},
+             "children": {"col": [{"id": "blk_88888888", "type": "hero",
+                                    "fields": {"title": "Hidden"}}]}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied = self.call("move_block", {"site": "alpha", "instance_id": "blk_88888888",
+            "region": "main", "position": 0, "if_match": content_etag(before)})
+        self.assertTrue(denied["isError"], denied)
+        _, denied_remove = self.call("remove_block", {"site": "alpha",
+            "instance_id": "blk_88888888", "if_match": content_etag(before)})
+        self.assertTrue(denied_remove["isError"], denied_remove)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+        self.tenant.content["regions"]["main"].pop()
+        self.tenant.content["regions"]["main"][2]["children"]["col"].append(
+            {"id": "blk_99999999", "type": "retired", "fields": {"copy": "Preserve"}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        _, denied_parent = self.call("remove_block", {"site": "alpha",
+            "instance_id": "blk_33333333", "if_match": content_etag(before)})
+        self.assertTrue(denied_parent["isError"], denied_parent)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+    def test_structure_refuses_duplicate_or_header_owned_destination_slot(self):
+        before = json.loads(json.dumps(self.tenant.content))
+        self.tpl.html_source = ('<html><body><main data-region="main"></main>'
+            '<aside data-region="main"></aside></body></html>')
+        self.tpl.save(update_fields=["html_source"])
+        _, duplicate = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 0, "if_match": content_etag(before)})
+        self.assertTrue(duplicate["isError"], duplicate)
+        self.tpl.html_source = ('<html><body><header data-region="main"></header>'
+            '</body></html>')
+        self.tpl.save(update_fields=["html_source"])
+        _, header = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "main", "position": 0, "if_match": content_etag(before)})
+        self.assertTrue(header["isError"], header)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before)
+
+    def test_list_blocks_follows_shell_region_render_order(self):
+        self.tpl.html_source = ('<html><body><aside data-region="secondary"></aside>'
+            '<main data-region="main"></main></body></html>')
+        self.tpl.save(update_fields=["html_source"])
+        self.tenant.content["regions"]["secondary"] = [
+            {"id": "blk_77777777", "type": "hero", "fields": {"title": "Before main"}}]
+        self.tenant.save(update_fields=["content"])
+        _, listed = self.call("list_blocks", {"site": "alpha"})
+        self.assertFalse(listed["isError"], listed)
+        ids = [row["id"] for row in listed["structuredContent"]["blocks"]]
+        self.assertEqual(ids, ["blk_77777777", "blk_11111111", "blk_22222222",
+                               "blk_33333333", "blk_44444444"])
+        rendered = blocks.render_content(self.tpl, self.tenant.content)
+        self.assertLess(rendered.index("Before main"), rendered.index("One"))
+
     def test_retired_sibling_does_not_hide_current_block_or_allow_ambiguous_writes(self):
         main = self.tenant.content["regions"]["main"]
         main.append({"id": "blk_66666666", "type": "retired",

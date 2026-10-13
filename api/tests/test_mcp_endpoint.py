@@ -473,7 +473,7 @@ class McpEndpointTests(TestCase):
     def test_ac22_tools_list_includes_write_tools(self):
         result = self._result(self._rpc("tools/list"))
         tools = result["tools"]
-        self.assertEqual(len(tools), 21)
+        self.assertEqual(len(tools), 25)
         names = {t["name"] for t in tools}
         self.assertEqual(
             names,
@@ -492,6 +492,10 @@ class McpEndpointTests(TestCase):
                 "publish_site",
                 "publish_page",
                 "patch_content",
+                "add_block",
+                "remove_block",
+                "move_block",
+                "append_block_richtext",
                 "push_page",
                 "delete_page",
                 "add_custom_domain",
@@ -506,6 +510,10 @@ class McpEndpointTests(TestCase):
             "publish_site",
             "publish_page",
             "patch_content",
+            "add_block",
+            "remove_block",
+            "move_block",
+            "append_block_richtext",
             "push_page",
             "push_block_html",
             "delete_page",
@@ -527,6 +535,10 @@ class McpEndpointTests(TestCase):
             "publish_site",
             "publish_page",
             "patch_content",
+            "add_block",
+            "remove_block",
+            "move_block",
+            "append_block_richtext",
             "push_page",
             "push_block_html",
             "delete_page",
