@@ -92,6 +92,14 @@ def validate_embed_content_update(
     }
     changed: list[tuple[str, str]] = []
 
+    if is_published and any(
+        slot["value"].strip() and field_id not in proposed
+        for field_id, slot in current.items()
+    ):
+        raise GhlEmbedValidationError(
+            "Cannot remove a form from a published page. Unpublish the page first."
+        )
+
     for field_id, slot in proposed.items():
         value = slot["value"].strip()
         if value == current.get(field_id, {}).get("value", "").strip():

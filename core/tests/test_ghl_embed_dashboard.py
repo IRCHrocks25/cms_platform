@@ -247,6 +247,68 @@ class GhlEmbedDashboardWriteTests(TestCase):
         )
         self.assertEqual(persisted_form["fields"]["embed"], "form:existing")
 
+    def test_published_form_block_cannot_be_deleted(self):
+        self.client.get(reverse("dashboard:tenant_home"))
+        self.tenant.refresh_from_db()
+        self.assertTrue(self.tenant.template.is_block_shell)
+        original = json.loads(json.dumps(self.tenant.content))
+        proposed = json.loads(json.dumps(original))
+        proposed["regions"]["main"] = [
+            block for block in proposed["regions"]["main"]
+            if "embed" not in block["fields"]
+        ]
+
+        response = self._save(proposed)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("published page", response.json()["error"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, original)
+
+    def test_restore_cannot_delete_published_form_block(self):
+        self.client.get(reverse("dashboard:tenant_home"))
+        self.tenant.refresh_from_db()
+        original = json.loads(json.dumps(self.tenant.content))
+        snapshot = json.loads(json.dumps(original))
+        snapshot["regions"]["main"] = [
+            block for block in snapshot["regions"]["main"]
+            if "embed" not in block["fields"]
+        ]
+        version = ContentVersion.objects.create(
+            tenant=self.tenant, snapshot=snapshot, saved_by=self.member,
+        )
+
+        response = self.client.post(
+            reverse("dashboard:tenant_version_restore_self"),
+            data=json.dumps({"version_id": version.pk}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("published page", response.json()["error"])
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, original)
+
+    def test_draft_page_can_delete_form_block(self):
+        self.client.get(reverse("dashboard:tenant_home"))
+        self.tenant.refresh_from_db()
+        self.tenant.is_published = False
+        self.tenant.save(update_fields=["is_published"])
+        proposed = json.loads(json.dumps(self.tenant.content))
+        proposed["regions"]["main"] = [
+            block for block in proposed["regions"]["main"]
+            if "embed" not in block["fields"]
+        ]
+
+        response = self._save(proposed)
+
+        self.assertEqual(response.status_code, 200)
+        self.tenant.refresh_from_db()
+        self.assertFalse(any(
+            "embed" in block["fields"]
+            for block in self.tenant.content["regions"]["main"]
+        ))
+
     @mock.patch("core.services.ghl_forms.list_forms_for_tenant")
     def test_selected_form_must_exist_in_this_tenants_list(self, list_forms):
         list_forms.return_value = [{"id": "alpha_form", "name": "Alpha"}]
