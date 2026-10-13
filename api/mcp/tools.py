@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
+from bs4 import BeautifulSoup
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -15,6 +16,8 @@ from core.renderer import strip_defaults
 from core.services import content_versions as cv
 from core.services import custom_domains as custom_domains_svc
 from core.services import ghl_embed_slots, ghl_forms
+from core.services import blocks
+from core.services.template_sanitizer import sanitize_template_html
 from core.services.accounts import (
     AccountSeedError,
     CustomDomainError,
@@ -155,12 +158,18 @@ def get_page(
     if scope is None:
         return site_access_denied(site)
     try:
-        _editable, schema, stored = content_mod.resolve_editable(
+        editable, schema, stored = content_mod.resolve_editable(
             scope.tenant, page
         )
     except LookupError:
         return page_access_denied(site, page or "")
-    fields = content_mod.read_fields(schema, stored)
+    try:
+        fields = content_mod.read_fields(
+            _current_schema(editable, schema), stored,
+            blocks.catalog_for_template(editable.template) if editable.template.is_block_shell else None,
+        )
+    except ValueError as exc:
+        return tool_error(str(exc))
     return tool_success(
         {"fields": fields, "content_etag": content_mod.content_etag(stored)}
     )
@@ -227,14 +236,17 @@ def get_content(
     if scope is None:
         return site_access_denied(site)
     try:
-        _editable, schema, stored = content_mod.resolve_editable(
+        editable, schema, stored = content_mod.resolve_editable(
             scope.tenant, page
         )
     except LookupError:
         return page_access_denied(site, page or "")
     try:
-        value, is_default = content_mod.read_field(schema, stored, field)
-    except KeyError:
+        value, is_default = content_mod.read_field(
+            _current_schema(editable, schema), stored, field,
+            blocks.catalog_for_template(editable.template) if editable.template.is_block_shell else None,
+        )
+    except (KeyError, ValueError):
         return tool_error(f"Unknown field '{field}'.")
     return tool_success(
         {
@@ -243,6 +255,114 @@ def get_content(
             "content_etag": content_mod.content_etag(stored),
         }
     )
+
+
+def _block_fragment(editable, stored, instance_id):
+    """Return the rendered, instance-scoped fragment (nested children included)."""
+    catalog = blocks.catalog_for_template(editable.template)
+    instance, block = content_mod.block_instances(stored, catalog)[instance_id]
+    html = blocks.render_content(editable.template, stored)
+    soup = BeautifulSoup(html, "lxml")
+    wrapper = soup.find(attrs={"data-instance-id": instance_id})
+    if wrapper is None:
+        raise KeyError(instance_id)
+    return str(wrapper), instance, block, catalog
+
+
+def get_block_html(auth: ResolvedAuth, *, site: str, instance_id: str,
+                   page: Optional[str] = None) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, _schema, stored = content_mod.resolve_editable(scope.tenant, page)
+        if not editable.template.is_block_shell:
+            raise KeyError(instance_id)
+        html, _instance, _block, _catalog = _block_fragment(editable, stored, instance_id)
+    except (LookupError, KeyError, ValueError):
+        return tool_error("Block instance is unavailable on this page.")
+    return tool_success({"html": html, "instance_id": instance_id,
+                         "content_etag": content_mod.content_etag(stored)})
+
+
+def _changed_block_text(current_html, submitted_html, instance_id, block):
+    """Accept only edits to text/richtext descendants owned by this instance."""
+    current = BeautifulSoup(current_html, "lxml")
+    submitted = BeautifulSoup(submitted_html, "lxml")
+    current_root = current.find(attrs={"data-instance-id": instance_id})
+    submitted_root = submitted.find(attrs={"data-instance-id": instance_id})
+    if submitted_root is None or len(submitted.find_all(attrs={"data-instance-id": instance_id})) != 1:
+        raise ValueError("HTML must contain exactly the requested block instance.")
+    if len([node for node in submitted.body.contents if str(node).strip()]) != 1:
+        raise ValueError("HTML must contain only the requested block instance.")
+    schema_fields = {str(f.get("id")): f for f in (block.get("schema") or {}).get("fields") or []}
+    changes = {}
+    for name, root in (("current", current_root), ("submitted", submitted_root)):
+        editable = {}
+        for el in root.find_all(attrs={"data-edit": True}):
+            if el.find_parent(attrs={"data-instance-id": True}) is not root:
+                continue
+            field_id = str(el.get("data-edit"))
+            prefix = f"{instance_id}."
+            if not field_id.startswith(prefix) or field_id[len(prefix):] not in schema_fields or field_id in editable:
+                raise ValueError("HTML contains an unknown or repeated editable field.")
+            editable[field_id] = el
+        if name == "current":
+            expected_ids = set(editable)
+        elif set(editable) != expected_ids:
+            raise ValueError("HTML must preserve every editable field.")
+        for field_id, el in editable.items():
+            field_name = field_id[len(instance_id) + 1:]
+            field_type = schema_fields[field_name].get("type")
+            if field_type not in {"text", "richtext"}:
+                continue
+            if name == "submitted":
+                changes[field_id] = (
+                    el.get_text() if field_type == "text"
+                    else sanitize_template_html(el.decode_contents())
+                )
+            el.clear()
+            el.string = "__CMS_EDITABLE_VALUE__"
+    if str(current_root) != str(submitted_root):
+        raise ValueError("Block HTML may change text and richtext values only; structure and attributes must match.")
+    return changes
+
+
+@transaction.atomic
+def push_block_html(auth: ResolvedAuth, *, site: str, instance_id: str, html: str,
+                    if_match: str, page: Optional[str] = None) -> dict[str, Any]:
+    scope = _require_scope(auth, site)
+    if scope is None:
+        return site_access_denied(site)
+    try:
+        editable, schema, stored = content_mod.resolve_editable(scope.tenant, page)
+    except LookupError:
+        return page_access_denied(site, page or "")
+    editable = type(editable).objects.select_for_update().get(pk=editable.pk)
+    stored = editable.content or {}
+    if not editable.template.is_block_shell:
+        return tool_error("This page is not block-backed.")
+    if not editable.template.is_client_editable and not (auth.user.is_superuser or auth.user.is_staff):
+        return tool_error("This site isn't set up for editing yet — contact your agency.")
+    if content_mod.content_etag(stored) != if_match:
+        return tool_conflict("Conflict (409): content changed; re-read the block and retry.")
+    try:
+        current_html, _instance, block, catalog = _block_fragment(editable, stored, instance_id)
+        changes = _changed_block_text(current_html, html, instance_id, block)
+        proposed = stored
+        for field_id, value in changes.items():
+            proposed = content_mod.write_block_field(proposed, catalog, field_id, value)
+        ghl_embed_slots.validate_embed_content_update(
+            tenant=scope.tenant, schema=_current_schema(editable, schema),
+            current_content=stored, new_content=proposed,
+            is_published=editable.is_published, catalog=catalog,
+        )
+    except (KeyError, ValueError) as exc:
+        return tool_error(str(exc))
+    cv.save_editable_content(editable, proposed, user=auth.user, source=cv.SOURCE_MCP)
+    editable.refresh_from_db()
+    return tool_success({"instance_id": instance_id,
+                         "content_etag": content_mod.content_etag(editable.content or {})})
 
 
 def list_embed_slots(
@@ -261,7 +381,11 @@ def list_embed_slots(
             "site": scope.tenant.subdomain,
             "page": None if isinstance(editable, Tenant) else editable.slug,
             "published": editable.is_published,
-            "slots": ghl_embed_slots.get_embed_slots(schema, stored),
+            "slots": ghl_embed_slots.get_embed_slots(
+                schema, stored,
+                catalog=blocks.catalog_for_template(editable.template)
+                if editable.template.is_block_shell else None,
+            ),
             "content_etag": content_mod.content_etag(stored),
         }
     )
@@ -285,6 +409,7 @@ def list_ghl_forms(auth: ResolvedAuth, *, site: str) -> dict[str, Any]:
     )
 
 
+@transaction.atomic
 def set_embed_slot(
     auth: ResolvedAuth,
     *,
@@ -302,6 +427,9 @@ def set_embed_slot(
     except LookupError:
         return page_access_denied(site, page or "")
     schema = _current_schema(editable, schema)
+    editable = type(editable).objects.select_for_update().get(pk=editable.pk)
+    stored = editable.content or {}
+    catalog = blocks.catalog_for_template(editable.template) if editable.template.is_block_shell else None
 
     template = getattr(editable, "template", None)
     if (template is None or not template.is_client_editable) and not (
@@ -321,7 +449,7 @@ def set_embed_slot(
 
     slots = {
         slot["id"]: slot
-        for slot in ghl_embed_slots.get_embed_slots(schema, stored)
+        for slot in ghl_embed_slots.get_embed_slots(schema, stored, catalog=catalog)
     }
     slot = slots.get(field)
     if slot is None or slot["kind"] != "form":
@@ -338,27 +466,23 @@ def set_embed_slot(
         )
 
     try:
-        new_content = content_mod.write_field(stored, field, value)
+        new_content = (
+            content_mod.write_block_field(stored, catalog, field, value)
+            if catalog and field.split(".", 1)[0] in content_mod.block_instances(stored, catalog)
+            else content_mod.write_field(stored, field, value)
+        )
         ghl_embed_slots.validate_embed_content_update(
             tenant=scope.tenant,
             schema=schema,
             current_content=stored,
             new_content=new_content,
             is_published=editable.is_published,
+            catalog=catalog,
         )
     except ValueError as exc:
         return tool_error(str(exc))
 
-    if isinstance(editable, Tenant):
-        cv.save_tenant_content(
-            editable,
-            new_content,
-            user=auth.user,
-            source=cv.SOURCE_MCP,
-        )
-    else:
-        editable.content = new_content
-        editable.save(update_fields=["content", "updated_at"])
+    cv.save_editable_content(editable, new_content, user=auth.user, source=cv.SOURCE_MCP)
     editable.refresh_from_db()
     return tool_success(
         {
@@ -668,6 +792,7 @@ def create_client_account(
     )
 
 
+@transaction.atomic
 def patch_content(
     auth: ResolvedAuth,
     *,
@@ -677,26 +802,22 @@ def patch_content(
     if_match: str,
     page: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Write one home-page field by dotted id. Inner pages are refused."""
+    """Write a field with content-etag concurrency and versioned undo."""
     scope = _require_scope(auth, site)
     if scope is None:
         return site_access_denied(site)
 
-    # Inner Page content has no ContentVersion undo — refuse rather than
-    # silently write unversioned data (CMS-7 decision).
-    if page is not None and page != "":
-        return tool_error(
-            "patch_content only supports the home page until page versioning "
-            "exists. Omit 'page' (or pass null) to edit the site home."
-        )
-
     try:
         editable, schema, stored = content_mod.resolve_editable(
-            scope.tenant, None
+            scope.tenant, page
         )
     except LookupError:
         return page_access_denied(site, page or "")
     schema = _current_schema(editable, schema)
+    if isinstance(editable, Page) and not editable.template.is_block_shell:
+        return tool_error("patch_content only supports the home page for classic templates.")
+    editable = type(editable).objects.select_for_update().get(pk=editable.pk)
+    stored = editable.content or {}
 
     tpl = editable.template
     if not tpl.is_client_editable and not (
@@ -714,14 +835,15 @@ def patch_content(
             "Re-read with get_content and retry."
         )
 
+    catalog = blocks.catalog_for_template(tpl) if tpl.is_block_shell else None
     try:
-        content_mod.read_field(schema, stored, field)
-    except KeyError:
+        content_mod.read_field(schema, stored, field, catalog)
+    except (KeyError, ValueError):
         return tool_error(f"Unknown field '{field}'.")
 
     if any(
         slot["id"] == field
-        for slot in ghl_embed_slots.get_embed_slots(schema, stored)
+        for slot in ghl_embed_slots.get_embed_slots(schema, stored, catalog=catalog)
     ):
         return tool_error(
             "GHL embed fields must be changed with set_embed_slot so tenant "
@@ -729,11 +851,20 @@ def patch_content(
         )
 
     try:
-        new_content = content_mod.write_field(stored, field, value)
-    except ValueError as exc:
+        new_content = (
+            content_mod.write_block_field(stored, catalog, field, value)
+            if catalog and field.split(".", 1)[0] in content_mod.block_instances(stored, catalog)
+            else content_mod.write_field(stored, field, value)
+        )
+        ghl_embed_slots.validate_embed_content_update(
+            tenant=scope.tenant, schema=schema, current_content=stored,
+            new_content=new_content, is_published=editable.is_published,
+            catalog=catalog,
+        )
+    except (ValueError, ghl_embed_slots.GhlEmbedValidationError) as exc:
         return tool_error(str(exc))
 
-    cv.save_tenant_content(
+    cv.save_editable_content(
         editable,
         new_content,
         user=auth.user,
@@ -741,7 +872,9 @@ def patch_content(
     )
     editable.refresh_from_db()
     new_etag = content_mod.content_etag(editable.content or {})
-    url = tenant_canonical_public_url(editable)
+    url = tenant_canonical_public_url(
+        scope.tenant, page_slug=editable.slug if isinstance(editable, Page) else None
+    )
     return tool_success({"content_etag": new_etag, "url": url})
 
 
@@ -842,6 +975,8 @@ def push_page(
         explicit_tpl = Template.objects.filter(pk=template_id).first()
         if explicit_tpl is None or explicit_tpl.tenant_id != tenant.pk:
             return _TEMPLATE_DENIED
+        if explicit_tpl.is_block_shell:
+            return tool_error("Block-backed templates cannot be changed with push_page.")
 
     if page_slug is not None and page_slug in RESERVED_PAGE_SLUGS:
         return tool_error(
@@ -851,6 +986,8 @@ def push_page(
 
     # ---- Home (page omitted) ----
     if page_slug is None:
+        if tenant.template.is_block_shell or (tenant.content or {}).get("regions"):
+            return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for block copy and the visual editor for structure.")
         if explicit_tpl is not None:
             tpl = explicit_tpl
         else:
@@ -893,6 +1030,10 @@ def push_page(
         .select_related("template")
         .first()
     )
+    if existing is not None and (
+        existing.template.is_block_shell or (existing.content or {}).get("regions")
+    ):
+        return tool_error("Block-backed pages cannot be changed with push_page. Use get_block_html / push_block_html for block copy and the visual editor for structure.")
     page_title = title or page_slug.replace("-", " ").title()
 
     if existing is None:
@@ -1166,6 +1307,8 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "list_pages": list_pages,
     "get_page": get_page,
     "get_page_html": get_page_html,
+    "get_block_html": get_block_html,
+    "push_block_html": push_block_html,
     "get_content": get_content,
     "list_embed_slots": list_embed_slots,
     "set_embed_slot": set_embed_slot,
@@ -1347,7 +1490,8 @@ TOOLS_LIST: list[dict[str, Any]] = [
             "TemplateVersion via version=). Returns the live html etag that "
             "push_page compares against if_match — even when pulling an older "
             "version — so a restore-style re-push works. For field values use "
-            "get_page / get_content instead."
+            "get_page / get_content instead. On block-backed pages this is "
+            "the shell only; use get_block_html for an instance."
         ),
         "inputSchema": {
             "type": "object",
@@ -1394,6 +1538,32 @@ TOOLS_LIST: list[dict[str, Any]] = [
             },
         },
         "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "get_block_html",
+        "description": "Read one rendered block instance, including nested children. The content_etag guards push_block_html, not push_page.",
+        "inputSchema": {"type": "object", "required": ["site", "instance_id"],
+            "additionalProperties": False, "properties": {
+                "site": {"type": "string"}, "page": {"type": ["string", "null"]},
+                "instance_id": {"type": "string"}}},
+        "outputSchema": {"type": "object", "required": ["html", "instance_id", "content_etag"],
+            "additionalProperties": False, "properties": {
+                "html": {"type": "string"}, "instance_id": {"type": "string"},
+                "content_etag": {"type": "string"}}},
+        "annotations": ANNOTATIONS,
+    },
+    {
+        "name": "push_block_html",
+        "description": "Write text/richtext values in one rendered block fragment. Requires current content_etag; rejects changes to structure, attributes, nested blocks, and non-text fields. Use the visual editor for structural changes.",
+        "inputSchema": {"type": "object", "required": ["site", "instance_id", "html", "if_match"],
+            "additionalProperties": False, "properties": {
+                "site": {"type": "string"}, "page": {"type": ["string", "null"]},
+                "instance_id": {"type": "string"}, "html": {"type": "string"},
+                "if_match": {"type": "string"}}},
+        "outputSchema": {"type": "object", "required": ["instance_id", "content_etag"],
+            "additionalProperties": False, "properties": {
+                "instance_id": {"type": "string"}, "content_etag": {"type": "string"}}},
+        "annotations": WRITE_ANNOTATIONS,
     },
     {
         "name": "get_content",
@@ -1762,9 +1932,10 @@ TOOLS_LIST: list[dict[str, Any]] = [
     {
         "name": "patch_content",
         "description": (
-            "Write one home-page field by dotted id. Requires a current "
-            "if_match content_etag from get_content/get_page. Inner pages are "
-            "not supported until page versioning exists."
+            "Write one field by dotted id. Block instances use "
+            "<instance-id>.<field-name>; repeated types keep distinct IDs. "
+            "Requires current content_etag from get_content/get_page. "
+            "Block-backed inner pages are supported."
         ),
         "inputSchema": {
             "type": "object",
@@ -1777,7 +1948,7 @@ TOOLS_LIST: list[dict[str, Any]] = [
                 "if_match": {"type": "string"},
                 "page": {
                     "type": ["string", "null"],
-                    "description": "Must be omitted/null (home only)",
+                    "description": "Block-backed inner page slug; omit/null for home",
                 },
             },
         },
@@ -1796,7 +1967,9 @@ TOOLS_LIST: list[dict[str, Any]] = [
         "name": "push_page",
         "description": (
             "Create or replace a page's HTML for a site. Omit page (or pass null) "
-            "to push the site home. New pages get a tenant-owned template in "
+            "to push the site home. Existing block-backed pages reject this "
+            "tool before mutation; use get_block_html / push_block_html for copy. "
+            "New pages get a tenant-owned template in "
             "editing_mode=raw. Re-pushes append a TemplateVersion. Use if_match "
             "(html etag from get_page_html or a prior push) to guard concurrent "
             "writes; use "
