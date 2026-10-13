@@ -961,8 +961,8 @@ def add_block(auth: ResolvedAuth, *, site: str, block_type: str, region: str,
 
 def remove_block(auth: ResolvedAuth, *, site: str, instance_id: str,
                  if_match: str, page: Optional[str] = None) -> dict[str, Any]:
-    def change(stored, catalog, _shell):
-        return structure_mod.remove_block(stored, catalog, instance_id=instance_id), instance_id
+    def change(stored, catalog, shell):
+        return structure_mod.remove_block(stored, catalog, shell, instance_id=instance_id), instance_id
     return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
 
 
@@ -979,9 +979,9 @@ def move_block(auth: ResolvedAuth, *, site: str, instance_id: str, region: str,
 def append_block_richtext(auth: ResolvedAuth, *, site: str, field: str,
                           operation: str, text: str, if_match: str,
                           page: Optional[str] = None) -> dict[str, Any]:
-    def change(stored, catalog, _shell):
+    def change(stored, catalog, shell):
         return (structure_mod.append_block_richtext(
-            stored, catalog, field=field, operation=operation, text=text),
+            stored, catalog, shell, field=field, operation=operation, text=text),
             field.split(".", 1)[0])
     return _apply_block_structure(auth, site=site, page=page, if_match=if_match, change=change)
 

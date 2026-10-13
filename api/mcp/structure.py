@@ -47,7 +47,7 @@ def _rows(stored: dict, catalog: dict) -> list[dict]:
     return rows
 
 
-def _editable_row(rows: list[dict], instance_id: str) -> dict:
+def _editable_row(rows: list[dict], instance_id: str, shell_html: str) -> dict:
     by_id = {row["id"]: row for row in rows}
     row = by_id.get(instance_id)
     if row is None or not row["available"]:
@@ -59,6 +59,7 @@ def _editable_row(rows: list[dict], instance_id: str) -> dict:
             raise BlockStructureError("Block is inside an unavailable layout.")
     if not _body_region(root["region"]):
         raise BlockStructureError("Header and footer blocks use the visual editor.")
+    _single_region_slot(shell_html, root["region"], shell=True)
     return row
 
 
@@ -97,7 +98,7 @@ def _slot(stored: dict, catalog: dict, shell_html: str,
     if not isinstance(parent_id, str):
         raise BlockStructureError("Invalid parent block ID.")
     rows = _rows(stored, catalog)
-    parent_row = _editable_row(rows, parent_id)
+    parent_row = _editable_row(rows, parent_id, shell_html)
     parent, parent_block = content_mod.block_instances(stored, catalog)[parent_id]
     if region not in parent_block.get("regions", []):
         raise BlockStructureError("Destination is not a declared layout slot.")
@@ -156,9 +157,9 @@ def add_block(stored: dict, catalog: dict, shell_html: str, *, block_type: str,
     return proposed, instance["id"]
 
 
-def remove_block(stored: dict, catalog: dict, *, instance_id: str) -> dict:
+def remove_block(stored: dict, catalog: dict, shell_html: str, *, instance_id: str) -> dict:
     rows = _rows(stored, catalog)
-    _editable_row(rows, instance_id)
+    _editable_row(rows, instance_id, shell_html)
     proposed = deepcopy(stored)
     source, index = _location(proposed, instance_id)
     if _has_retired_descendant(source[index], catalog):
@@ -171,7 +172,7 @@ def remove_block(stored: dict, catalog: dict, *, instance_id: str) -> dict:
 def move_block(stored: dict, catalog: dict, shell_html: str, *, instance_id: str,
                parent_id: str | None, region: str, position: int) -> dict:
     rows = _rows(stored, catalog)
-    _editable_row(rows, instance_id)
+    _editable_row(rows, instance_id, shell_html)
     if parent_id == instance_id:
         raise BlockStructureError("A block cannot move inside itself.")
     destination_parent = parent_id
@@ -191,14 +192,14 @@ def move_block(stored: dict, catalog: dict, shell_html: str, *, instance_id: str
     return proposed
 
 
-def append_block_richtext(stored: dict, catalog: dict, *, field: str,
+def append_block_richtext(stored: dict, catalog: dict, shell_html: str, *, field: str,
                           operation: str, text: str) -> dict:
     rows = _rows(stored, catalog)
     if operation not in {"paragraph", "list_item"}:
         raise BlockStructureError("Only paragraph and list_item are supported.")
     if not isinstance(text, str) or not text.strip() or len(text) > 500:
         raise BlockStructureError("Text must contain 1 to 500 characters.")
-    _editable_row(rows, field.split(".", 1)[0])
+    _editable_row(rows, field.split(".", 1)[0], shell_html)
     proposed = deepcopy(stored)
     try:
         instance, field_schema, merged = content_mod.block_field(proposed, catalog, field)

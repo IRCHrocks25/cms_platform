@@ -427,6 +427,53 @@ class McpBlockTests(TestCase):
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.content, before)
 
+    def _assert_invalid_source_region_rejects_all_writes(self, source_region, shell):
+        rich = BlockType.objects.create(html_source=(
+            '<section data-block="rich"><div data-edit="rich.copy" '
+            'data-type="richtext"><p>Original</p></div></section>'))
+        self.tpl.allowed_block_types.add(rich)
+        self.tpl.html_source = shell
+        self.tpl.save(update_fields=["html_source"])
+        self.tenant.content["regions"].setdefault(source_region, []).append(
+            {"id": "blk_77777777", "type": "rich", "fields": {"copy": "<p>Original</p>"}})
+        self.tenant.save(update_fields=["content"])
+        before = json.loads(json.dumps(self.tenant.content))
+        etag = content_etag(before)
+        requests = [
+            ("remove_block", {"instance_id": "blk_11111111" if source_region == "main"
+                              else "blk_77777777"}),
+            ("move_block", {"instance_id": "blk_11111111" if source_region == "main"
+                            else "blk_77777777", "region": "body" if source_region == "main"
+                            else "main", "position": 0}),
+            ("append_block_richtext", {"field": "blk_77777777.copy",
+                                       "operation": "paragraph", "text": "New text"}),
+        ]
+        for tool, args in requests:
+            with self.subTest(tool=tool, source_region=source_region):
+                self.tenant.content = json.loads(json.dumps(before))
+                self.tenant.save(update_fields=["content"])
+                ContentVersion.objects.filter(tenant=self.tenant).delete()
+                _, result = self.call(tool, {"site": "alpha", "if_match": etag, **args})
+                self.assertTrue(result["isError"], result)
+                self.tenant.refresh_from_db()
+                self.assertEqual(self.tenant.content, before)
+                self.assertEqual(ContentVersion.objects.filter(tenant=self.tenant).count(), 0)
+
+    def test_structure_refuses_header_owned_main_source_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "main", '<html><body><header data-region="main"></header>'
+                    '<main data-region="body"></main></body></html>')
+
+    def test_structure_refuses_stored_only_source_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "orphan", '<html><body><main data-region="main"></main></body></html>')
+
+    def test_structure_refuses_duplicate_source_slot_for_all_writes(self):
+        self._assert_invalid_source_region_rejects_all_writes(
+            "main", '<html><body><main data-region="main"></main>'
+                    '<aside data-region="main"></aside>'
+                    '<section data-region="body"></section></body></html>')
+
     def test_structure_refuses_hidden_child_under_retired_parent(self):
         self.tenant.content["regions"]["main"].append(
             {"id": "blk_77777777", "type": "retired", "fields": {},
