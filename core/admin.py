@@ -164,7 +164,7 @@ _has_token.short_description = "Has token"
 class GhlAgencyInstallAdmin(admin.ModelAdmin):
     list_display = ("company_id", "company_name", _has_token, "expires_at", "updated_at")
     search_fields = ("company_id", "company_name")
-    # access_token / refresh_token are deliberately NOT in the form — a masked
+    # access_token / refresh_token are deliberately NOT in the form: a masked
     # "has token" column is all operators need (A11).
     exclude = ("access_token", "refresh_token")
     readonly_fields = ("available_locations", "installed_at", "updated_at")

@@ -161,7 +161,7 @@ def parse_select_options(el) -> list[dict[str, str]]:
 
     Format: ``"Label=value;Label2=value2"``. A bare entry (no ``=``) uses the
     text as both label and value. Blank/duplicate values are dropped. This is
-    the single source of truth for which values a select may hold — the
+    the single source of truth for which values a select may hold: the
     renderer re-parses it so a stored value outside this set can never inject
     arbitrary CSS/classes.
     """
@@ -387,7 +387,7 @@ def build_block_schema(html: str) -> dict[str, Any]:
     """Parse a single annotated block fragment into an insertable block schema.
 
     A *block* is one ``data-block`` (or legacy ``data-section``) wrapper plus
-    its nested ``data-edit`` fields — i.e. exactly one of today's annotated
+    its nested ``data-edit`` fields: i.e. exactly one of today's annotated
     sections, promoted to be insertable. Field ids are stored *relative* to the
     block (the part after the dot, e.g. ``quote`` not ``testimonial.quote``) so
     the same block type can be inserted many times on a page; each instance

@@ -152,7 +152,7 @@ class Template(models.Model):
 
     @property
     def is_block_shell(self) -> bool:
-        """True when this template is a block-instance *shell* — its HTML has a
+        """True when this template is a block-instance *shell*: its HTML has a
         ``data-region`` slot where client-inserted blocks are rendered. Such a
         template drives the block editor + ``render_page_from_blocks`` instead
         of the classic fixed-section renderer.
@@ -168,7 +168,8 @@ class Template(models.Model):
     @property
     def is_client_editable(self) -> bool:
         return (
-            self.editing_mode == self.EDITING_EDITABLE and self.has_editable_schema
+            self.editing_mode == self.EDITING_EDITABLE
+            and (self.has_editable_schema or self.is_block_shell)
         )
 
     @property
@@ -303,7 +304,7 @@ class BlockType(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Schema is always derived from the annotated HTML — never hand-edited.
+        # Schema is always derived from the annotated HTML: never hand-edited.
         self.schema = build_block_schema(self.html_source)
         if not self.key and self.schema.get("key"):
             self.key = self.schema["key"]

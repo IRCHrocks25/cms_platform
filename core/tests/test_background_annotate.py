@@ -83,7 +83,7 @@ class BackgroundAnnotateTests(TestCase):
         self.assertEqual(job.sections["items"][0]["id"], "hero")
 
     def test_skips_when_template_html_changed_since_fetch(self):
-        # Operator (or another process) already rewrote the row — applying the
+        # Operator (or another process) already rewrote the row: applying the
         # original fetch's annotation would clobber that newer HTML (A8).
         raw = "<div><h1>Hi</h1></div>"
         tpl = Template.objects.create(name="changed", html_source=raw)

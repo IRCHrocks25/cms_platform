@@ -61,7 +61,7 @@ def _template(html=HERO_HTML, name="T"):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", ALLOWED_HOSTS=["*"])
 class UnpublishedSiteHidesInnerPagesTests(TestCase):
-    """C1 — a published inner page is not public while the site is draft."""
+    """C1: a published inner page is not public while the site is draft."""
 
     def setUp(self):
         self.owner = User.objects.create_user("alice", password="x")
@@ -105,7 +105,7 @@ class UnpublishedSiteHidesInnerPagesTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES=PLAIN_STATIC)
 class EditorJsonScriptTests(TestCase):
-    """E2 — field values cannot break out of the editor bootstrap script."""
+    """E2: field values cannot break out of the editor bootstrap script."""
 
     def test_script_in_content_is_escaped(self):
         staff = _staff()
@@ -130,7 +130,7 @@ class EditorJsonScriptTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES=PLAIN_STATIC)
 class SharedShellEditHtmlTests(TestCase):
-    """A1 — refuse Edit HTML when the page shares the site shell."""
+    """A1: refuse Edit HTML when the page shares the site shell."""
 
     def setUp(self):
         self.staff = _staff()
@@ -188,7 +188,7 @@ class SharedShellEditHtmlTests(TestCase):
 
 
 class OwnerProtectTests(TestCase):
-    """A2 — deleting a user who still owns a site is blocked."""
+    """A2: deleting a user who still owns a site is blocked."""
 
     def test_owner_delete_raises_protected(self):
         owner = User.objects.create_user("owns-site", password="x")
@@ -201,7 +201,7 @@ class OwnerProtectTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class OwnerMembershipAndSuperuserTests(TestCase):
-    """A3 / A4 — owner membership and superuser accounts stay protected."""
+    """A3 / A4: owner membership and superuser accounts stay protected."""
 
     def setUp(self):
         self.staff = _staff()
@@ -262,7 +262,7 @@ class OwnerMembershipAndSuperuserTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class CredentialsTokenBindingTests(TestCase):
-    """A9 — a credentials token cannot be revealed on the wrong user page."""
+    """A9: a credentials token cannot be revealed on the wrong user page."""
 
     def test_token_on_wrong_user_shows_expired(self):
         staff = _staff()
@@ -282,7 +282,7 @@ class CredentialsTokenBindingTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class PageRenameMissingPkTests(TestCase):
-    """A14 — missing/invalid page_pk is a 400-style message, not a 500."""
+    """A14: missing/invalid page_pk is a 400-style message, not a 500."""
 
     def test_missing_page_pk_redirects_with_message(self):
         staff = _staff()
@@ -301,7 +301,7 @@ class PageRenameMissingPkTests(TestCase):
 
 
 class DnsNameMultiPartTldTests(SimpleTestCase):
-    """A15 — known multi-part TLDs treat the registrable domain as apex."""
+    """A15: known multi-part TLDs treat the registrable domain as apex."""
 
     def test_co_uk_apex_is_at(self):
         self.assertEqual(_dns_name_for_domain("example.co.uk"), "@")
@@ -317,7 +317,7 @@ class DnsNameMultiPartTldTests(SimpleTestCase):
 
 
 class SubdomainValidatorTests(TestCase):
-    """C6 — underscores are invalid at the model layer too."""
+    """C6: underscores are invalid at the model layer too."""
 
     def test_underscore_rejected(self):
         with self.assertRaises(ValidationError):
@@ -354,7 +354,7 @@ class SubdomainValidatorTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class VersionsAndRestoreTests(TestCase):
-    """E12 / E13 — undo list is dashboard-only; oversized restore is rejected."""
+    """E12 / E13: undo list is dashboard-only; oversized restore is rejected."""
 
     def setUp(self):
         self.member = User.objects.create_user("v-alice", password="x")
@@ -425,7 +425,7 @@ class VersionsAndRestoreTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class MediaDeleteSnapshotsTests(TestCase):
-    """C3 — gallery delete snapshots content before scrubbing the URL."""
+    """C3: gallery delete snapshots content before scrubbing the URL."""
 
     def test_delete_creates_a_version(self):
         staff = _staff()
@@ -455,7 +455,7 @@ class MediaDeleteSnapshotsTests(TestCase):
 
 
 class SavePathSanitizeTests(SimpleTestCase):
-    """E6 / E7 — unsafe colors and javascript: links are dropped on save."""
+    """E6 / E7: unsafe colors and javascript: links are dropped on save."""
 
     def test_javascript_link_cleared(self):
         schema = {
@@ -473,7 +473,7 @@ class SavePathSanitizeTests(SimpleTestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES=PLAIN_STATIC)
 class TemplateCreateHonorsEditingModeTests(TestCase):
-    """A7 — paste-path create keeps the submitted Client-editing choice."""
+    """A7: paste-path create keeps the submitted Client-editing choice."""
 
     def test_raw_mode_is_kept_on_annotated_paste(self):
         staff = _staff()
@@ -496,7 +496,7 @@ class TemplateCreateHonorsEditingModeTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class ForceVerifySuperuserTests(TestCase):
-    """A10 — force-verify is superuser-only."""
+    """A10: force-verify is superuser-only."""
 
     def test_staff_forbidden(self):
         staff = _staff()
@@ -533,7 +533,7 @@ class ForceVerifySuperuserTests(TestCase):
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class DiagnosticHeaderTests(TestCase):
-    """X1 — diagnostic headers stay off unless DEBUG or DIAG_HEADERS."""
+    """X1: diagnostic headers stay off unless DEBUG or DIAG_HEADERS."""
 
     def test_off_when_debug_and_flag_are_false(self):
         with override_settings(DEBUG=False, DIAG_HEADERS=False):
@@ -547,7 +547,7 @@ class DiagnosticHeaderTests(TestCase):
 
 
 class ProductionSecretGuardTests(SimpleTestCase):
-    """A5 — production (DEBUG off) must not boot on the hardcoded fallback."""
+    """A5: production (DEBUG off) must not boot on the hardcoded fallback."""
 
     def test_guard_raises_for_fallback_when_debug_off(self):
         from cms_platform.settings import _SECRET_KEY_FALLBACK

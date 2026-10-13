@@ -107,7 +107,7 @@ def save_editable_content(
     if isinstance(schema, dict):
         content = strip_defaults(schema, content)
     # Contenteditable leftovers (`<br>`, empty strings) must not persist as
-    # overrides — they wipe designed body copy on the next preview apply.
+    # overrides: they wipe designed body copy on the next preview apply.
     drop_blank_instance_fields(content)
 
     with transaction.atomic():
@@ -149,7 +149,7 @@ def _validate_embeds(editable, proposed: dict[str, Any]) -> None:
     # another location. Re-run the same tenant-scoped validation used by live
     # writes before mutating content.
     from core.parser import build_schema
-    from core.services import ghl_embed_slots
+    from core.services import blocks, ghl_embed_slots
 
     tenant, _page = _resolve(editable)
     schema = build_schema(editable.template.html_source)
@@ -159,6 +159,10 @@ def _validate_embeds(editable, proposed: dict[str, Any]) -> None:
         current_content=editable.content or {},
         new_content=proposed,
         is_published=editable.is_published,
+        catalog=(
+            blocks.catalog_for_template(editable.template)
+            if editable.template.is_block_shell else None
+        ),
     )
 
 
@@ -172,7 +176,7 @@ def restore_editable_content(
     * **Arbitrary restore** (``pop=False``, the version-history UI): snapshot the
       current content first so the restore is itself undoable (a redo point).
     * **Linear undo** (``pop=True``, the editor's Undo button / Ctrl+Z): step one
-      state back. We must NOT push a redo point here — doing so makes that fresh
+      state back. We must NOT push a redo point here: doing so makes that fresh
       snapshot the newest version, so a second undo would restore it and bounce
       the user forward instead of walking further back. Instead we consume the
       restored snapshot so repeated undo steps monotonically back through history.
@@ -192,7 +196,7 @@ def restore_editable_content(
         proposed = strip_defaults(build_schema(html), proposed)
     _validate_embeds(editable, proposed)
 
-    # A historical snapshot can be structurally stale — more blocks than the
+    # A historical snapshot can be structurally stale: more blocks than the
     # current per-page cap, a block type since removed from the template's
     # allowlist, children nested past the depth cap, or ids that don't match the
     # current shape. Re-run the same normalization live saves use so a restore

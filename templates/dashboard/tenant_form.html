@@ -62,7 +62,7 @@
               </option>
             {% endfor %}
             <option value="__blocks__" {% if form_data.template == "__blocks__" %}selected{% endif %}>
-              ✦ Build with blocks (blank site — no HTML)
+              ✦ Build with blocks (blank site, no HTML)
             </option>
             <option value="__new__" {% if form_data.template == "__new__" %}selected{% endif %}>
               + Create new template inline…
@@ -164,8 +164,8 @@
               <h4 class="inline-template-title">Build with blocks</h4>
               <p class="inline-template-copy">
                 Creates a blank site with our full block library attached. The client
-                builds every page from the block palette — headlines, images, forms,
-                pricing, FAQs and more — with no HTML. You can rename or tweak the
+                builds every page from the block palette: headlines, images, forms,
+                pricing, FAQs and more, with no HTML. You can rename or tweak the
                 template later.
               </p>
             </div>
@@ -369,7 +369,7 @@
         var isBlocks = select.value === "__blocks__";
         show(newBlock, isNew);
         show(blocksBlock, isBlocks);
-        // Saved-template dropdown is the fallback surface — shown only when
+        // Saved-template dropdown is the fallback surface: shown only when
         // neither inline mode is active.
         show(savedBlock, !isNew && !isBlocks);
         // Template name is optional in the inline HTML flow; the server

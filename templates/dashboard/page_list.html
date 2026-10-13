@@ -61,12 +61,12 @@
         {% if is_block_shell %}
         <fieldset class="field m-0">
           <legend class="field-label">Start from</legend>
-          <label class="row-inline"><input type="radio" name="start_from" value="blank" checked> Blank page — add sections yourself</label>
+          <label class="row-inline"><input type="radio" name="start_from" value="blank" checked> Blank page: add sections yourself</label>
           <label class="row-inline"><input type="radio" name="start_from" value="copy_home"> Copy the sections from {% if scope == "agency" %}the home page{% else %}my home page{% endif %}</label>
           {% for row in pages %}
             <label class="row-inline"><input type="radio" name="start_from" value="copy_page:{{ row.obj.pk }}"> Copy the sections from “{{ row.obj.title }}”</label>
           {% endfor %}
-          <label class="row-inline"><input type="radio" name="start_from" value="html"> Advanced — paste designed HTML, fetch a URL, or annotate with AI</label>
+          <label class="row-inline"><input type="radio" name="start_from" value="html"> Advanced: paste designed HTML, fetch a URL, or annotate with AI</label>
         </fieldset>
         {% endif %}
         <p class="field-help m-0">

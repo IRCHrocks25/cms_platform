@@ -164,7 +164,7 @@ class ContentVersionServiceTests(TestCase):
         self.assertEqual(self.tenant.content, {"hero": {"title": "B"}})
         undo()
         self.assertEqual(self.tenant.content, {"hero": {"title": "A"}})
-        # History is consumed as we walk back — no fresh redo points pile up.
+        # History is consumed as we walk back: no fresh redo points pile up.
         self.assertEqual(self.tenant.versions.count(), 0)
 
     def test_pop_undo_does_not_create_redo_point(self):
