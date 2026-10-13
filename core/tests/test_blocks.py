@@ -647,7 +647,7 @@ class EnsureBlockEditorTests(TestCase):
         self.assertFalse(library.is_block_shell)
         self.assertEqual(t2.content, {"hero": {"title": "Two"}})
 
-    def test_converts_even_when_classic_and_block_renders_differ(self):
+    def test_refuses_conversion_when_classic_and_block_renders_differ(self):
         from unittest.mock import patch
 
         from django.contrib.auth.models import User
@@ -667,11 +667,11 @@ class EnsureBlockEditorTests(TestCase):
         with patch(
             "core.services.blocks.classic_upgrade_is_safe",
             return_value=(False, "at 0: classic=...X... block=...Y..."),
-        ):
+        ), self.assertRaises(blocks.ConversionMismatchError):
             blocks.ensure_block_editor(tenant)
         tenant.refresh_from_db()
-        self.assertTrue(tenant.template.is_block_shell)
-        self.assertIn("regions", tenant.content or {})
+        self.assertFalse(tenant.template.is_block_shell)
+        self.assertNotIn("regions", tenant.content or {})
 
     def test_sections_inside_main_become_blocks(self):
         from django.contrib.auth.models import User

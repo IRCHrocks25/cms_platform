@@ -358,16 +358,27 @@ def _clean_edit(edit) -> str | None:
 def _apply_annotations(ref_map: dict, data: dict) -> int:
     """Apply the model's JSON annotations onto the marked soup. Returns the
     number of fields applied."""
+    existing_sections = {
+        (tag.get("data-section") or "").strip()
+        for tag in ref_map.values() if tag.get("data-section")
+    }
+    existing_fields = {
+        (tag.get("data-edit") or "").strip()
+        for tag in ref_map.values() if tag.get("data-edit")
+    }
     for sec in data.get("sections", []) or []:
         tag = ref_map.get(str(sec.get("ref")))
         if tag is None:
             continue
+        if tag.get("data-section"):
+            continue
         section_id = _slug(sec.get("id"))
-        if not section_id:
+        if not section_id or section_id in existing_sections:
             continue
         if _is_overlay_landmark(tag):
             continue
         tag["data-section"] = section_id
+        existing_sections.add(section_id)
         if sec.get("label"):
             tag["data-label"] = str(sec["label"])[:120]
         if sec.get("icon"):
@@ -380,14 +391,24 @@ def _apply_annotations(ref_map: dict, data: dict) -> int:
         tag = ref_map.get(str(field.get("ref")))
         if tag is None:
             continue
+        if tag.get("data-edit"):
+            continue
+        if tag.find_parent(attrs={"data-edit": True}) is not None:
+            continue
         edit = _clean_edit(field.get("edit"))
-        if not edit:
+        if not edit or edit in existing_fields:
             continue
         ftype = str(field.get("type", "text")).strip().lower()
         if ftype not in VALID_FIELD_TYPES:
             ftype = "text"
+        if (ftype == "image" and tag.name != "img"
+                or ftype == "link" and tag.name != "a"
+                or ftype == "video" and tag.name != "video"
+                or ftype in {"text", "richtext"} and tag.name in {"img", "video"}):
+            continue
         tag["data-edit"] = edit
         tag["data-type"] = ftype
+        existing_fields.add(edit)
         if field.get("label"):
             tag["data-label"] = str(field["label"])[:120]
         applied += 1
@@ -780,6 +801,8 @@ def _backfill_missed_text_fields(soup) -> int:
                 continue
             if el.get("data-edit"):
                 continue
+            if el.find_parent(attrs={"data-edit": True}) is not None:
+                continue
 
             if _has_backfill_skip_ancestor(el, sec):
                 continue
@@ -914,6 +937,8 @@ def _backfill_missed_image_fields(soup) -> int:
             if image.find_parent(attrs={"data-section": True}) is not sec:
                 continue
             if image.get("data-edit") or _image_is_obvious_chrome(image, sec):
+                continue
+            if image.find_parent(attrs={"data-edit": True}) is not None:
                 continue
 
             field_id = f"image_{image_number}"
@@ -1095,6 +1120,8 @@ def _backfill_missed_video_fields(soup) -> int:
                 continue
             if video.get("data-edit") or not _video_src(video):
                 continue
+            if video.find_parent(attrs={"data-edit": True}) is not None:
+                continue
             field_id = "video" if video_number == 1 else f"video_{video_number}"
             while field_id in existing_field_ids:
                 video_number += 1
@@ -1140,6 +1167,20 @@ def _assert_annotation_preserved_structure(raw_html: str, annotated: str) -> Non
             "AI annotation dropped page sections "
             f"(input had {before} content blocks, output has {after}). "
             "No changes were applied. Please try again or annotate the HTML manually."
+        )
+
+
+def _assert_existing_markers_preserved(raw_html: str, annotated: str) -> None:
+    """A repeat pass may add markers, but may not reassign old fields."""
+    from core.services.templates import _field_owners
+
+    before = _field_owners(raw_html)
+    after = _field_owners(annotated)
+    changed = sorted(fid for fid, owner in before.items() if after.get(fid) != owner)
+    if changed:
+        raise AnnotatorError(
+            "AI annotation changed existing field identities: "
+            + ", ".join(changed[:10]) + ". No changes were applied."
         )
 
 
@@ -1589,6 +1630,7 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     restored_uris = _restore_data_uris(str(soup), data_uris)
     annotated = _restore_blocks(restored_uris, blocks)
     _assert_annotation_preserved_structure(raw_html, annotated)
+    _assert_existing_markers_preserved(raw_html, annotated)
 
     schema = build_schema(annotated)
     sections = [s for s in schema.get("sections", []) if s.get("id") != "brand"]

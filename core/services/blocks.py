@@ -1242,6 +1242,16 @@ def _first_diff_snippet(left: str, right: str, radius: int = 120) -> str:
     )
 
 
+def _glue_insensitive_diff(html: str) -> tuple[str, tuple[str, ...]]:
+    """Allow moved sibling CSS/JS only when its ordered bytes are preserved."""
+    soup = BeautifulSoup(html or "", "lxml")
+    glue = []
+    for tag in list(soup.find_all(["style", "script"])):
+        glue.append(str(tag))
+        tag.extract()
+    return normalize_for_diff(str(soup)), tuple(glue)
+
+
 def preview_classic_upgrade(
     html: str,
     content: dict | None = None,
@@ -1266,6 +1276,8 @@ def preview_classic_upgrade(
     right = normalize_for_diff(block_out)
     if left == right:
         return True, ""
+    if _glue_insensitive_diff(classic) == _glue_insensitive_diff(block_out):
+        return True, ""
     return False, _first_diff_snippet(left, right)
 
 
@@ -1285,6 +1297,10 @@ def classic_upgrade_is_safe(template, *, region: str = "main") -> tuple[bool, st
         if not ok:
             return False, snippet
     return True, ""
+
+
+class ConversionMismatchError(Exception):
+    """The composed block page differs from the existing rendered page."""
 
 
 def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]:
@@ -1366,6 +1382,13 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
     from core.parser import build_block_schema
 
     old_html = template.html_source or ""
+    if not template.is_block_shell:
+        safe, diff = classic_upgrade_is_safe(template, region=region)
+        if not safe:
+            raise ConversionMismatchError(
+                "Block conversion refused before Save because the rendered page differs: "
+                + diff[:500]
+            )
     if template.is_block_shell:
         attach_builder_primitives(template)
         if not _shell_has_unextracted_sections(old_html):
@@ -1467,32 +1490,25 @@ def ensure_block_editor(editable, *, user=None):
 
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
     if not template.is_block_shell:
+        _shell, fragments = split_shell_and_blocks(template.html_source)
+        if not fragments:
+            logger.warning(
+                "ensure_block_editor: skipped convert for template=%s; "
+                "no body sections to convert", template.pk,
+            )
+            return template
+        ok, snippet = classic_upgrade_is_safe(template)
+        if not ok:
+            raise ConversionMismatchError(
+                "Block conversion refused before Save because the rendered page differs: "
+                + snippet[:500]
+            )
         template = _clone_shared_template(template, tenant, user)
         if isinstance(editable, Tenant) and editable.template_id != template.pk:
             editable.template = template
         if isinstance(editable, Page) and editable.template_id != template.pk:
             editable.template = template
             editable.save(update_fields=["template"])
-        _shell, fragments = split_shell_and_blocks(template.html_source)
-        if not fragments:
-            logger.warning(
-                "ensure_block_editor: skipped convert for template=%s; "
-                "no body sections to convert",
-                template.pk,
-            )
-            return template
-        ok, snippet = classic_upgrade_is_safe(template)
-        if not ok:
-            # Real annotated pages (sections inside <main>, extra chrome) often
-            # miss a byte-identical paint check. Still convert: the agency
-            # just annotated this site to get the block editor, not a locked
-            # classic form.
-            logger.warning(
-                "ensure_block_editor: converting template=%s despite paint "
-                "diff (%s)",
-                template.pk,
-                snippet[:500],
-            )
         apply_classic_upgrade(template)
         template.refresh_from_db()
     else:

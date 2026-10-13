@@ -91,6 +91,10 @@ class ConcurrentWriteError(Exception):
     """
 
 
+class AnnotationMismatchError(Exception):
+    """Annotation would alter rendered content or an existing field owner."""
+
+
 class FieldLossError(Exception):
     """Published site(s) would lose fields; caller must confirm.
 
@@ -377,6 +381,71 @@ def _html_etag(html: str) -> str:
     return hashlib.sha256((html or "").encode("utf-8")).hexdigest()
 
 
+_ANNOTATION_ATTRS = {
+    "data-section", "data-edit", "data-type", "data-label", "data-group",
+    "data-icon", "data-tokens", "data-cms-ref",
+}
+_ELEMENT_TYPES = {"image": "img", "link": "a", "video": "video"}
+
+
+def _field_owners(html: str) -> dict[str, tuple[tuple[int, ...], str]]:
+    """Locate old markers by their element path, independent of model names."""
+    soup = BeautifulSoup(html or "", "lxml")
+    owners = {}
+    for tag in soup.find_all(attrs={"data-edit": True}):
+        path = []
+        node = tag
+        while getattr(node.parent, "name", None):
+            path.append(list(node.parent.find_all(True, recursive=False)).index(node))
+            node = node.parent
+        section = tag.find_parent(attrs={"data-section": True})
+        owners[tag["data-edit"]] = (
+            tuple(reversed(path)), (section.get("data-section") or "") if section else ""
+        )
+    return owners
+
+
+def _annotation_snapshot(html: str, content: dict) -> str:
+    from core.renderer import render_site
+
+    soup = BeautifulSoup(render_site(html, content or {}), "lxml")
+    for tag in soup.find_all(True):
+        for attr in _ANNOTATION_ATTRS:
+            tag.attrs.pop(attr, None)
+    return str(soup)
+
+
+def assert_annotation_preserves_rendered(
+    old_html: str, new_html: str, targets: Iterable[tuple[str, dict]]
+) -> None:
+    """Refuse a candidate before save if annotation changes a page's DOM."""
+    old_owners = _field_owners(old_html)
+    new_owners = _field_owners(new_html)
+    moved = sorted(fid for fid, path in old_owners.items() if new_owners.get(fid) != path)
+    if moved:
+        raise AnnotationMismatchError(
+            "Annotation changed existing field IDs or owners: " + ", ".join(moved[:10])
+        )
+    soup = BeautifulSoup(new_html or "", "lxml")
+    for tag in soup.find_all(attrs={"data-edit": True}):
+        ftype = (tag.get("data-type") or "text").strip()
+        required_tag = _ELEMENT_TYPES.get(ftype)
+        if required_tag and tag.name != required_tag:
+            raise AnnotationMismatchError(
+                f"Invalid {ftype} field on <{tag.name}>: {tag['data-edit']}"
+            )
+        if ftype in {"text", "richtext"} and tag.name in {"img", "video"}:
+            raise AnnotationMismatchError(
+                f"Invalid {ftype} field on <{tag.name}>: {tag['data-edit']}"
+            )
+    for label, content in targets:
+        if _annotation_snapshot(old_html, content) != _annotation_snapshot(new_html, content):
+            raise AnnotationMismatchError(
+                f"Annotation would change rendered text, links, or attributes on {label}. "
+                "No changes were saved. Review the before/after HTML and stored overrides."
+            )
+
+
 def _sync(caller: Template, locked: Template) -> None:
     """Copy committed state back onto the caller's instance.
 
@@ -395,6 +464,7 @@ def save_template_version(
     user,
     allow_field_loss: bool = False,
     allow_field_drift: bool = False,
+    preserve_rendered: bool = False,
     label: str = "",
     expect_html_etag: Optional[str] = None,
 ) -> SaveTemplateResult:
@@ -412,6 +482,14 @@ def save_template_version(
             raise ConcurrentWriteError(
                 "Conflict (409): template has changed since if_match. "
                 "Re-read and retry with the current etag."
+            )
+
+        if preserve_rendered:
+            targets = [("template defaults", {})]
+            targets.extend((label, content) for label, _row, content, _published
+                           in _sites_using_template(locked))
+            assert_annotation_preserves_rendered(
+                locked.html_source, html_source, targets
             )
 
         old_fields = _dotted_field_ids(locked.schema)

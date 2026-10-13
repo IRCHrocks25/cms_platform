@@ -32,6 +32,7 @@
     <div class="card page-section">
       <form id="page-html-source-form" data-source-edit-form method="post" action="{{ save_url }}" class="stack-5">
         {% csrf_token %}
+        <input type="hidden" name="preserve_annotated_render" value="{{ preserve_annotated_render|default:'0' }}">
         {% include "dashboard/_html_source_editor.html" with html_value=html_source %}
         {% if field_loss %}
           <div class="card-tight warn-card" role="alert">

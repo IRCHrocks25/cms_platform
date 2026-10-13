@@ -465,10 +465,19 @@ def template_detail(request, pk):
                     user=request.user,
                     allow_field_loss=allow_field_loss,
                     allow_field_drift=allow_field_drift,
+                    preserve_rendered=request.POST.get("preserve_annotated_render") == "1",
                 )
                 template.save(
                     update_fields=["name", "description", "editing_mode", "updated_at"]
                 )
+        except template_svc.AnnotationMismatchError as exc:
+            messages.error(request, str(exc))
+            return render(
+                request, "dashboard/template_form.html",
+                {"template": template, **_template_form_site_context(request, template),
+                 "form_data": request.POST, "html_value": html_source},
+                status=409,
+            )
         except (template_svc.FieldLossError, template_svc.FieldDriftError) as exc:
             messages.error(request, str(exc))
             # Either error can carry both findings, so render whichever the
@@ -738,7 +747,7 @@ def _run_annotation_job(job_id, raw_html):
         schema = build_schema(annotated)
         from core.services.blocks import preview_classic_upgrade
 
-        blocks_ready, _diff = preview_classic_upgrade(annotated)
+        blocks_ready, blocks_diff = preview_classic_upgrade(annotated)
         sections_summary = {
             "items": [
                 {
@@ -761,6 +770,8 @@ def _run_annotation_job(job_id, raw_html):
             "reasoning_tokens": annotation.reasoning_tokens,
             "total_tokens": annotation.total_tokens,
         }
+        if not blocks_ready:
+            sections_summary["blocks_diff"] = blocks_diff[:300]
         AnnotationJob.objects.filter(id=job_id).update(
             status=AnnotationJob.STATUS_DONE,
             result_html=annotated,
@@ -949,6 +960,8 @@ def template_annotate_status(request, job_id):
                 body[key] = job.sections.get(key, 0)
             if "blocks_ready" in job.sections:
                 body["blocks_ready"] = bool(job.sections.get("blocks_ready"))
+                if job.sections.get("blocks_diff"):
+                    body["blocks_diff"] = job.sections["blocks_diff"]
         else:
             # Rows created before integrity counters used a plain section list.
             body["sections"] = job.sections
@@ -1207,7 +1220,7 @@ def tenant_create(request):
     if not blocks_new_template:
         from core.services import blocks as _blocks
 
-        _blocks.ensure_block_editor(tenant, user=request.user)
+        _ensure_block_editor_or_warn(request, tenant)
     token = _stash_credentials_in_session(request, user, password)
     return redirect(
         f"{reverse('dashboard:site_created', args=[tenant.pk])}?token={token}"
@@ -2220,7 +2233,7 @@ def _user_can_manage_pages(request):
 def _page_list(request, tenant, scope):
     from core.services import blocks as _blocks
 
-    _blocks.ensure_block_editor(tenant, user=request.user)
+    _ensure_block_editor_or_warn(request, tenant)
     tenant.refresh_from_db()
 
     can_manage = _user_can_manage_pages(request)
@@ -2279,7 +2292,7 @@ def _wants_html_page(request, *, require_explicit=False):
 def _page_create(request, tenant, scope):
     from core.services import blocks as _blocks
 
-    _blocks.ensure_block_editor(tenant, user=request.user)
+    _ensure_block_editor_or_warn(request, tenant)
     tenant.refresh_from_db()
     nav = _page_nav_urls(scope, tenant)
     title = (request.POST.get("title") or "").strip()
@@ -2326,7 +2339,7 @@ def _page_create(request, tenant, scope):
             template, template.html_source, user=request.user, label="Initial"
         )
         page = Page.objects.create(tenant=tenant, template=template, title=title, slug=slug)
-    _blocks.ensure_block_editor(page, user=request.user)
+    _ensure_block_editor_or_warn(request, page)
     page.refresh_from_db()
     _warn_ignored_submitted_field_markers(
         request, html_source, template.schema
@@ -2584,33 +2597,36 @@ def _annotate_template_in_background(
             )
             connection.close()
             return
-        # Annotation usually adds fields; allow loss so a partial model
-        # rewrite cannot leave the row stuck mid-import.
-        result = template_svc.save_template_version(
-            template,
-            annotated_html,
-            user=None,
-            allow_field_loss=True,
-            label="AI annotation",
-        )
-        if result.unchanged:
-            # No version to cut, but the promotion below still has to run: an
-            # already-annotated template can be sitting at editing_mode=raw.
-            logger.info(
-                "Sibling annotation returned unchanged HTML for template=%s",
-                template_id,
-            )
-        if template.has_editable_schema:
-            template.editing_mode = Template.EDITING_EDITABLE
-            template.save(update_fields=["editing_mode", "updated_at"])
         from core.models import Page
         from core.services import blocks as _blocks
+        from django.db import transaction
 
-        page = Page.objects.filter(template=template).first()
-        if page is not None:
-            _blocks.ensure_block_editor(page)
-        else:
-            for owned in Tenant.objects.filter(template=template):
+        editables = list(Page.objects.filter(template=template))
+        editables += list(Tenant.objects.filter(template=template))
+        for owned in editables:
+            if not template.is_block_shell:
+                safe, diff = _blocks.preview_classic_upgrade(
+                    annotated_html, owned.content or {}
+                )
+                if not safe:
+                    raise _blocks.ConversionMismatchError(
+                        "Annotation would make block conversion change the page: "
+                        + diff[:500]
+                    )
+        with transaction.atomic():
+            result = template_svc.save_template_version(
+                template, annotated_html, user=None,
+                preserve_rendered=True, label="AI annotation",
+            )
+            if result.unchanged:
+                logger.info(
+                    "Sibling annotation returned unchanged HTML for template=%s",
+                    template_id,
+                )
+            if template.has_editable_schema:
+                template.editing_mode = Template.EDITING_EDITABLE
+                template.save(update_fields=["editing_mode", "updated_at"])
+            for owned in editables:
                 _blocks.ensure_block_editor(owned)
         section_count = len((template.schema or {}).get("sections", []))
         logger.info(
@@ -2812,6 +2828,17 @@ def page_edit_html(request, pk, page_pk):
                     user=request.user,
                     allow_field_loss=allow_field_loss,
                     allow_field_drift=allow_field_drift,
+                    preserve_rendered=request.POST.get("preserve_annotated_render") == "1",
+                )
+            except template_svc.AnnotationMismatchError as exc:
+                messages.error(request, str(exc))
+                return render(
+                    request, "dashboard/page_edit_html.html",
+                    {"tenant": tenant, "page": page, "html_source": new_html,
+                     "preserve_annotated_render": request.POST.get("preserve_annotated_render"),
+                     "save_url": reverse("dashboard:page_edit_html", args=[tenant.pk, page.pk]),
+                     "back_url": reverse("dashboard:page_list", args=[tenant.pk])},
+                    status=409,
                 )
             except (
                 template_svc.FieldLossError,
@@ -2848,7 +2875,7 @@ def page_edit_html(request, pk, page_pk):
             from core.services import blocks as _blocks
 
             page.template.refresh_from_db()
-            _blocks.ensure_block_editor(page, user=request.user)
+            _ensure_block_editor_or_warn(request, page)
             return redirect("dashboard:page_editor", pk=tenant.pk, page_pk=page.pk)
     return render(
         request,
@@ -2906,7 +2933,7 @@ def page_list_self(request):
 def page_create_self(request):
     from core.services import blocks as _blocks
 
-    _blocks.ensure_block_editor(request.tenant, user=request.user)
+    _ensure_block_editor_or_warn(request, request.tenant)
     request.tenant.refresh_from_db()
     if not _user_can_manage_pages(request):
         messages.error(request, "Adding pages is managed by your agency. Get in touch and they'll set it up.")
@@ -3045,6 +3072,18 @@ def _block_form_partial(request, tenant, page=None):
     return JsonResponse({"ok": True, "section": html})
 
 
+def _ensure_block_editor_or_warn(request, editable):
+    from core.services import blocks as _blocks
+
+    try:
+        _blocks.ensure_block_editor(editable, user=request.user)
+        return True
+    except _blocks.ConversionMismatchError as exc:
+        logger.warning("Block conversion refused for editable=%s: %s", editable.pk, exc)
+        messages.warning(request, str(exc))
+        return False
+
+
 def _render_editor(request, tenant, *, scope, page=None):
     # The editor drives either the tenant home (page=None) or one inner Page.
     # Both expose the same template / content / is_published shape, so the only
@@ -3054,7 +3093,7 @@ def _render_editor(request, tenant, *, scope, page=None):
     editable = page or tenant
     from core.services import blocks as _blocks
 
-    _blocks.ensure_block_editor(editable, user=request.user)
+    _ensure_block_editor_or_warn(request, editable)
     if page is None:
         tenant.refresh_from_db()
         editable = tenant
