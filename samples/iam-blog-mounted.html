@@ -1,0 +1,14 @@
+<!-- Proposed replacement for template 41's owned BlockType key="blog".
+     NOT applied to production. Keeps the existing region/instance position,
+     navigation anchor and site section spacing; replaces manual teaser cards.
+     Post content is managed through the Blog editor after installation. -->
+<section id="blog" data-section="blog" data-label="Blog" data-group="Blog">
+  <style>
+    #blog[data-section="blog"] { --blog-strip-space: 0; }
+    #blog .cms-strip { padding: var(--blog-strip-space) 0; }
+    #blog .cbs-wrap { max-width: 1320px; }
+  </style>
+  <div class="sec sec-light">
+    <div class="sec-in" data-blog-strip></div>
+  </div>
+</section>

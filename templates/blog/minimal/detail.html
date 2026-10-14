@@ -1,7 +1,7 @@
 {% extends "blog/_content.html" %}
 
 {% block styles %}
-  .cms-blog--minimal .min-title{font-family:var(--blog-serif);font-weight:600;font-size:clamp(32px,5vw,46px);line-height:1.12;letter-spacing:-.02em;margin:22px 0 16px;}
+  .cms-blog--minimal .min-title{font-family:var(--cms-font-title,var(--font-title,var(--blog-serif)));font-weight:600;font-size:clamp(32px,5vw,46px);line-height:1.12;letter-spacing:-.02em;margin:22px 0 16px;}
   .cms-blog--minimal .min-meta{margin-bottom:30px;}
   .cms-blog--minimal .min-cover{margin:10px 0 44px;aspect-ratio:16/8;}
   .cms-blog--minimal .min-rule{border:0;border-top:1px solid var(--blog-line);margin:4px 0 40px;}

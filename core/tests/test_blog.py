@@ -1,12 +1,177 @@
 import json
+import os
+import unittest
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from core.models import Template, Tenant, TenantMembership, BlogPost
 from core.services.sanitizer import sanitize_html
+
+
+@override_settings(TENANT_BASE_DOMAIN="localhost")
+class InstalledBlogPlacementTests(TestCase):
+    """Site 41 structure observed read-only; all writes use isolated test DBs."""
+
+    def setUp(self):
+        from core.models import BlockType
+        self.owner = get_user_model().objects.create_user("blog-op", is_staff=True)
+        self.template = Template.objects.create(name="IAM-shaped shell", html_source="""
+            <html><head><style>
+            :root{--disp:'Bebas Neue',sans-serif;--body:'Inter',sans-serif;--primary:#ff2e88;}
+            body{font-family:var(--body)} h1,h2,h3{font-family:var(--disp)}
+            .sec-in{max-width:1320px;margin:0 auto;padding:0 24px;}
+            </style></head><body><nav data-section="nav">Nav</nav>
+            <div data-region="main"></div><footer data-section="footer">Footer</footer></body></html>
+        """)
+        self.block = BlockType.objects.create(template=self.template, key="blog", label="Blog",
+            html_source='<section id="blog" data-section="blog"><h2>From the front line</h2>'
+                        '<article>Manual teaser</article></section>')
+        self.template.allowed_block_types.add(self.block)
+        hero = BlockType.objects.create(template=self.template, key="hero", label="Hero",
+            html_source='<section data-section="hero"><h1>Site hero</h1></section>')
+        self.template.allowed_block_types.add(hero)
+        self.tenant = Tenant.objects.create(name="IAM reproduction", subdomain="iam-repro",
+            template=self.template, owner=self.owner, is_published=True,
+            content={"regions":{"main":[{"id":"hero", "type":"hero", "fields":{}},
+                                        {"id":"blog", "type":"blog", "fields":{}}]}})
+        self.post = _post(self.tenant, "Published article", body="<p>Article body</p>", featured=True)
+        self.client = Client(HTTP_HOST="iam-repro.localhost")
+        self.client.force_login(self.owner)
+
+    def soup(self, path):
+        from bs4 import BeautifulSoup
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200)
+        return BeautifulSoup(response.content, "lxml")
+
+    def test_observed_unmounted_block_is_independent_from_featured_strip(self):
+        home = self.soup("/")
+        self.assertIn("Manual teaser", home.select_one("#blog").text)
+        self.assertNotIn(self.post.title, home.select_one("#blog").text)
+        strip = home.select_one("[data-cms-blog-strip]")
+        self.assertIn(self.post.title, strip.text)
+        self.assertEqual(strip.find_next_sibling().name, "footer")
+        self.assertIsNone(home.select_one("[data-blog-strip]"))
+
+    def test_mounted_block_save_publish_updates_in_place_and_preview_matches_public(self):
+        self.block.html_source = (Path(__file__).resolve().parents[2] / "samples/iam-blog-mounted.html").read_text()
+        self.block.save()
+        edit = reverse("dashboard:blog_edit_self", args=[self.post.pk])
+        for status, title in [("draft", "Pending correction"), ("published", "Corrected article")]:
+            response = self.client.post(edit, {"title":title, "slug":self.post.slug,
+                "body":"<p>Corrected body</p>", "status":status, "featured":"on"})
+            self.assertEqual(response.status_code, 302)
+            home = self.soup("/")
+            if status == "draft":
+                self.assertIsNone(home.select_one("[data-cms-blog-strip]"))
+            else:
+                self.assertEqual(len(home.select("[data-cms-blog-strip]")), 1)
+                self.assertIn(title, home.select_one("#blog [data-blog-strip]").text)
+                self.assertNotIn("Manual teaser", home.text)
+        preview = self.soup(reverse("dashboard:blog_preview_self", args=[self.post.pk]))
+        public = self.soup(f"/blog/{self.post.slug}/")
+        self.assertEqual(preview.select_one(".blog-prose").decode_contents(),
+                         public.select_one(".blog-prose").decode_contents())
+        for surface in [preview, public, self.soup("/blog/")]:
+            self.assertIn("--font-body", str(surface))
+            self.assertIn("--font-heading", str(surface))
+            self.assertIsNone(surface.select_one("[data-cms-blog-strip]"))
+
+    def test_strip_preview_uses_public_site_typography_and_repeated_injection_is_unique(self):
+        from core.services.blog_render import inject_strip, render_strip_doc
+        from core.services.blocks import render_content
+        from bs4 import BeautifulSoup
+        home = inject_strip(render_content(self.template, self.tenant.content), self.tenant)
+        preview = render_strip_doc(self.tenant)
+        for html in [home, preview]:
+            self.assertIn("--font-body", html)
+            self.assertIn("--font-heading", html)
+            self.assertIn("var(--primary,", html)
+            self.assertIn("family=Fraunces", html)
+        twice = BeautifulSoup(inject_strip(home, self.tenant), "lxml")
+        self.assertEqual(len(twice.select("[data-cms-blog-strip]")), 1)
+
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
+
+
+@unittest.skipIf(sync_playwright is None, "playwright is not installed")
+@override_settings(TENANT_BASE_DOMAIN="localhost", ALLOWED_HOSTS=["*"],
+    STORAGES={"default":{"BACKEND":"django.core.files.storage.FileSystemStorage"},
+              "staticfiles":{"BACKEND":"django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class InstalledBlogBrowserTests(StaticLiveServerTestCase):
+    """Browser acceptance on a local copy of the observed block structure."""
+
+    def test_edit_preview_save_publish_and_refresh_at_desktop_and_mobile(self):
+        os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+        InstalledBlogPlacementTests.setUp(self)
+        self.block.html_source = (Path(__file__).resolve().parents[2] / "samples/iam-blog-mounted.html").read_text()
+        self.block.save()
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                context = browser.new_context(viewport={"width":1280,"height":900})
+                context.add_cookies([{"name":"sessionid", "value":self.client.cookies["sessionid"].value,
+                                     "url":self.live_server_url}])
+                page = context.new_page()
+                editor = self.live_server_url + reverse("dashboard:blog_edit", args=[self.tenant.pk,self.post.pk])
+                public_base = self.live_server_url + "/site/iam-repro/"
+                page.goto(editor)
+                page.locator("#bf-title").fill("Browser correction")
+                page.locator("#blog-body-editor").fill("Browser corrected body")
+                page.locator("#bf-status").select_option("draft")
+                with page.expect_navigation():
+                    page.get_by_role("button", name="Save post", exact=True).click()
+                page.goto(public_base)
+                self.assertEqual(page.locator("[data-cms-blog-strip]").count(), 0)
+                page.goto(editor)
+                page.locator("#bf-status").select_option("published")
+                with page.expect_navigation():
+                    page.get_by_role("button", name="Save post", exact=True).click()
+                for width in (1280,390):
+                    page.set_viewport_size({"width":width,"height":900})
+                    preview_url = self.live_server_url + reverse("dashboard:blog_preview", args=[self.tenant.pk,self.post.pk])
+                    page.goto(preview_url)
+                    preview_font = page.locator(".blog-prose").evaluate("e=>getComputedStyle(e).fontFamily")
+                    preview_title = page.locator(".cms-blog h1").evaluate("e=>getComputedStyle(e).fontFamily")
+                    page.goto(public_base + f"blog/{self.post.slug}/")
+                    page.reload()
+                    self.assertIn("Browser corrected body",page.locator(".blog-prose").inner_text())
+                    self.assertEqual(preview_font,page.locator(".blog-prose").evaluate("e=>getComputedStyle(e).fontFamily"))
+                    self.assertEqual(preview_title,page.locator(".cms-blog h1").evaluate("e=>getComputedStyle(e).fontFamily"))
+                    self.assertIn("Inter",preview_font)
+                    self.assertIn("Bebas Neue",preview_title)
+                    self.assertFalse(page.evaluate("document.documentElement.scrollWidth>innerWidth"))
+                    page.goto(public_base + "blog/")
+                    self.assertIn("Browser correction",page.locator(".cms-blog").inner_text())
+                    page.goto(public_base)
+                    page.reload()
+                    self.assertEqual(page.locator("[data-cms-blog-strip]").count(),1)
+                    self.assertIn("Browser correction",page.locator("#blog [data-blog-strip]").inner_text())
+                    self.assertIn("Inter",page.locator(".cms-strip").evaluate("e=>getComputedStyle(e).fontFamily"))
+                    self.assertIn("Bebas Neue",page.locator(".cbs-title").evaluate("e=>getComputedStyle(e).fontFamily"))
+                    self.assertFalse(page.evaluate("document.documentElement.scrollWidth>innerWidth"))
+                    evidence_dir = os.environ.get("IAM_BLOG_EVIDENCE_DIR")
+                    if evidence_dir:
+                        page.screenshot(path=str(Path(evidence_dir) / f"iam-blog-local-{width}.png"))
+                    def strip_styles():
+                        return page.locator(".cms-strip").evaluate(
+                            "e=>({font:getComputedStyle(e).fontFamily,padding:getComputedStyle(e).padding,"
+                            "accent:getComputedStyle(e).getPropertyValue('--cbs-accent')})")
+                    public_strip_styles = strip_styles()
+                    page.goto(self.live_server_url + reverse("dashboard:blog_strip_preview", args=[self.tenant.pk]))
+                    self.assertEqual(public_strip_styles, strip_styles())
+                context.close()
+            finally:
+                browser.close()
 
 
 HOME_HTML = (
