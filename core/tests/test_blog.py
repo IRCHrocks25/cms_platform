@@ -369,6 +369,37 @@ class BlogChromeTests(TestCase):
         self.assertContains(r, "Wrapped Post")    # blog content present
         self.assertNotContains(r, "HERO HEADLINE")  # homepage section removed
 
+    def test_blog_footer_renames_the_katek_credit(self):
+        """The blog page reuses the site footer, so renaming KATEK there shows on the post."""
+        html = (
+            "<!doctype html><html><head><title>Home</title></head><body>"
+            "<nav data-section='navigation'><a href='#top'>Home</a></nav>"
+            "<footer data-section='footer'><span>Built by "
+            "<a data-edit='footer.built_by_link' data-type='link' "
+            "href='https://katek.co'>KATEK</a></span></footer>"
+            "</body></html>"
+        )
+        tpl = Template.objects.create(name="Katek footer", html_source=html)
+        tenant = Tenant.objects.create(
+            name="Katek footer",
+            subdomain="katek-footer",
+            template=tpl,
+            owner=self.staff,
+            is_published=True,
+            content={
+                "footer": {
+                    "built_by_link": "https://katek.co",
+                    "built_by_link_label": "Our studio",
+                }
+            },
+        )
+        post = _post(tenant, "A post", body="<p>body copy</p>")
+        r = self._get("katek-footer.localhost", f"/blog/{post.slug}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Our studio")
+        self.assertContains(r, "https://katek.co")
+        self.assertNotContains(r, ">KATEK<")
+
     def test_detail_wrapped_in_site_chrome(self):
         r = self._get("acme.localhost", f"/blog/{self.post.slug}/")
         self.assertEqual(r.status_code, 200)
