@@ -2,13 +2,20 @@
 
 import copy
 import json
+import uuid
 
+from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
 from api.mcp.content import content_etag
 from api.service_auth import issue_service_credential
+from api.suite_credential_handoff import (
+    acknowledge_suite_credential_handoff,
+    begin_suite_credential_handoff,
+)
 from core.models import BlockType, ContentVersion, Page, Template, Tenant
+from core.services.suite_bindings import link_suite_site
 
 from .test_mcp_blocks import HERO, SHELL
 
@@ -143,6 +150,55 @@ class SuiteDraftBlockTests(TestCase):
         self.assertTrue(denied["isError"])
         self.other.refresh_from_db()
         self.assertEqual(self.other.content, before)
+
+    def test_bound_handoff_credential_edits_only_its_unpublished_draft(self):
+        operator = get_user_model().objects.create_superuser(
+            "suite-block-operator", "suite-block-operator@example.test", "x"
+        )
+        binding = link_suite_site(
+            business_id=uuid.uuid4(), operation_key=uuid.uuid4(),
+            tenant_id=self.other.pk, expected_owner_id=self.other.owner_id,
+            operator=operator,
+        )
+        handoff_key = uuid.uuid4()
+        with override_settings(SUITE_CREDENTIAL_HANDOFF_FERNET_KEY=Fernet.generate_key().decode()):
+            receipt = begin_suite_credential_handoff(
+                binding_id=binding.pk, operation_key=handoff_key,
+                scopes={"read", "draft"}, operator=operator,
+            )
+            self.token = receipt.token
+            pending = self.client.post(
+                "/mcp", data=json.dumps({"jsonrpc": "2.0", "id": 1,
+                    "method": "tools/call", "params": {"name": "add_block", "arguments": {
+                        "site": "suite-beta", "block_type": "hero", "region": "main",
+                        "position": 0, "if_match": content_etag(self.other.content),
+                    }}}),
+                content_type="application/json", HTTP_HOST="localhost",
+                HTTP_AUTHORIZATION=f"Bearer {self.token}",
+                HTTP_MCP_PROTOCOL_VERSION="2025-06-18", HTTP_ACCEPT="application/json",
+            )
+            self.assertEqual(pending.status_code, 401)
+            acknowledge_suite_credential_handoff(
+                binding_id=binding.pk, operation_key=handoff_key, operator=operator,
+            )
+
+        before_other = copy.deepcopy(self.other.content)
+        before_alpha = copy.deepcopy(self.tenant.content)
+        _, added = self.call("add_block", {
+            "site": "suite-beta", "block_type": "hero", "region": "main",
+            "position": 0, "if_match": content_etag(before_other),
+        })
+        self.assertFalse(added["isError"], added)
+        self.other.refresh_from_db()
+        self.assertEqual(len(self.other.content["regions"]["main"]), 1)
+        _, denied = self.call("add_block", {
+            "site": "suite-alpha", "block_type": "hero", "region": "main",
+            "position": 0, "if_match": content_etag(before_alpha),
+        })
+        self.assertTrue(denied["isError"], denied)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, before_alpha)
+        self.assertEqual(ContentVersion.objects.filter(tenant=self.tenant).count(), 0)
 
     def test_block_html_rejects_field_id_drift_and_non_editable_template(self):
         _, read = self.call("get_block_html", {
