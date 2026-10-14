@@ -2,6 +2,30 @@
 
 import django.db.models.deletion
 from django.db import migrations, models
+from django.utils import timezone
+
+
+def guard_pending_credentials_on_reverse(apps, schema_editor):
+    """Never expose a pending token to the S03 resolver after dropping its flag."""
+    credential = apps.get_model('api', 'ServiceCredential')
+    db = schema_editor.connection.alias
+    if schema_editor.connection.vendor == 'postgresql':
+        # Hold the write lock through the constraint/column rollback so a new
+        # pending handoff cannot appear between this check and the DDL.
+        schema_editor.execute(
+            f'LOCK TABLE {schema_editor.quote_name(credential._meta.db_table)} '
+            'IN ACCESS EXCLUSIVE MODE'
+        )
+    live = credential.objects.using(db).filter(revoked_at__isnull=True)
+    if live.filter(
+        is_pending=True,
+        tenant_id__in=live.filter(is_pending=False).values('tenant_id'),
+    ).exists():
+        raise RuntimeError(
+            'Cannot reverse api.0003 while active and pending service '
+            'credentials coexist for one tenant; resolve the handoff first.'
+        )
+    live.filter(is_pending=True).update(revoked_at=timezone.now())
 
 
 class Migration(migrations.Migration):
@@ -57,4 +81,5 @@ class Migration(migrations.Migration):
             name='previous_credential',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='replacement_handoffs', to='api.servicecredential'),
         ),
+        migrations.RunPython(migrations.RunPython.noop, guard_pending_credentials_on_reverse),
     ]
