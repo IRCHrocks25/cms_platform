@@ -31,7 +31,7 @@
 
 1. Write failing route tests for agency-only POST, CSRF/GET rejection, confirmation data, and success/error feedback. Assert a secondary Owner still uses the ordinary Remove action. Assert the site Team cannot self-remove or remove the canonical owner.
 2. Add `tenant_member_transfer_remove` under the agency site member URLs. Pass the expected successor membership ID from the form to the service. Show “Transfer to B and remove A” on the canonical row only when the current two-owner state qualifies; name both users in the confirmation.
-3. Hide the misleading ordinary Remove action for canonical owners and show explanatory text when transfer is unavailable. Guard the agency role route from downgrading the canonical Owner; render its role as fixed.
+3. Hide the misleading ordinary Remove action for canonical owners and show explanatory text when transfer is unavailable. Guard the agency role route from downgrading the canonical Owner; render its role as fixed. Route ordinary removal and role updates through transaction-backed services that recheck ownership under the same tenant lock, including agency user detail and tenant Team paths.
 4. Run targeted tests red/green and commit.
 
 ### Task 3: Verify and hand off

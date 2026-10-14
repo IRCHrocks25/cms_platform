@@ -16,7 +16,7 @@ Let an agency operator remove the site's canonical owner when another active Own
 
 ## Safety and data flow
 
-The service locks the tenant and its memberships, then rechecks the target is the canonical Owner, exactly one other active Owner member exists, and that member matches the submitted successor. Both changes run in one database transaction. Missing, inactive, extra, or changed memberships fail without a partial write. The agency-only endpoint provides CSRF protection and a named confirmation; it redirects with a clear success or error message. The canonical owner's role cannot be downgraded through the agency role endpoint before transfer. The user account itself is not deleted; other-site access remains intact.
+The service locks the tenant and its memberships, then rechecks the target is the canonical Owner, exactly one other active Owner member exists, and that member matches the submitted successor. Both changes run in one database transaction. Missing, inactive, extra, or changed memberships fail without a partial write. Ordinary membership removal and role updates use the same tenant-first lock order and recheck the canonical owner after locking, so they cannot race the transfer into a site without an Owner membership. The agency-only endpoint provides CSRF protection and a named confirmation; it redirects with a clear success or error message. The canonical owner's role cannot be downgraded through the agency role endpoint before transfer. The user account itself is not deleted; other-site access remains intact.
 
 ## Acceptance checks
 

@@ -45,6 +45,10 @@ from core.services.accounts import (
     create_scoped_login,
     create_tenant_account,
     generate_password,
+    OwnerTransferError,
+    remove_noncanonical_membership,
+    set_membership_role,
+    transfer_and_remove_owner,
 )
 from core.services.annotator import annotate_html, annotate_html_result, AnnotatorError
 from core.services.sanitizer import sanitize_html
@@ -1410,12 +1414,24 @@ def tenant_detail(request, pk):
     tenant = get_object_or_404(
         Tenant.objects.select_related("template", "owner"), pk=pk
     )
-    members = (
+    members = list(
         tenant.memberships
         .select_related("user")
         .order_by("user__username")
     )
-    member_user_ids = list(members.values_list("user_id", flat=True))
+    member_user_ids = [membership.user_id for membership in members]
+    owner_members = [
+        membership for membership in members
+        if membership.role == TenantMembership.ROLE_OWNER
+    ]
+    transfer_successor = (
+        next((membership for membership in owner_members
+              if membership.user_id != tenant.owner_id), None)
+        if len(owner_members) == 2
+        and all(membership.user.is_active for membership in owner_members)
+        and any(membership.user_id == tenant.owner_id for membership in owner_members)
+        else None
+    )
     add_member_candidates = (
         User.objects.exclude(pk__in=member_user_ids)
         .filter(is_active=True)
@@ -1446,6 +1462,7 @@ def tenant_detail(request, pk):
         {
             "tenant": tenant,
             "members": members,
+            "transfer_successor": transfer_successor,
             "add_member_candidates": add_member_candidates,
             "activity": activity,
             # The custom-domain panel is rendered here on initial page load and
@@ -1666,9 +1683,33 @@ def tenant_member_remove(request, pk, membership_id):
             "site instead.",
         )
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
-    username = membership.user.username
-    membership.delete()
+    try:
+        username = remove_noncanonical_membership(tenant.pk, membership.pk)
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
     messages.success(request, f"Removed {username} from this site.")
+    return redirect("dashboard:tenant_detail", pk=tenant.pk)
+
+
+@agency_operator_required
+@require_POST
+def tenant_member_transfer_remove(request, pk, membership_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    try:
+        successor_membership_id = int(request.POST.get("successor_membership_id", ""))
+    except (TypeError, ValueError):
+        messages.error(request, "Choose the remaining Owner before transferring ownership.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    try:
+        successor = transfer_and_remove_owner(
+            tenant.pk, membership_id, successor_membership_id,
+            actor_id=request.user.pk,
+        )
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    messages.success(request, f"Ownership transferred to {successor.username}; former owner removed from this site.")
     return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
 
@@ -1683,9 +1724,15 @@ def tenant_member_role(request, pk, membership_id):
     if role not in dict(TenantMembership.ROLE_CHOICES):
         messages.error(request, "Unknown role.")
         return redirect("dashboard:tenant_detail", pk=tenant.pk)
-    membership.role = role
-    membership.save(update_fields=["role"])
-    messages.success(request, f"Updated role for {membership.user.username}.")
+    if membership.user_id == tenant.owner_id and role != TenantMembership.ROLE_OWNER:
+        messages.error(request, "Transfer site ownership before changing this Owner's role.")
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    try:
+        username = set_membership_role(tenant.pk, membership.pk, role)
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:tenant_detail", pk=tenant.pk)
+    messages.success(request, f"Updated role for {username}.")
     return redirect("dashboard:tenant_detail", pk=tenant.pk)
 
 
@@ -1893,7 +1940,11 @@ def user_remove_membership(request, pk, membership_id):
         )
         return redirect("dashboard:user_detail", pk=user_obj.pk)
     tenant_name = membership.tenant.name
-    membership.delete()
+    try:
+        remove_noncanonical_membership(membership.tenant_id, membership.pk)
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:user_detail", pk=user_obj.pk)
     messages.success(
         request, f"Removed {user_obj.username} from “{tenant_name}”."
     )
@@ -2119,8 +2170,11 @@ def team_member_remove_self(request, membership_id):
     if membership.user_id == tenant.owner_id:
         messages.error(request, "The site owner can't be removed here. Ask your agency.")
         return redirect("dashboard:team_self")
-    username = membership.user.username
-    membership.delete()
+    try:
+        username = remove_noncanonical_membership(tenant.pk, membership.pk)
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:team_self")
     messages.success(request, f"Removed {username} from this site.")
     return redirect("dashboard:team_self")
 
@@ -2139,9 +2193,12 @@ def team_member_role_self(request, membership_id):
     if membership.user_id == tenant.owner_id and role != TenantMembership.ROLE_OWNER:
         messages.error(request, "The site owner's role can't be changed here. Ask your agency.")
         return redirect("dashboard:team_self")
-    membership.role = role
-    membership.save(update_fields=["role"])
-    messages.success(request, f"Updated role for {membership.user.username}.")
+    try:
+        username = set_membership_role(tenant.pk, membership.pk, role)
+    except OwnerTransferError as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard:team_self")
+    messages.success(request, f"Updated role for {username}.")
     return redirect("dashboard:team_self")
 
 
