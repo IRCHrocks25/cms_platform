@@ -12,38 +12,7 @@ title link, so it is hidden from keyboard and screen-reader users.
   .cms-blog .lst-index { padding-top: 64px; }
   .cms-blog .lst-head h1 { font-family: var(--blog-serif); font-size: 44px; line-height: 1.1; letter-spacing: -0.01em; margin: 0 0 8px; }
   .cms-blog .lst-head p { color: var(--blog-muted); margin: 0 0 40px; }
-  .cms-blog .lst { display: flex; flex-direction: column; }
-  .cms-blog .lst-item { padding: 36px 0; border-bottom: 1px solid var(--blog-line); }
-  .cms-blog .lst-item:first-child { padding-top: 0; }
-  .cms-blog .lst-cover-link { display: block; }
-  .cms-blog .lst-cover { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 14px; background: var(--blog-surface); }
-  .cms-blog .lst-title { font-family: var(--blog-serif); font-size: 28px; line-height: 1.2; margin: 12px 0; }
-  .cms-blog .lst-title a { color: var(--blog-ink); }
-  .cms-blog .lst-title a:hover { color: var(--blog-accent); text-decoration: none; }
-  .cms-blog .lst-excerpt { color: var(--blog-soft); margin: 0 0 14px; }
-  .cms-blog .lst-readmore { font-weight: 500; font-size: 14px; }
-
-  .cms-blog .lst--image_left .lst-item,
-  .cms-blog .lst--image_right .lst-item { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 36px; align-items: center; }
-  .cms-blog .lst--image_right .lst-item { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-  .cms-blog .lst--image_right .lst-cover-link { order: 2; }
-  .cms-blog .lst--image_left .lst-item--no-image,
-  .cms-blog .lst--image_right .lst-item--no-image { grid-template-columns: minmax(0, 1fr); }
-
-  .cms-blog .lst--image_above { max-width: min(var(--site-cw, 1100px), calc(860px + 2 * var(--site-gut, 24px))); }
-  .cms-blog .lst--image_above .lst-cover { aspect-ratio: 16/9; border-radius: 16px; }
-  .cms-blog .lst--image_above .lst-cover-link { margin-bottom: 22px; }
-  .cms-blog .lst--image_above .lst-title { font-size: 34px; }
-  .cms-blog .lst--image_above .lst-item { padding: 44px 0; }
-  .cms-blog .lst--image_above .lst-item:first-child { padding-top: 0; }
-
-  @media (max-width: 640px) {
-    .cms-blog .lst-head h1 { font-size: 36px; }
-    .cms-blog .lst--image_left .lst-item,
-    .cms-blog .lst--image_right .lst-item { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-    .cms-blog .lst--image_right .lst-cover-link { order: 0; }
-    .cms-blog .lst-title, .cms-blog .lst--image_above .lst-title { font-size: 25px; }
-  }
+  {% include "blog/listing/_layout_styles.html" with scope=".cms-blog" %}
 {% endblock %}
 
 {% block body %}
@@ -57,25 +26,7 @@ title link, so it is hidden from keyboard and screen-reader users.
 
   {% if posts %}
     <div class="lst">
-      {% for post in posts %}
-        <article class="lst-item{% if not post.cover_image %} lst-item--no-image{% endif %}">
-          {% if post.cover_image %}
-            <a class="lst-cover-link" href="{{ blog_base }}{{ post.slug }}/" tabindex="-1" aria-hidden="true">
-              <img class="lst-cover" src="{{ post.cover_image }}" alt="" loading="lazy">
-            </a>
-          {% endif %}
-          <div class="lst-text">
-            <div class="blog-meta">
-              <time>{{ post.publish_date|date:"M j, Y" }}</time>
-              {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
-              {% include "blog/_post_category.html" %}
-            </div>
-            <h2 class="lst-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
-            <p class="lst-excerpt">{{ post.display_excerpt }}</p>
-            <a class="lst-readmore" href="{{ blog_base }}{{ post.slug }}/">Read more →</a>
-          </div>
-        </article>
-      {% endfor %}
+      {% include "blog/listing/_items.html" %}
     </div>
     {% include "blog/_pager.html" %}
   {% elif is_filtered %}

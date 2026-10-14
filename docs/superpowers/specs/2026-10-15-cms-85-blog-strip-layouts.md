@@ -1,0 +1,7 @@
+# CMS-85: per-marker homepage blog strip layouts
+
+Kenneth's existing `data-blog-strip` on the homepage is the target. The Blog settings editor lists each homepage and inner-page marker in document order and offers a labeled native select: use the current site strip style, image left, image right, or image above. A blank/inherit choice keeps the current `strip_style` render unchanged. Choices live in the tenant's existing `blog_settings` JSON, keyed by page identity and marker position, with strict enum validation. No template rebuild or migration is required.
+
+The public renderer fills every marked strip with the existing featured-post selection/count and heading. An image layout uses the blog listing's post markup and responsive CSS through shared template partials. Blog index and individual post pages retain their own layout choice and behavior. Inner-page strip choices are isolated from homepage choices. When no marker exists, the current automatic insertion keeps using the global strip style. Invalid stored choices fall back to it. All post text uses Django autoescaping; URLs retain the existing post URL construction.
+
+Acceptance: default normalized output matches current strip; each marker can differ; tenant B cannot affect tenant A; unknown choice is rejected or normalized; editor control is labeled and keyboard native; 390px CSS stacks image and text; featured count/order and draft exclusion remain unchanged.
