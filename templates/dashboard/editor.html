@@ -346,6 +346,19 @@
                 <div class="stack-5">
                   {% for field in section.fields %}
                     {% include "dashboard/components/field.html" with field=field section_id=section.id %}
+                    {% if field.id == 'footer.builtBy' %}
+                      <div class="field">
+                        <label class="field-label" for="show-footer-credit">
+                          <input id="show-footer-credit" type="checkbox" data-footer-credit-toggle
+                                 aria-describedby="footer-credit-status"
+                                 {% if show_footer_credit %}checked{% endif %}
+                                 {% if not client_editable %}disabled{% endif %}>
+                          Show 'Built by' credit
+                        </label>
+                        <span id="footer-credit-status" class="field-status" data-footer-credit-status
+                              role="status" aria-live="polite"></span>
+                      </div>
+                    {% endif %}
                   {% endfor %}
                 </div>
               </div>

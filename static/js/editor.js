@@ -1679,6 +1679,8 @@
       if (node.closest && node.closest('[data-panel="brand"]')) return;
       if (node.querySelector(".cms-vis-toggle")) return;
       var id = node.getAttribute("data-field-id");
+      // The dedicated site-wide control owns the complete footer credit.
+      if (id === "footer.builtBy" || id === "footer.builtBy_label") return;
       if (isHidden(id)) node.classList.add("cms-form-hidden");
       node.classList.add("cms-has-vis");
       node.appendChild(makeVisToggle(id));
@@ -4645,6 +4647,36 @@
     var ssOgImage = document.getElementById("ss-og-image");
     var ssGaId = document.getElementById("ss-ga-id");
     var ssScript = document.getElementById("ss-custom-script");
+    var footerCreditToggle = document.querySelector("[data-footer-credit-toggle]");
+    var footerCreditStatus = document.querySelector("[data-footer-credit-status]");
+
+    if (footerCreditToggle) {
+      footerCreditToggle.addEventListener("change", function () {
+        var show = footerCreditToggle.checked;
+        footerCreditToggle.disabled = true;
+        if (footerCreditStatus) footerCreditStatus.textContent = "Saving…";
+        fetch(window.CMS.settingsUrl, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": window.CMS.csrfToken,
+          },
+          body: JSON.stringify({ show_footer_credit: show }),
+        })
+          .then(function (r) { if (!r.ok) throw new Error("Save failed"); })
+          .then(function () {
+            footerCreditToggle.disabled = false;
+            if (footerCreditStatus) footerCreditStatus.textContent = "Saved";
+            reloadPreview();
+          })
+          .catch(function () {
+            footerCreditToggle.checked = !show;
+            footerCreditToggle.disabled = false;
+            if (footerCreditStatus) footerCreditStatus.textContent = "Could not save. Try again.";
+          });
+      });
+    }
 
     function openSettings() {
       statusEl.textContent = "Loading…";

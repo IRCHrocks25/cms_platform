@@ -438,9 +438,9 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     for the layout, no per-page fork. Falls back to a minimal standalone shell
     if the template has no recognizable ``<body>``.
 
-    SEO/analytics head tags are NOT injected here (the chrome is rendered with
-    ``site_settings=None`` to avoid double-injecting GA/custom scripts); the
-    caller layers them on with ``apply_head_settings`` so per-page SEO wins.
+    SEO/analytics head tags are NOT injected here (the chrome receives only
+    the footer-credit visibility setting); the caller layers them on with
+    ``apply_head_settings`` so per-page SEO wins.
     """
     shell_html = ""
     if tenant.template_id and tenant.template.html_source:
@@ -449,7 +449,9 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
             tenant.template.html_source,
             content,
             preview=False,
-            site_settings=None,
+            site_settings={
+                "show_footer_credit": (tenant.site_settings or {}).get("show_footer_credit") is not False,
+            },
         )
 
     soup = BeautifulSoup(shell_html, "lxml") if shell_html else None
