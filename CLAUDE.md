@@ -123,12 +123,24 @@ Declare these in any `:root` block and use them everywhere the role applies
 Older templates are covered by deterministic inference in
 `core/typography.py`: the font variable an `html`/`body` rule uses is the body
 font, and the font variable whose rules style the most `h1`–`h6` elements is
-the heading font. When a role has a token, the Design control overrides the
-token instead of writing `body` / `h1-h6` rules, and the renderer publishes
-contract aliases (`--font-body: var(--body)`). The blog reads `--font-body` /
-`--font-heading` with its own fonts as fallback. Typography tokens never appear
-as Brand fields. Spec:
+the heading font. Selectors are mapped into Title, Heading and Body (buttons,
+nav and labels follow Body). Changing Heading restyles Title and Heading even
+when the template used the body variable. When a role has a token, the Design
+control overrides the token instead of writing `body` / `h1-h6` rules, and the
+renderer publishes contract aliases (`--font-body: var(--body)`). The blog
+reads `--font-body` / `--font-heading` with its own fonts as fallback.
+Typography tokens never appear as Brand fields. Spec:
 `docs/superpowers/specs/2026-10-14-cms-74-typography-tokens-design.md`.
+
+The independent Title font control writes `_global.titleFamily`. Templates may
+optionally declare `--font-title`; otherwise the renderer creates it when the
+client customizes titles. Title/Heading/Body mapping can assign a group to
+another declared font slot; explicit mapping takes precedence over the group's
+family picker. Resetting to Default removes the override. CSS discovery uses
+`tinycss2` to preserve conditional rules and `!important`, and excludes framework
+font slots and keyframes. Blog article titles consume `--font-title` with their
+existing heading font as fallback. Plain templates keep their previous Body and
+Heading rendering unless a new Title override is selected.
 
 The parser is in `core/parser.py`. The renderer is in `core/renderer.py`.
 **These two files are the heart of the system — read them before changing

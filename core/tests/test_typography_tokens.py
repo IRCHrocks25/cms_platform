@@ -77,7 +77,7 @@ class DiscoveryTests(SimpleTestCase):
         found = tokens(IAM_TPL)
         self.assertEqual(found["body-font"]["name"], "body")
         self.assertEqual(found["heading-font"]["name"], "disp")
-        self.assertEqual(found["heading-font"]["value"], "'Bebas Neue',sans-serif")
+        self.assertEqual(found["heading-font"]["value"].replace('"', "'"), "'Bebas Neue',sans-serif")
         self.assertNotIn("body-size", found)
         self.assertNotIn("heading-size", found)
 
@@ -183,7 +183,7 @@ class RenderTests(SimpleTestCase):
     def test_preview_exposes_role_map_to_bridge(self):
         html = render_site(IAM_TPL, {}, preview=True)
         tag = BeautifulSoup(html, "lxml").find("script", id="cms-typography")
-        self.assertEqual(json.loads(tag.string), {
+        self.assertEqual(json.loads(tag.string)["roles"], {
             "body-font": {"name": "body", "generic": "sans-serif"},
             "heading-font": {"name": "disp", "generic": "sans-serif"},
         })
@@ -198,8 +198,8 @@ class BlogTemplateTests(SimpleTestCase):
         from django.conf import settings
 
         css = (Path(settings.BASE_DIR) / "templates" / "blog" / "_content.html").read_text("utf-8")
-        self.assertIn("--blog-sans:var(--font-body, 'Roboto',", css)
-        self.assertIn("--blog-serif:var(--font-heading, 'Fraunces',", css)
+        self.assertIn("--blog-sans:var(--cms-font-body,var(--font-body, 'Roboto',", css)
+        self.assertIn("--blog-serif:var(--cms-font-heading,var(--font-heading, 'Fraunces',", css)
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES=STORAGES)
