@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
@@ -2558,6 +2558,78 @@ def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
         (soup.find("head") or soup.find("body") or soup).append(style)
 
 
+_CREDIT_SEPARATOR_RE = re.compile(r"^[\s|·•-]+$")
+
+
+def _remove_credit_separator(node: Tag, direction: str) -> bool:
+    """Remove a separator directly next to the credit, skipping whitespace nodes."""
+    sibling = getattr(node, direction)
+    blanks = []
+    while isinstance(sibling, NavigableString) and not str(sibling).strip():
+        blanks.append(sibling)
+        sibling = getattr(sibling, direction)
+    if sibling is None:
+        return False
+    text = sibling.get_text() if isinstance(sibling, Tag) else str(sibling)
+    if not (_CREDIT_SEPARATOR_RE.fullmatch(text) and text.strip()):
+        return False
+    sibling.extract()
+    for blank in blanks:
+        blank.extract()
+    return True
+
+
+def _remove_footer_credit(soup: BeautifulSoup) -> None:
+    """Remove the credit's words, link and adjacent separator as one unit.
+
+    The credit is authored in a tenant template, so its wrapper tag/class is
+    not fixed. Never remove a parent containing other footer content.
+    """
+    link = soup.find("a", attrs={"data-edit": "footer.builtBy"})
+    if link is None:
+        return
+    footer = link.find_parent("footer") or link.find_parent(attrs={"data-section": "footer"})
+    if footer is None:
+        return
+
+    label = link.get_text(" ", strip=True)
+    wrapper = None
+    for parent in link.parents:
+        if not isinstance(parent, Tag):
+            break
+        text = parent.get_text(" ", strip=True)
+        if label and re.fullmatch(
+            rf"(?:[|·•]\s*)?Built\s+by\s+{re.escape(label)}(?:\s*[|·•])?",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            wrapper = parent
+            break
+        if parent is footer:
+            break
+
+    if wrapper is not None:
+        for direction in ("previous_sibling", "next_sibling"):
+            if _remove_credit_separator(wrapper, direction):
+                break
+        wrapper.decompose()
+        return
+
+    # Some imported footers have no dedicated wrapper: keep the surrounding
+    # copyright text, removing only the adjacent "| Built by " text run.
+    previous = link.previous_sibling
+    if isinstance(previous, NavigableString):
+        prefix = re.search(r"(?:[|·•-]\s*)?Built\s+by\s*$", str(previous), re.IGNORECASE)
+        if prefix:
+            previous.replace_with(str(previous)[:prefix.start()])
+    elif isinstance(previous, Tag) and re.fullmatch(
+        r"\s*Built\s+by\s*", previous.get_text(), re.IGNORECASE
+    ):
+        _remove_credit_separator(previous, "previous_sibling")
+        previous.decompose()
+    link.decompose()
+
+
 # Auto-annotation: every text-leaf element that the agency didn't annotate gets
 # a ``data-edit="auto.nN"`` id at render time, so it becomes editable/styleable
 # through the normal pipeline, expressing the lp-cms "everything is editable" idea
@@ -2790,6 +2862,9 @@ def render_site(
 
     if isinstance(content, dict) and content.get("_hidden"):
         _apply_hidden(soup, content["_hidden"], preview=preview)
+
+    if isinstance(site_settings, dict) and site_settings.get("show_footer_credit") is False:
+        _remove_footer_credit(soup)
 
     if not preview and site_settings:
         _inject_site_settings(soup, site_settings)

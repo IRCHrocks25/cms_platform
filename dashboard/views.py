@@ -3444,6 +3444,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "header_pages": (
                 _blocks.editor_header_pages(tenant) if block_mode else []
             ),
+            "show_footer_credit": (tenant.site_settings or {}).get("show_footer_credit") is not False,
         },
     )
 
@@ -3453,6 +3454,7 @@ def _render_preview(editable):
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
     html = blocks.render_content(
         editable.template, editable.content, preview=True,
+        site_settings=tenant.site_settings or {},
         nav_pages=blocks.nav_pages_for(tenant),
     )
     return HttpResponse(html)
@@ -4476,12 +4478,32 @@ def _get_or_save_site_settings(request, tenant):
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
 
+    if request.method == "PATCH":
+        if not isinstance(payload, dict) or set(payload) != {"show_footer_credit"}:
+            return JsonResponse({"errors": ["Only show_footer_credit may be patched."]}, status=400)
+        if not isinstance(payload["show_footer_credit"], bool):
+            return JsonResponse({"errors": ["show_footer_credit must be a boolean."]}, status=400)
+        with transaction.atomic():
+            locked = Tenant.objects.select_for_update().get(pk=tenant.pk)
+            settings = dict(locked.site_settings or {})
+            settings["show_footer_credit"] = payload["show_footer_credit"]
+            locked.site_settings = settings
+            locked.save(update_fields=["site_settings", "updated_at"])
+        return JsonResponse({"ok": True, "show_footer_credit": payload["show_footer_credit"]})
+
+    if request.method != "POST":
+        return JsonResponse({"errors": ["Method not allowed."]}, status=405)
+
     cleaned, errors = _validate_site_settings(payload)
     if errors:
         return JsonResponse({"errors": errors}, status=400)
 
-    tenant.site_settings = cleaned
-    tenant.save(update_fields=["site_settings", "updated_at"])
+    with transaction.atomic():
+        locked = Tenant.objects.select_for_update().get(pk=tenant.pk)
+        if "show_footer_credit" in (locked.site_settings or {}):
+            cleaned["show_footer_credit"] = locked.site_settings["show_footer_credit"]
+        locked.site_settings = cleaned
+        locked.save(update_fields=["site_settings", "updated_at"])
     return JsonResponse({"ok": True, "settings": cleaned})
 
 
