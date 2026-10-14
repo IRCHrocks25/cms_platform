@@ -895,3 +895,17 @@ class McpEndpointTests(TestCase):
         self.assertTrue(result["isError"])
         self.page_a.template.refresh_from_db()
         self.assertEqual(self.page_a.template.html_source, before)
+
+    def test_service_draft_whitespace_page_cannot_change_published_home(self):
+        from api.service_auth import issue_service_credential
+
+        self.tenant_a.is_published = True
+        self.tenant_a.save(update_fields=["is_published"])
+        _, token = issue_service_credential(self.tenant_a, scopes={"draft"})
+        before = self.tenant_a.template.html_source
+        result = self._result(self._call("push_page", {
+            "site": "alpha", "page": "   ", "html": SAMPLE_HTML.replace("Welcome", "Changed"),
+        }, token=token))
+        self.assertTrue(result["isError"])
+        self.tenant_a.template.refresh_from_db()
+        self.assertEqual(self.tenant_a.template.html_source, before)

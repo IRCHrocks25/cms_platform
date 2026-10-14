@@ -59,3 +59,12 @@ class ServiceCredential(models.Model):
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="one_active_service_key_per_tenant",
+            ),
+        ]

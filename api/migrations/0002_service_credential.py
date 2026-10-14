@@ -21,4 +21,12 @@ class Migration(migrations.Migration):
                 ("tenant", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="service_credentials", to="core.tenant")),
             ],
         ),
+        migrations.AddConstraint(
+            model_name="servicecredential",
+            constraint=models.UniqueConstraint(
+                fields=("tenant",),
+                condition=models.Q(revoked_at__isnull=True),
+                name="one_active_service_key_per_tenant",
+            ),
+        ),
     ]

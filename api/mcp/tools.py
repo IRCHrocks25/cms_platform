@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, Optional
 from bs4 import BeautifulSoup
 
@@ -2486,6 +2487,31 @@ def _service_draft_allowed(auth: ServicePrincipal, name: str, args: dict) -> boo
     )
 
 
+def _run_service_draft(auth: ServicePrincipal, name: str, args: dict, handler):
+    """Serialize a draft write with publication of its target and shared HTML."""
+    with transaction.atomic():
+        tenant = Tenant.objects.select_for_update().get(pk=auth.tenant.pk)
+        locked_auth = replace(auth, tenant=tenant)
+        page_slug = args.get("page")
+        page = None
+        if page_slug:
+            page = (
+                Page.objects.select_for_update()
+                .filter(tenant=tenant, slug=page_slug)
+                .first()
+            )
+        if name == "push_page":
+            template_id = page.template_id if page else tenant.template_id if not page_slug else None
+            if template_id is not None:
+                # Publishing any referrer to this template must wait for the
+                # draft transaction, then decide against the committed HTML.
+                list(Page.objects.select_for_update().filter(template_id=template_id).order_by("pk"))
+                list(Tenant.objects.select_for_update().filter(template_id=template_id).order_by("pk"))
+        if not _service_draft_allowed(locked_auth, name, args):
+            return _CREATE_DENIED, None
+        return handler(locked_auth, **args), None
+
+
 def call_tool(
     auth: ResolvedAuth, name: str, arguments: Optional[dict]
 ) -> tuple[Optional[dict], Optional[dict]]:
@@ -2513,8 +2539,8 @@ def call_tool(
     err = _validate_arguments(name, args)
     if err:
         return None, {"code": INVALID_PARAMS, "message": err}
-    if service and name in _SERVICE_DRAFT_TOOLS and not _service_draft_allowed(auth, name, args):
-        return _CREATE_DENIED, None
+    if service and name in _SERVICE_DRAFT_TOOLS and isinstance(args.get("page"), str):
+        args["page"] = args["page"].strip().lower() or None
 
     if name == "list_sites":
         return tool_success(list_sites(auth)), None
@@ -2552,4 +2578,6 @@ def call_tool(
         args.pop("version")
     if "force" in args and args["force"] is None:
         args.pop("force")
+    if service and name in _SERVICE_DRAFT_TOOLS:
+        return _run_service_draft(auth, name, args, handler)
     return handler(auth, **args), None

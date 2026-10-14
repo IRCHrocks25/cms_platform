@@ -61,17 +61,25 @@ def issue_service_credential(
     selected = _checked_scopes(scopes)
     if tenant.pk is None:
         raise ValueError("tenant must be saved")
-    expires_at = expires_at or timezone.now() + DEFAULT_LIFETIME
-    key_id = uuid.uuid4()
-    token = f"sites_{key_id.hex}_{secrets.token_urlsafe(32)}"
-    credential = ServiceCredential.objects.create(
-        tenant=tenant,
-        key_id=key_id,
-        token_hash=hashlib.sha256(token.encode("ascii")).hexdigest(),
-        scopes=selected,
-        expires_at=expires_at,
-    )
-    return credential, token
+    with transaction.atomic():
+        Tenant.objects.select_for_update().get(pk=tenant.pk)
+        now = timezone.now()
+        ServiceCredential.objects.filter(
+            tenant_id=tenant.pk, revoked_at__isnull=True, expires_at__lte=now
+        ).update(revoked_at=now)
+        if ServiceCredential.objects.filter(tenant_id=tenant.pk, revoked_at__isnull=True).exists():
+            raise ValueError("tenant already has an active service credential; rotate it")
+        expires_at = expires_at or now + DEFAULT_LIFETIME
+        key_id = uuid.uuid4()
+        token = f"sites_{key_id.hex}_{secrets.token_urlsafe(32)}"
+        credential = ServiceCredential.objects.create(
+            tenant=tenant,
+            key_id=key_id,
+            token_hash=hashlib.sha256(token.encode("ascii")).hexdigest(),
+            scopes=selected,
+            expires_at=expires_at,
+        )
+        return credential, token
 
 
 def resolve_service_token(token: str) -> ServicePrincipal | None:
@@ -97,21 +105,24 @@ def resolve_service_token(token: str) -> ServicePrincipal | None:
 
 
 def revoke_service_credential(credential: ServiceCredential) -> None:
-    ServiceCredential.objects.filter(pk=credential.pk, revoked_at__isnull=True).update(
-        revoked_at=timezone.now()
-    )
+    with transaction.atomic():
+        Tenant.objects.select_for_update().get(pk=credential.tenant_id)
+        ServiceCredential.objects.filter(
+            tenant_id=credential.tenant_id, revoked_at__isnull=True
+        ).update(revoked_at=timezone.now())
 
 
 @transaction.atomic
 def rotate_service_credential(
     credential: ServiceCredential, *, expires_at=None
 ) -> tuple[ServiceCredential, str]:
+    Tenant.objects.select_for_update().get(pk=credential.tenant_id)
     current = ServiceCredential.objects.select_for_update().get(pk=credential.pk)
     if current.revoked_at is not None or current.expires_at <= timezone.now():
         raise ValueError("cannot rotate inactive credential")
+    current.revoked_at = timezone.now()
+    current.save(update_fields=["revoked_at"])
     replacement, token = issue_service_credential(
         current.tenant, scopes=current.scopes, expires_at=expires_at
     )
-    current.revoked_at = timezone.now()
-    current.save(update_fields=["revoked_at"])
     return replacement, token

@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.db import IntegrityError
 from django.utils import timezone
 
 from api.service_auth import (
@@ -57,3 +58,19 @@ class ServiceCredentialTests(TestCase):
     def test_unknown_scope_is_rejected(self):
         with self.assertRaises(ValueError):
             issue_service_credential(self.a, scopes={"read", "superuser"})
+
+    def test_duplicate_active_issuance_is_refused_for_one_tenant(self):
+        first, token = issue_service_credential(self.a, scopes={"read"})
+        with self.assertRaises(ValueError):
+            issue_service_credential(self.a, scopes={"read", "draft"})
+        self.assertEqual(resolve_service_token(token).credential_id, first.pk)
+        self.assertEqual(self.a.service_credentials.filter(revoked_at__isnull=True).count(), 1)
+
+    def test_revocation_disables_every_version_of_tenant_principal(self):
+        first, old_token = issue_service_credential(self.a, scopes={"read"})
+        replacement, new_token = rotate_service_credential(first)
+        revoke_service_credential(first)
+        self.assertIsNone(resolve_service_token(old_token))
+        self.assertIsNone(resolve_service_token(new_token))
+        replacement.refresh_from_db()
+        self.assertIsNotNone(replacement.revoked_at)
