@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, Optional
 from bs4 import BeautifulSoup
 
@@ -33,6 +34,7 @@ from core.tenant_hosts import tenant_host_label
 from core.urls_helpers import tenant_canonical_public_url
 
 from api.auth import ResolvedAuth, TenantScope
+from api.service_auth import ServicePrincipal
 from api.mcp import content as content_mod
 from api.mcp import structure as structure_mod
 from api.mcp.errors import (
@@ -113,6 +115,10 @@ def get_connection_context(auth: ResolvedAuth) -> dict[str, Any]:
 
 
 def _require_scope(auth: ResolvedAuth, site: str) -> Optional[TenantScope]:
+    if isinstance(auth, ServicePrincipal):
+        if site != auth.tenant.subdomain:
+            return None
+        return auth.for_tenant(auth.tenant)
     tenant = Tenant.objects.filter(subdomain=site).first()
     if tenant is None:
         return None
@@ -2445,6 +2451,67 @@ def _validate_arguments(tool_name: str, arguments: dict) -> Optional[str]:
     return None
 
 
+# S03 keeps public publish/domain service operations inactive until S10 adds
+# approval-aware endpoints. Runtime credentials can read and edit drafts only.
+_SERVICE_DRAFT_TOOLS = {"patch_content", "push_page", "set_embed_slot"}
+_SERVICE_READ_EXCLUDED = {"get_connection_context", "list_templates"}
+
+
+def _service_draft_allowed(auth: ServicePrincipal, name: str, args: dict) -> bool:
+    """A draft grant cannot alter a published resource or a shared template."""
+    if args.get("site") != auth.tenant.subdomain:
+        return False
+    tenant = auth.tenant
+    page_slug = args.get("page")
+    if page_slug:
+        if not isinstance(page_slug, str):
+            return False
+        page = Page.objects.filter(tenant=tenant, slug=page_slug.strip().lower()).first()
+        if name == "push_page" and args.get("template_id") is not None:
+            return False
+        if page is not None and page.is_published:
+            return False
+        if name == "push_page" and page is not None:
+            template_id = page.template_id
+        else:
+            return True
+    else:
+        if tenant.is_published:
+            return False
+        template_id = tenant.template_id
+    if name != "push_page":
+        return True
+    return not (
+        Page.objects.filter(template_id=template_id, is_published=True).exists()
+        or Tenant.objects.filter(template_id=template_id, is_published=True).exists()
+    )
+
+
+def _run_service_draft(auth: ServicePrincipal, name: str, args: dict, handler):
+    """Serialize a draft write with publication of its target and shared HTML."""
+    with transaction.atomic():
+        tenant = Tenant.objects.select_for_update().get(pk=auth.tenant.pk)
+        locked_auth = replace(auth, tenant=tenant)
+        page_slug = args.get("page")
+        page = None
+        if page_slug:
+            page = (
+                Page.objects.select_for_update()
+                .filter(tenant=tenant, slug=page_slug)
+                .first()
+            )
+        if name == "push_page":
+            template_id = page.template_id if page else tenant.template_id if not page_slug else None
+            if template_id is not None:
+                # Publishing any referrer to this template must wait for the
+                # draft transaction, then decide against the committed HTML.
+                list(Page.objects.select_for_update().filter(template_id=template_id).order_by("pk"))
+                list(Tenant.objects.select_for_update().filter(template_id=template_id).order_by("pk"))
+        if not _service_draft_allowed(locked_auth, name, args):
+            return _CREATE_DENIED, None
+        return handler(locked_auth, **args), None
+
+
 def call_tool(
     auth: ResolvedAuth, name: str, arguments: Optional[dict]
 ) -> tuple[Optional[dict], Optional[dict]]:
@@ -2452,7 +2519,19 @@ def call_tool(
     if name not in HANDLERS:
         return None, {"code": METHOD_NOT_FOUND, "message": f"Unknown tool '{name}'"}
     required_scope = TOOL_REQUIRED_OAUTH_SCOPES[name]
-    if not auth.has_oauth_scope(required_scope):
+    service = isinstance(auth, ServicePrincipal)
+    if service:
+        if name in _SERVICE_DRAFT_TOOLS:
+            allowed = "draft" in auth.scopes
+        else:
+            allowed = (
+                required_scope == "read"
+                and name not in _SERVICE_READ_EXCLUDED
+                and "read" in auth.scopes
+            )
+        if not allowed:
+            return tool_error("Service credential is not permitted for this tool."), None
+    elif not auth.has_oauth_scope(required_scope):
         return tool_error(
             f"OAuth scope '{required_scope}' is required for this tool."
         ), None
@@ -2460,6 +2539,8 @@ def call_tool(
     err = _validate_arguments(name, args)
     if err:
         return None, {"code": INVALID_PARAMS, "message": err}
+    if service and name in _SERVICE_DRAFT_TOOLS and isinstance(args.get("page"), str):
+        args["page"] = args["page"].strip().lower() or None
 
     if name == "list_sites":
         return tool_success(list_sites(auth)), None
@@ -2497,4 +2578,6 @@ def call_tool(
         args.pop("version")
     if "force" in args and args["force"] is None:
         args.pop("force")
+    if service and name in _SERVICE_DRAFT_TOOLS:
+        return _run_service_draft(auth, name, args, handler)
     return handler(auth, **args), None
