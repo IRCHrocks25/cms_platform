@@ -40,6 +40,7 @@ urlpatterns = [
     path("sites/<int:pk>/members/add/", views.tenant_member_add, name="tenant_member_add"),
     path("sites/<int:pk>/members/create/", views.tenant_member_create, name="tenant_member_create"),
     path("sites/<int:pk>/members/<int:membership_id>/remove/", views.tenant_member_remove, name="tenant_member_remove"),
+    path("sites/<int:pk>/members/<int:membership_id>/transfer-remove/", views.tenant_member_transfer_remove, name="tenant_member_transfer_remove"),
     path("sites/<int:pk>/members/<int:membership_id>/role/", views.tenant_member_role, name="tenant_member_role"),
     path("sites/<int:pk>/site-settings/", views.tenant_site_settings, name="tenant_site_settings"),
     path("sites/<int:pk>/blog/", views.blog_list, name="blog_list"),

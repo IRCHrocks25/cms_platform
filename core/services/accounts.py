@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.crypto import get_random_string
@@ -15,6 +17,7 @@ from core.services.templates import assign_template
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 PASSWORD_ALPHABET = (
     "abcdefghjkmnpqrstuvwxyz"
@@ -32,6 +35,103 @@ class AccountSeedError(Exception):
     """Raised when the template seed for ``create_tenant_account`` is missing
     or ambiguous (CMS-38). Exactly one of ``template``, ``html``, or
     ``new_template`` must be supplied."""
+
+
+class OwnerTransferError(Exception):
+    """The requested owner removal has no safe, unambiguous successor."""
+
+
+def _locked_membership(tenant_id: int, membership_id: int):
+    """Lock the site first, matching the owner-transfer write order."""
+    try:
+        tenant = Tenant.objects.select_for_update().get(pk=tenant_id)
+        membership = (
+            TenantMembership.objects.select_for_update()
+            .select_related("user")
+            .get(pk=membership_id, tenant=tenant)
+        )
+    except (Tenant.DoesNotExist, TenantMembership.DoesNotExist) as exc:
+        raise OwnerTransferError("This site membership no longer exists.") from exc
+    return tenant, membership
+
+
+@transaction.atomic
+def remove_noncanonical_membership(tenant_id: int, membership_id: int) -> str:
+    """Remove a member while preserving the canonical owner's access."""
+    tenant, membership = _locked_membership(tenant_id, membership_id)
+    if membership.user_id == tenant.owner_id:
+        raise OwnerTransferError("Transfer site ownership before removing this Owner.")
+    username = membership.user.username
+    membership.delete()
+    return username
+
+
+@transaction.atomic
+def set_membership_role(tenant_id: int, membership_id: int, role: str) -> str:
+    """Change a role without ever downgrading the canonical Owner."""
+    if role not in dict(TenantMembership.ROLE_CHOICES):
+        raise OwnerTransferError("Unknown role.")
+    tenant, membership = _locked_membership(tenant_id, membership_id)
+    if membership.user_id == tenant.owner_id and role != TenantMembership.ROLE_OWNER:
+        raise OwnerTransferError("Transfer site ownership before changing this Owner's role.")
+    membership.role = role
+    membership.save(update_fields=["role"])
+    return membership.user.username
+
+
+@transaction.atomic
+def transfer_and_remove_owner(
+    tenant_id: int,
+    target_membership_id: int,
+    successor_membership_id: int,
+    *,
+    actor_id: int,
+) -> User:
+    """Transfer the canonical owner and remove the former owner's access.
+
+    Lock and re-read the tenant and its memberships so a stale confirmation
+    cannot silently transfer ownership to a different member. The whole write
+    rolls back if the membership deletion fails.
+    """
+    try:
+        tenant = Tenant.objects.select_for_update().get(pk=tenant_id)
+    except Tenant.DoesNotExist as exc:
+        raise OwnerTransferError("This site no longer exists.") from exc
+
+    memberships = list(
+        TenantMembership.objects.select_for_update()
+        .select_related("user")
+        .filter(tenant=tenant)
+        .order_by("pk")
+    )
+    by_id = {membership.pk: membership for membership in memberships}
+    target = by_id.get(target_membership_id)
+    successor = by_id.get(successor_membership_id)
+    owners = [membership for membership in memberships
+              if membership.role == TenantMembership.ROLE_OWNER]
+
+    if (
+        target is None
+        or target.user_id != tenant.owner_id
+        or target.role != TenantMembership.ROLE_OWNER
+    ):
+        raise OwnerTransferError("The selected member is no longer the site owner.")
+    if len(owners) != 2 or not all(m.user.is_active for m in owners):
+        raise OwnerTransferError(
+            "Transfer and remove requires exactly two active Owner members."
+        )
+    if successor is None or successor.pk == target.pk or successor not in owners:
+        raise OwnerTransferError("The chosen successor is no longer an Owner member.")
+
+    tenant.owner = successor.user
+    tenant.save(update_fields=["owner"])
+    target.delete()
+    logger.info(
+        "cms_owner_transferred_and_removed actor_id=%s tenant_id=%s "
+        "former_user_id=%s successor_user_id=%s",
+        actor_id, tenant.pk, target.user_id, successor.user_id,
+    )
+    return successor.user
 
 
 def generate_password():
@@ -78,6 +178,7 @@ def create_tenant_account(
     than failing deep inside the transaction after the expensive work (inline
     template parsing, password hashing) is already done.
     """
+
     validate_tenant_subdomain(subdomain)
 
     seeds = sum(

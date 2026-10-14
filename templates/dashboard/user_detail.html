@@ -52,13 +52,17 @@
                 <td data-label="Role">{{ m.get_role_display }}</td>
                 <td class="cell-muted" data-label="Added">{{ m.created_at|naturaltime }}</td>
                 <td class="right" data-label="Actions">
+                  {% if m.user_id == m.tenant.owner_id %}
+                    <a class="btn btn-ghost btn-sm" href="{% url 'dashboard:tenant_detail' m.tenant.pk %}#members">Manage site owner</a>
+                  {% else %}
                   <form method="post"
                         action="{% url 'dashboard:user_remove_membership' user_obj.pk m.pk %}"
-                        onsubmit="return confirm('Remove {{ user_obj.username }} from {{ m.tenant.name }}?');"
+                        onsubmit="return confirm('Remove {{ user_obj.username|escapejs }} from {{ m.tenant.name|escapejs }}?');"
                         class="inline-form text-danger">
                     {% csrf_token %}
                     <button type="submit" class="btn btn-ghost btn-sm"><svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>Remove from site</button>
                   </form>
+                  {% endif %}
                 </td>
               </tr>
             {% endfor %}
