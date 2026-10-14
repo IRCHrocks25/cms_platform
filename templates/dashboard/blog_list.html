@@ -221,6 +221,22 @@
               <input class="input" type="number" name="strip_count" id="bs-count" min="1" max="{{ strip_max }}" value="{{ blog_settings.strip_count }}">
             </div>
           </div>
+          {% if strip_markers %}
+            <div class="blog-settings-grid">
+              {% for marker in strip_markers %}
+                <div class="field">
+                  <label class="field-label" for="bs-strip-layout-{{ marker.key }}">{{ marker.label }}</label>
+                  <select class="select" name="strip_layout_{{ marker.key }}" id="bs-strip-layout-{{ marker.key }}">
+                    <option value="" {% if not marker.choice %}selected{% endif %}>Use homepage strip layout</option>
+                    <option value="image_left" {% if marker.choice == "image_left" %}selected{% endif %}>Image left, text right</option>
+                    <option value="image_right" {% if marker.choice == "image_right" %}selected{% endif %}>Text left, image right</option>
+                    <option value="image_above" {% if marker.choice == "image_above" %}selected{% endif %}>Large image above text</option>
+                  </select>
+                  <span class="field-hint">Changes this existing strip only. Featured posts and count stay the same.</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
           <label class="checkbox-row">
             <input type="checkbox" name="strip_enabled" id="bs-enabled" {% if blog_settings.strip_enabled %}checked{% endif %}>
             Show the blog strip on the homepage

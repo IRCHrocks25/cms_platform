@@ -1,0 +1,32 @@
+  {{ scope }} .lst { display: flex; flex-direction: column; }
+  {{ scope }} .lst-item { padding: 36px 0; border-bottom: 1px solid var(--blog-line); }
+  {{ scope }} .lst-item:first-child { padding-top: 0; }
+  {{ scope }} .lst-cover-link { display: block; }
+  {{ scope }} .lst-cover { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 14px; background: var(--blog-surface); }
+  {{ scope }} .lst-title { font-family: var(--blog-serif); font-size: 28px; line-height: 1.2; margin: 12px 0; }
+  {{ scope }} .lst-title a { color: var(--blog-ink); }
+  {{ scope }} .lst-title a:hover { color: var(--blog-accent); text-decoration: none; }
+  {{ scope }} .lst-excerpt { color: var(--blog-soft); margin: 0 0 14px; }
+  {{ scope }} .lst-readmore { font-weight: 500; font-size: 14px; }
+
+  {{ scope }} .lst--image_left .lst-item,
+  {{ scope }} .lst--image_right .lst-item { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 36px; align-items: center; }
+  {{ scope }} .lst--image_right .lst-item { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  {{ scope }} .lst--image_right .lst-cover-link { order: 2; }
+  {{ scope }} .lst--image_left .lst-item--no-image,
+  {{ scope }} .lst--image_right .lst-item--no-image { grid-template-columns: minmax(0, 1fr); }
+
+  {{ scope }} .lst--image_above { max-width: min(var(--site-cw, 1100px), calc(860px + 2 * var(--site-gut, 24px))); }
+  {{ scope }} .lst--image_above .lst-cover { aspect-ratio: 16/9; border-radius: 16px; }
+  {{ scope }} .lst--image_above .lst-cover-link { margin-bottom: 22px; }
+  {{ scope }} .lst--image_above .lst-title { font-size: 34px; }
+  {{ scope }} .lst--image_above .lst-item { padding: 44px 0; }
+  {{ scope }} .lst--image_above .lst-item:first-child { padding-top: 0; }
+
+  @media (max-width: 640px) {
+    {{ scope }} .lst-head h1 { font-size: 36px; }
+    {{ scope }} .lst--image_left .lst-item,
+    {{ scope }} .lst--image_right .lst-item { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+    {{ scope }} .lst--image_right .lst-cover-link { order: 0; }
+    {{ scope }} .lst-title, {{ scope }} .lst--image_above .lst-title { font-size: 25px; }
+  }

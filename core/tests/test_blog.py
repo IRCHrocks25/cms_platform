@@ -5,7 +5,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import Template, Tenant, TenantMembership, BlogPost
+from core.models import Template, Tenant, TenantMembership, BlogPost, Page
 from core.services.sanitizer import sanitize_html
 
 
@@ -1370,3 +1370,125 @@ class ArticleImageFlowTests(_BlogSiteMixin, TestCase):
                        'id="rt-image-width-range"', 'id="rt-image-width"',
                        'role="radiogroup"', 'data-align="left"'):
             self.assertContains(r, marker)
+
+@override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES={
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+})
+class HomepageStripLayoutTests(TestCase):
+    """CMS-85: existing homepage strip markers choose independent image layouts."""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.owner = User.objects.create_user("strip-owner", password="x", is_staff=True)
+        cls.template = Template.objects.create(
+            name="Two existing strips",
+            html_source=(
+                "<html><body><main><div data-blog-strip></div>"
+                "<aside data-blog-strip></aside></main><footer>Footer</footer></body></html>"
+            ),
+        )
+        cls.tenant = Tenant.objects.create(
+            name="Strip A", subdomain="strip-a", template=cls.template,
+            owner=cls.owner, is_published=True,
+            blog_settings={"strip_style": "list", "strip_count": 1},
+        )
+        cls.other = Tenant.objects.create(
+            name="Strip B", subdomain="strip-b", template=cls.template,
+            owner=cls.owner, is_published=True,
+            blog_settings={"strip_style": "list", "strip_count": 1},
+        )
+        _post(cls.tenant, "<Unsafe & title>", featured=True,
+              cover_image="https://example.test/cover.jpg")
+        _post(cls.other, "Other tenant", featured=True,
+              cover_image="https://example.test/other.jpg")
+
+    def test_unset_marker_choice_preserves_current_global_strip_output(self):
+        from bs4 import BeautifulSoup
+        from core.services.blog_render import render_strip_fragment
+        before = BeautifulSoup(render_strip_fragment(self.tenant), "html.parser")
+        response = Client(HTTP_HOST="strip-a.localhost").get("/")
+        self.assertEqual(response.status_code, 200)
+        markers = BeautifulSoup(response.content, "html.parser").select("[data-blog-strip]")
+        self.assertEqual(len(markers), 2)
+        for marker in markers:
+            self.assertEqual(str(marker.select_one(".cms-blog-strip")),
+                             str(before.select_one(".cms-blog-strip")))
+
+    def test_each_existing_marker_uses_its_selected_layout_and_escapes_text(self):
+        from bs4 import BeautifulSoup
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "image_left", "home_1": "image_right"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        html = Client(HTTP_HOST="strip-a.localhost").get("/").content.decode()
+        markers = BeautifulSoup(html, "html.parser").select("[data-blog-strip]")
+        self.assertEqual(len(markers), 2)
+        self.assertIn("lst--image_left", str(markers[0]))
+        self.assertIn("lst--image_right", str(markers[1]))
+        self.assertIn("&lt;Unsafe &amp; title&gt;", html)
+        self.assertNotIn("<Unsafe & title>", html)
+        self.assertEqual(len(markers[0].select(".lst-item")), 1)
+        other = Client(HTTP_HOST="strip-b.localhost").get("/").content.decode()
+        self.assertNotIn("lst--image_left", other)
+        self.assertNotIn("Unsafe", other)
+
+    def test_invalid_stored_marker_choice_falls_back_without_breaking_public_page(self):
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": ["image_left"], "home_1": "not-a-layout"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        response = Client(HTTP_HOST="strip-a.localhost").get("/")
+        self.assertEqual(response.status_code, 200)
+        from bs4 import BeautifulSoup
+        strips = BeautifulSoup(response.content, "html.parser").select("[data-blog-strip] .cms-blog-strip")
+        self.assertEqual(len(strips), 2)
+        self.assertTrue(all("cms-strip--list" in strip.get("class", []) for strip in strips))
+
+    def test_inner_page_marker_has_its_own_layout_choice(self):
+        page = Page.objects.create(
+            tenant=self.tenant, template=self.template, title="Newsroom",
+            slug="newsroom", is_published=True,
+        )
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "image_left", f"page_{page.pk}_0": "image_above"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        client = Client(HTTP_HOST="strip-a.localhost")
+        home = client.get("/").content.decode()
+        inner = client.get("/newsroom").content.decode()
+        from bs4 import BeautifulSoup
+        home_markers = BeautifulSoup(home, "html.parser").select("[data-blog-strip]")
+        inner_markers = BeautifulSoup(inner, "html.parser").select("[data-blog-strip]")
+        self.assertIn("lst--image_left", home_markers[0].select_one(".cms-blog-strip")["class"])
+        self.assertIn("lst--image_above", inner_markers[0].select_one(".cms-blog-strip")["class"])
+        self.assertNotIn("lst--image_left", inner_markers[0].select_one(".cms-blog-strip")["class"])
+        agency = Client(HTTP_HOST="localhost")
+        agency.force_login(self.owner)
+        self.assertContains(
+            agency.get(reverse("dashboard:blog_list", args=[self.tenant.pk])),
+            f'name="strip_layout_page_{page.pk}_0"',
+        )
+
+    def test_blog_settings_editor_lists_markers_and_saves_valid_choices(self):
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        url = reverse("dashboard:blog_list", args=[self.tenant.pk])
+        response = client.get(url)
+        self.assertContains(response, 'name="strip_layout_home_0"')
+        self.assertContains(response, 'name="strip_layout_home_1"')
+        self.assertContains(response, 'for="bs-strip-layout-home_0"')
+        client.post(reverse("dashboard:blog_settings", args=[self.tenant.pk]), {
+            "template": "minimal", "index_layout": "style", "title": "Blog",
+            "strip_style": "list", "strip_heading": "From the blog",
+            "strip_count": "1", "strip_enabled": "on",
+            "strip_layout_home_0": "image_above", "strip_layout_home_1": "<script>",
+        })
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.blog_settings["strip_layouts"], {"home_0": "image_above"})
+        self.assertEqual(self.tenant.blog_settings["strip_count"], 1)
+        self.assertEqual(self.tenant.blog_settings["index_layout"], "style")

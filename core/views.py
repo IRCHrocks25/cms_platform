@@ -136,7 +136,10 @@ def _render_page(request, tenant: Tenant, slug: str, *, blog_base: str) -> HttpR
         site_settings=tenant.site_settings or {},
         nav_pages=blocks.nav_pages_for(tenant),
     )
-    html = blog_render.inject_strip(html, tenant, request=request, blog_base=blog_base)
+    html = blog_render.inject_strip(
+        html, tenant, request=request, blog_base=blog_base,
+        marker_namespace=f"page_{page.pk}",
+    )
     return HttpResponse(html)
 
 
@@ -180,7 +183,8 @@ def tenant_404(request, exception=None):
                     nav_pages=blocks.nav_pages_for(tenant),
                 )
                 html = blog_render.inject_strip(
-                    html, tenant, request=request, blog_base="/blog/"
+                    html, tenant, request=request, blog_base="/blog/",
+                    marker_namespace=f"page_{page.pk}",
                 )
                 return HttpResponse(html, status=404)
         except Exception:

@@ -4817,6 +4817,7 @@ def _blog_list(request, tenant, scope):
             "index_layout_choices": BLOG_INDEX_LAYOUT_CHOICES,
             "strip_choices": BLOG_STRIP_CHOICES,
             "strip_max": BLOG_STRIP_MAX,
+            "strip_markers": blog_render.blog_strip_markers(tenant),
             "nav_section": "blog",
         },
     )
@@ -5106,6 +5107,13 @@ def _blog_settings_save(request, tenant, scope):
         strip_count = 3
     strip_count = max(1, min(BLOG_STRIP_MAX, strip_count))
 
+    strip_layouts = {}
+    for marker in blog_render.blog_strip_markers(tenant):
+        key = marker["key"]
+        choice = (request.POST.get(f"strip_layout_{key}") or "").strip()
+        if choice in blog_render.IMAGE_STRIP_LAYOUTS:
+            strip_layouts[key] = choice
+
     tenant.blog_settings = {
         "template": template,
         "index_layout": index_layout,
@@ -5114,6 +5122,7 @@ def _blog_settings_save(request, tenant, scope):
         "strip_count": strip_count,
         "strip_heading": heading[:120],
         "strip_style": strip_style,
+        "strip_layouts": strip_layouts,
     }
     tenant.save(update_fields=["blog_settings", "updated_at"])
     messages.success(request, "Blog settings updated.")

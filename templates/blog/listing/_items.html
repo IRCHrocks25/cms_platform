@@ -1,0 +1,19 @@
+      {% for post in posts %}
+        <article class="lst-item{% if not post.cover_image %} lst-item--no-image{% endif %}">
+          {% if post.cover_image %}
+            <a class="lst-cover-link" href="{{ blog_base }}{{ post.slug }}/" tabindex="-1" aria-hidden="true">
+              <img class="lst-cover" src="{{ post.cover_image }}" alt="" loading="lazy">
+            </a>
+          {% endif %}
+          <div class="lst-text">
+            <div class="blog-meta">
+              <time>{{ post.publish_date|date:"M j, Y" }}</time>
+              {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
+              {% include "blog/_post_category.html" %}
+            </div>
+            <h2 class="lst-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
+            <p class="lst-excerpt">{{ post.display_excerpt }}</p>
+            <a class="lst-readmore" href="{{ blog_base }}{{ post.slug }}/">Read more →</a>
+          </div>
+        </article>
+      {% endfor %}

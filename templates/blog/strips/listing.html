@@ -1,0 +1,21 @@
+<section class="cms-blog-strip lst-strip lst--{{ layout }}" data-cms-blog-strip>
+  <style>
+    .cms-blog-strip.lst-strip{--blog-accent:{{ accent|default:"#2563eb" }};--blog-ink:#16161d;--blog-soft:#4b4f5e;--blog-muted:#8a8fa3;--blog-line:#e8e9f0;--blog-surface:#f6f7fb;--blog-serif:'Fraunces',Georgia,'Times New Roman',serif;box-sizing:border-box;padding:clamp(40px,6vw,80px) 24px;background:#fff;color:var(--blog-ink);font-family:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;}
+    .cms-blog-strip.lst-strip *{box-sizing:border-box;}
+    .cms-blog-strip.lst-strip .lst-wrap{max-width:1100px;margin-inline:auto;}
+    .cms-blog-strip.lst-strip .lst-heading{font-family:var(--blog-serif);font-size:clamp(26px,3.4vw,40px);line-height:1.1;margin:0 0 32px;}
+    .cms-blog-strip.lst-strip .blog-meta{color:var(--blog-muted);font-size:12.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .cms-blog-strip.lst-strip .blog-meta .dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.55;}
+    .cms-blog-strip.lst-strip a{color:var(--blog-accent);text-decoration:none;}
+    .cms-blog-strip.lst-strip a:hover{text-decoration:underline;}
+    .cms-blog-strip.lst-strip .lst-all{display:inline-block;margin-top:28px;font-size:14px;font-weight:600;}
+    {% include "blog/listing/_layout_styles.html" with scope=".cms-blog-strip" %}
+  </style>
+  <div class="lst-wrap lst--{{ layout }}">
+    <h2 class="lst-heading">{{ heading }}</h2>
+    <div class="lst">
+      {% include "blog/listing/_items.html" %}
+    </div>
+    <a class="lst-all" href="{{ blog_base }}">View all posts →</a>
+  </div>
+</section>

@@ -597,7 +597,40 @@ def _rewrite_chrome_anchors(soup, blog_root, home_url: str) -> None:
         a["href"] = f"{prefix}/{href}"
 
 
-def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/") -> str:
+IMAGE_STRIP_LAYOUTS = {"image_left", "image_right", "image_above"}
+
+
+def blog_strip_markers(tenant) -> list[dict]:
+    """List the existing homepage and inner-page markers for the settings editor."""
+    from . import blocks
+
+    saved = (tenant.blog_settings or {}).get("strip_layouts") or {}
+    if not isinstance(saved, dict):
+        saved = {}
+    rows = []
+    pages = [("home", "Homepage", tenant.template, tenant.content)]
+    pages.extend(
+        (f"page_{page.pk}", page.title, page.template, page.content)
+        for page in tenant.pages.select_related("template").all()
+    )
+    nav_pages = blocks.nav_pages_for(tenant)
+    for namespace, page_label, template, content in pages:
+        html = blocks.render_content(
+            template, content, preview=False,
+            site_settings=tenant.site_settings or {}, nav_pages=nav_pages,
+        )
+        for index, _ in enumerate(BeautifulSoup(html, "lxml").find_all(attrs={"data-blog-strip": True})):
+            key = f"{namespace}_{index}"
+            choice = saved.get(key)
+            rows.append({
+                "key": key,
+                "label": f"{page_label} blog strip {index + 1} layout",
+                "choice": choice if isinstance(choice, str) and choice in IMAGE_STRIP_LAYOUTS else "",
+            })
+    return rows
+
+
+def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", layout: str = "") -> str:
     """HTML fragment for the homepage strip, or '' if nothing to show."""
     settings = get_blog_settings(tenant)
     if not settings["strip_enabled"]:
@@ -605,14 +638,16 @@ def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/") ->
     posts = featured_posts(tenant, settings["strip_count"])
     if not posts:
         return ""
+    selected = layout if layout in IMAGE_STRIP_LAYOUTS else ""
     return render_to_string(
-        strip_template_path(settings["strip_style"]),
+        "blog/strips/listing.html" if selected else strip_template_path(settings["strip_style"]),
         {
             "tenant": tenant,
             "posts": posts,
             "heading": settings["strip_heading"],
             "accent": accent_color(tenant),
             "blog_base": blog_base,
+            "layout": selected,
         },
         request=request,
     )
@@ -688,7 +723,7 @@ def render_strip_doc(
     return _STRIP_DOC_HEAD + inner + _STRIP_DOC_TAIL
 
 
-def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/") -> str:
+def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", marker_namespace: str = "home") -> str:
     """Place the featured-posts strip into a rendered homepage.
 
     Into ``[data-blog-strip]`` if the template marks a spot; otherwise
@@ -707,11 +742,26 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/") 
     if not nodes:
         return html
 
-    marker = soup.find(attrs={"data-blog-strip": True})
-    if marker is not None:
-        marker.clear()
-        for node in nodes:
-            marker.append(node)
+    markers = soup.find_all(attrs={"data-blog-strip": True})
+    if markers:
+        saved = (tenant.blog_settings or {}).get("strip_layouts") or {}
+        if not isinstance(saved, dict):
+            saved = {}
+        fragments = {"": nodes}
+        for index, marker in enumerate(markers):
+            choice = saved.get(f"{marker_namespace}_{index}", "")
+            layout = choice if isinstance(choice, str) and choice in IMAGE_STRIP_LAYOUTS else ""
+            if layout not in fragments:
+                selected_html = render_strip_fragment(
+                    tenant, request=request, blog_base=blog_base, layout=layout,
+                )
+                selected_soup = BeautifulSoup(selected_html, "lxml")
+                fragments[layout] = list(
+                    selected_soup.body.children if selected_soup.body else selected_soup.children
+                )
+            marker.clear()
+            for node in fragments[layout]:
+                marker.append(BeautifulSoup(str(node), "html.parser"))
         return str(soup)
 
     body = soup.find("body")
