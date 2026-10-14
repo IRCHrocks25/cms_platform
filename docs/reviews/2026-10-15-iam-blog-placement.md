@@ -1,5 +1,16 @@
 # IAM Marketable blog placement and styling
 
+Latest branch status: blog implementation is on
+`codex/cms-75-blog-placement` (`bd7f3c72`), separate from CMS-74. A clean
+snapshot of that commit passed **88 tests in 36.735s**, including Chromium
+desktop/mobile acceptance, after `collectstatic --noinput` built its manifest.
+Raw output: `2026-10-15-cms75-branch.log`. The shared 208-test integration run
+also passed. Newer Title/font-group implementation was separately verified
+(130 tests) and pushed to CMS-74 as `78e7cce9`. Historical branch/push details
+below describe the initial investigation; this paragraph supersedes them.
+Production remains unchanged, and the required full-suite/live gates remain
+incomplete. See `2026-10-15-three-fixes-validation.md` for exact environments.
+
 15 October 2026 (Asia/Singapore). **Keep ticket open.** Production inspected
 read-only. User explicitly prohibited production changes after providing access.
 No production content, settings, HTML, or publish controls were edited.
@@ -111,8 +122,14 @@ Reusable changes:
 Windows PowerShell, `C:\Users\josea\cms_platform`, `.venv/Scripts/python.exe`,
 Python **3.12.3**, Django **5.1.2**, Playwright **1.63.0**, isolated SQLite test
 databases. No production database is used for these tests.
-Branch `feat/cms-74-typography-tokens`, HEAD `a0bd42e0` plus the uncommitted
-CMS-74 and blog changes. No commit, push, merge or deployment was performed.
+Validation started on branch `feat/cms-74-typography-tokens`, HEAD `a0bd42e0`
+plus the uncommitted CMS-74 and blog changes. The scoped blog implementation
+was subsequently committed as `bd7f3c72`. Other typography/dashboard/database
+changes remain unstaged. No main merge or production deployment was performed.
+
+The user authorized a branch push before completion of the full suite. The
+configured origin is `https://github.com/IRCHrocks25/cms_platform.git`.
+Initial automatic approval review required destination approval. The user explicitly approved the feature branch only. Push completed; git ls-remote verified remote refs/heads/feat/cms-74-typography-tokens equals bd7f3c729fc040ec504911ce0c91daafe026cc1b. No main merge or production deployment.
 
 ```powershell
 .venv/Scripts/python.exe manage.py test core.tests.test_blog --noinput
@@ -149,7 +166,7 @@ added after that run loaded its tests. Supplemental final browser command
 ` .venv/Scripts/python.exe manage.py test core.tests.test_blog.InstalledBlogBrowserTests --noinput`
 completed: **1 test, 15.898s, OK**. It verifies equal strip-preview/public
 computed font, padding and accent at both widths.
-Full suite result: pending (`.iam-blog-full-test.log`).
+Full suite: INCOMPLETE. The final run was interrupted after the C: drive reached 0 bytes free. Git also reported no space left while saving the evidence follow-up. No full-suite pass is claimed. Raw progress: `.iam-blog-full-test.log`. Local test retry requires available disk space. This verification update remains local; the earlier evidence is included in commit bd7f3c72.
 The initial sandboxed browser run stalled in Python's asyncio socketpair setup
 before launching Chromium (diagnosed using `faulthandler.dump_traceback_later`).
 It was interrupted and retried with local socket access. The first completed
