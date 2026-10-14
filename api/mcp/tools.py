@@ -379,7 +379,9 @@ def push_block_html(auth: ResolvedAuth, *, site: str, instance_id: str, html: st
     stored = editable.content or {}
     if not editable.template.is_block_shell:
         return tool_error("This page is not block-backed.")
-    if not editable.template.is_client_editable and not (auth.user.is_superuser or auth.user.is_staff):
+    if not editable.template.is_client_editable and not (
+        getattr(auth.user, "is_superuser", False) or getattr(auth.user, "is_staff", False)
+    ):
         return tool_error("This site isn't set up for editing yet — contact your agency.")
     if content_mod.content_etag(stored) != if_match:
         return tool_conflict("Conflict (409): content changed; re-read the block and retry.")
@@ -929,7 +931,7 @@ def _apply_block_structure(auth: ResolvedAuth, *, site: str, page: Optional[str]
     if not editable.template.is_block_shell:
         return tool_error("Structural block edits require a block-backed page.")
     if not editable.template.is_client_editable and not (
-        auth.user.is_superuser or auth.user.is_staff
+        getattr(auth.user, "is_superuser", False) or getattr(auth.user, "is_staff", False)
     ):
         return tool_error("This site isn't set up for editing yet — contact your agency.")
     stored = editable.content or {}
@@ -2451,9 +2453,12 @@ def _validate_arguments(tool_name: str, arguments: dict) -> Optional[str]:
     return None
 
 
-# S03 keeps public publish/domain service operations inactive until S10 adds
+# S03/S05 keep public publish/domain service operations inactive until S10 adds
 # approval-aware endpoints. Runtime credentials can read and edit drafts only.
-_SERVICE_DRAFT_TOOLS = {"patch_content", "push_page", "set_embed_slot"}
+_SERVICE_DRAFT_TOOLS = {
+    "patch_content", "push_page", "set_embed_slot", "push_block_html",
+    "add_block", "remove_block", "move_block", "append_block_richtext",
+}
 _SERVICE_READ_EXCLUDED = {"get_connection_context", "list_templates"}
 
 
