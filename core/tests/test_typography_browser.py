@@ -14,6 +14,7 @@ from django.test import Client, override_settings
 
 from core.models import Template, Tenant
 from core.services.blocks import upgrade_shell_chrome_slots
+from core.tests.test_typography_groups import SITE_TPL
 from core.tests.test_typography_tokens import CONTRACT_TPL, IAM_TPL
 
 try:
@@ -78,7 +79,11 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
     def open_design_tab(self):
         self.page.goto(f"{self.live_server_url}/dashboard/sites/{self.tenant.pk}/edit/")
         self.page.wait_for_selector("#preview-loading", state="hidden")
-        self.page.click('[data-tab="brand"]')
+        fonts = self.page.locator('[data-chrome-drawer="_global"]')
+        if fonts.count() and fonts.is_visible():
+            fonts.click()
+        else:
+            self.page.locator('[data-tab="brand"]').click()
         self.page.wait_for_selector('[data-global-bind="fontFamily"]', state="visible")
 
     def preview_font(self, selector, contains, *, absent=False):
@@ -90,7 +95,7 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                 return value
             if time.monotonic() > deadline:
                 self.fail(f"{selector} font is {value!r}, expected {contains!r}")
-            time.sleep(0.2)
+            self.page.wait_for_timeout(200)
 
     def saved_global(self, expected):
         deadline = time.monotonic() + 10
@@ -106,7 +111,7 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                     return
             if time.monotonic() > deadline:
                 self.fail(f"_global never saved as {expected}: {current}")
-            time.sleep(0.2)
+            self.page.wait_for_timeout(200)
 
     def public_fonts(self, width):
         page = self.browser.new_page(viewport={"width": width, "height": 900})
@@ -128,7 +133,7 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
         self.preview_font(".btn", "Poppins")
         self.preview_font(".sec-h", "Oswald")
         self.preview_font(".h-title", "Oswald")
-        self.preview_font(".tag", "Inter")
+        self.preview_font(".tag", "Poppins")
         self.saved_global({"fontFamily": "Poppins", "headingFamily": "Oswald"})
 
         self.open_design_tab()
@@ -144,7 +149,7 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                 self.assertIn("Poppins", fonts[".btn"])
                 self.assertIn("Oswald", fonts[".h-title"])
                 self.assertIn("Oswald", fonts[".sec-h"])
-                self.assertIn("Inter", fonts[".tag"])
+                self.assertIn("Poppins", fonts[".tag"])
 
     def test_block_editor_toolbar_opens_font_controls(self):
         shell = upgrade_shell_chrome_slots(
@@ -217,6 +222,34 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                 finally:
                     page.close()
 
+    def test_heading_and_body_fonts_reach_all_three_groups(self):
+        self.tenant.template.html_source = SITE_TPL
+        self.tenant.template.save()
+        self.open_design_tab()
+        self.page.wait_for_selector('[data-global-bind="group:heading"]', state="visible")
+        self.preview_font(".shift-reveal", "Inter")
+
+        self.page.select_option('[data-global-bind="headingFamily"]', "Oswald")
+        self.page.select_option('[data-global-bind="fontFamily"]', "Poppins")
+        self.preview_font(".h-title", "Oswald")
+        self.preview_font(".sec-h", "Oswald")
+        self.preview_font(".shift-reveal", "Oswald")
+        self.preview_font(".btn", "Poppins")
+        self.preview_font(".tag", "Poppins")
+        self.saved_global({"headingFamily": "Oswald", "fontFamily": "Poppins"})
+
+        for width in (1280, 390):
+            with self.subTest(width=width):
+                page = self.browser.new_page(viewport={"width": width, "height": 900})
+                try:
+                    page.goto(f"{self.live_server_url}/site/iam/")
+                    self.assertIn("Oswald", page.evaluate(FONT_OF, ".shift-reveal"))
+                    self.assertIn("Oswald", page.evaluate(FONT_OF, ".h-title"))
+                    self.assertIn("Poppins", page.evaluate(FONT_OF, ".btn"))
+                    self.assertIn("Poppins", page.evaluate(FONT_OF, ".tag"))
+                finally:
+                    page.close()
+
     def test_resetting_to_default_restores_template_font_live(self):
         self.tenant.content = {"_global": {"headingFamily": "Oswald"}}
         self.tenant.save()
@@ -227,3 +260,29 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
         self.preview_font(".sec-h", "Bebas Neue")
         self.preview_font(".sec-h", "Oswald", absent=True)
         self.saved_global({})
+
+    def test_title_font_and_mapping_survive_reload_and_both_viewports(self):
+        self.tenant.template.html_source = SITE_TPL
+        self.tenant.template.save()
+        self.open_design_tab()
+        self.page.select_option('[data-global-bind="headingFamily"]', "Oswald")
+        self.page.select_option('[data-global-bind="titleFamily"]', "Lora")
+        self.preview_font(".h-title", "Lora")
+        self.preview_font(".sec-h", "Oswald")
+        self.saved_global({"headingFamily": "Oswald", "titleFamily": "Lora"})
+        self.open_design_tab()
+        self.assertEqual(self.page.input_value('[data-global-bind="titleFamily"]'), "Lora")
+        for width in (1280, 390):
+            fonts = self.public_fonts(width)
+            self.assertIn("Lora", fonts[".h-title"])
+            self.assertIn("Oswald", fonts[".sec-h"])
+        self.page.select_option('[data-global-bind="group:title"]', "mono")
+        self.preview_font(".h-title", "JetBrains Mono")
+        self.preview_font(".sec-h", "Oswald")
+        self.saved_global({"headingFamily": "Oswald", "titleFamily": "Lora", "group:title": "mono"})
+        self.open_design_tab()
+        self.preview_font(".h-title", "JetBrains Mono")
+        self.page.select_option('[data-global-bind="group:title"]', "")
+        self.page.select_option('[data-global-bind="titleFamily"]', "")
+        self.preview_font(".h-title", "Oswald")
+        self.saved_global({"headingFamily": "Oswald"})

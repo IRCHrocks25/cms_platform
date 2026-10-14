@@ -2,10 +2,13 @@
 
 ## Customer report
 
-Loom (IAM Marketable, 00:15–00:41): blog posts render in a different font and
-style from the rest of the site. 01:55–02:18: no way to make text smaller.
+User-supplied Loom transcript (IAM Marketable, around 00:16 and 00:33): blog
+posts render in a different font and style from the rest of the site.
+01:55–02:22 concerns decreasing image size, not text size. Image sizing and
+blog layout/sorting requests are separate work; the typography-size contract
+below remains part of CMS-74's acceptance criteria.
 
-## Root cause (reproduced from the public live article)
+## Analysis and reproduction status
 
 * The IAM template sets its fonts through CSS custom properties:
   `--disp:'Bebas Neue',sans-serif; --body:'Inter',sans-serif`, consumed by class
@@ -22,6 +25,13 @@ style from the rest of the site. 01:55–02:18: no way to make text smaller.
 Reproduction in the installed client account is still owed (no access from
 this environment); the analysis above uses the public published HTML.
 
+On 15 October, authenticated staging testing on a dedicated annotated site
+reproduced class-font overrides not following the Design controls. Body
+Poppins/Heading Oswald persisted, but class-based titles/headings stayed Bebas
+Neue, and buttons/large statements stayed Inter. This staging fixture does not
+replace IAM installed-account reproduction. Evidence is in
+`docs/reviews/2026-10-15-cms-74-fix-verification.md`.
+
 ## Token contract
 
 Four semantic custom properties, declared in a `:root` block:
@@ -32,6 +42,12 @@ Four semantic custom properties, declared in a `:root` block:
 | `--font-heading` | heading font | font stack | Heading font | `headingFamily` |
 | `--text-body` | body text size | length | Base text size | `baseSize` |
 | `--text-heading` | main heading size | length | Heading size | `headingSize` |
+
+Optional fifth token: `--font-title` (font stack), edited by Title font
+(`_global.titleFamily`). Templates need not add it to support the Title picker:
+the renderer creates the semantic variable when a title family is chosen and
+maps page/hero title selectors to it. With no Title override, existing title
+styling remains; Heading changes continue to cover titles that share its slot.
 
 New templates should declare these names and use them everywhere the role
 applies (`font-family: var(--font-heading)` on every heading-like class).
@@ -54,7 +70,36 @@ Deterministic, no model involved (`core/typography.py`):
   variables are never exposed because a variable only qualifies by playing one
   of these roles.
 
-IAM resolves to body font = `--body`, heading font = `--disp`.
+IAM resolves to body font = `--body`, heading font = `--disp`. Extra font
+variables the template actually uses (for example `--mono`) are extra slots.
+
+### Text groups (Title, Heading, Body)
+
+Every selector that consumes a font variable is mapped into one of three
+groups, not six. Finer buckets (buttons, nav, labels, “display”) left real
+headings and statements unmapped, so changing Heading/Body did nothing to them.
+
+* **Title**: `h1`, `.h-title` / `.hero-title`, or the largest display size
+  (≥ 4rem).
+* **Heading**: other `h2`–`h6`, heading-like classes (`sec-h`, `*-title`),
+  and large statements (≥ 1.75rem) such as IAM’s `.shift-reveal`.
+* **Body**: everything else, including buttons, nav, labels and copy.
+
+Changing Heading font restyles every Title and Heading selector, even when the
+template had left them on `--body`. Changing Body font restyles the Body
+group. Each group can still be pointed at another slot.
+
+The Title font picker changes all mapped titles together independently of
+Heading/Body. An explicit `group:title` assignment takes precedence over the
+Title picker; clearing the assignment returns control to that picker. Selecting
+Default removes the family override. Titles using literal fonts or inheriting
+their font are also mapped, including legacy templates without font tokens.
+
+Discovery uses `tinycss2` to retain media/supports/layer/container/scope context
+and font declaration importance. Override rules are emitted in their original
+conditions in both server rendering and the preview bridge. Keyframes and
+framework font variables (`tw-*`, `radix-*`, and standard utility font slots)
+are excluded. A selector retains the same semantic group across breakpoints.
 
 ## Editing and storage
 
@@ -94,6 +139,10 @@ fallback: `--blog-sans: var(--font-body, 'Roboto', …)` and
 the site chrome through `render_site`, so tokenized sites get their own fonts
 and other sites are unchanged. Blog sizes stay fixed (reading measure);
 consuming `--text-*` there belongs to the client blog integration ticket.
+
+Article titles in minimal/cards/magazine layouts consume `--font-title`, falling
+back to their existing heading font. An explicit Title mapping publishes the
+same alias for the blog. Article reading sizes remain unchanged.
 
 **Visible change on rollout:** sites with discovered font tokens (IAM) will
 render blog articles in the site's fonts. That is the reported fix, but it

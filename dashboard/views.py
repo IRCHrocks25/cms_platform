@@ -3169,7 +3169,14 @@ def _render_editor(request, tenant, *, scope, page=None):
         schema = (tpl.schema if tpl else None) or {"sections": []}
     content = merge_with_defaults(schema, editable.content)
     theme_tokens = schema.get("theme_tokens", [])
-    typography_roles = {t["role"] for t in schema.get("typography_tokens", [])}
+    typography = _editor_typography(editable, schema)
+    typography_roles = {t["role"] for t in typography["tokens"]}
+    font_slots = typography["slots"]
+    slot_labels = {s["name"]: s["label"] for s in font_slots}
+    text_groups = [
+        {**g, "default_label": "as designed" if g["mixed"] else slot_labels.get(g["default"], "")}
+        for g in typography["groups"]
+    ]
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
@@ -3408,6 +3415,9 @@ def _render_editor(request, tenant, *, scope, page=None):
             "brand_section": brand_section,
             "theme_tokens": theme_tokens,
             "typography_roles": typography_roles,
+            "extra_font_slots": [s for s in font_slots if s["key"].startswith("font:")],
+            "font_slots": font_slots,
+            "text_groups": text_groups,
             "link_targets": link_targets,
             "grouped_sections": grouped,
             # Passed as Python objects and emitted via Django's ``json_script``
@@ -3449,6 +3459,43 @@ def _render_editor(request, tenant, *, scope, page=None):
     )
 
 
+def _editor_typography(editable, schema):
+    """Fonts and text groups as the renderer sees them. Block pages keep
+    their headings in block markup, not the template source, so the
+    template's block markup is read alongside the shell."""
+    from bs4 import BeautifulSoup
+
+    from core.services import blocks
+    from core.typography import detect_typography
+
+    tpl = editable.template
+    stored = editable.content or {}
+    if not (tpl and tpl.html_source and (tpl.is_block_shell or stored.get("regions"))):
+        return {
+            "tokens": schema.get("typography_tokens", []),
+            "slots": schema.get("font_slots", []),
+            "groups": schema.get("text_groups", []),
+        }
+    import hashlib
+
+    from django.core.cache import cache
+
+    fragments = [e["html"] for e in blocks.catalog_for_template(tpl).values() if e["html"]]
+    digest = hashlib.sha1(tpl.html_source.encode("utf-8"))
+    for html in fragments:
+        digest.update(html.encode("utf-8"))
+    key = f"editor-typography:{tpl.pk}:{digest.hexdigest()}"
+    found = cache.get(key)
+    if found is None:
+        soup = BeautifulSoup(tpl.html_source, "lxml")
+        host = soup.body or soup
+        for html in fragments:
+            host.append(BeautifulSoup(html, "html.parser"))
+        found = detect_typography(soup)
+        cache.set(key, found, 60 * 60)
+    return found
+
+
 def _render_preview(editable):
     from core.services import blocks
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
@@ -3467,7 +3514,7 @@ _ALLOWED_STYLE_KEYS = {
     "bgOpacity", "bgBlur",
 }
 _ALLOWED_GLOBAL_KEYS = {
-    "fontFamily", "baseSize", "headingFamily", "headingSize", "textColor", "pageBg",
+    "fontFamily", "baseSize", "headingFamily", "titleFamily", "headingSize", "textColor", "pageBg",
 }
 
 
@@ -3515,7 +3562,7 @@ def _safe_style_key_value(key, value):
         return None
     if key in ("color", "bgColor", "textColor", "pageBg"):
         return _safe_css_value(raw)
-    if key in ("fontFamily", "headingFamily"):
+    if key in ("fontFamily", "headingFamily", "titleFamily"):
         return _sanitize_font_family(raw) or None
     if key == "headingSize":
         from core.typography import LENGTH_RE
@@ -3524,6 +3571,21 @@ def _safe_style_key_value(key, value):
     # fontSize / fontWeight / align / baseSize / lineHeight / letterSpacing /
     # textTransform / layout lengths: numbers and keywords only.
     return raw if _SAFE_STYLE_TOKEN_RE.match(raw) else None
+
+
+def _safe_typography_key_value(key, value):
+    """``font:<slot>`` holds a family name, ``group:<id>`` a slot name. The
+    renderer only applies names the template actually declares."""
+    from core.renderer import _sanitize_font_family
+    from core.typography import GROUP_IDS, SLOT_NAME_RE
+
+    kind, _sep, name = key.partition(":")
+    raw = str(value)[:120].strip()
+    if kind == "font" and SLOT_NAME_RE.match(name):
+        return _sanitize_font_family(raw) or None
+    if kind == "group" and name in GROUP_IDS and SLOT_NAME_RE.match(raw):
+        return raw
+    return None
 
 
 def _normalize_styles(content: dict) -> None:
@@ -3560,9 +3622,12 @@ def _normalize_styles(content: dict) -> None:
         if isinstance(raw_global, dict):
             clean_global = {}
             for k, v in raw_global.items():
-                if k not in _ALLOWED_GLOBAL_KEYS or v in (None, ""):
+                if v in (None, "") or not isinstance(k, str):
                     continue
-                safe = _safe_style_key_value(k, v)
+                if k in _ALLOWED_GLOBAL_KEYS:
+                    safe = _safe_style_key_value(k, v)
+                else:
+                    safe = _safe_typography_key_value(k, v)
                 if safe is not None:
                     clean_global[k] = safe
             content["_global"] = clean_global

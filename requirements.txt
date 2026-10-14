@@ -1,5 +1,6 @@
 Django==5.1.2
 beautifulsoup4==4.13.3
+tinycss2==1.4.0
 lxml==5.4.0
 pillow==10.4.0
 dj-database-url==2.3.0

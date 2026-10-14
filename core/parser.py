@@ -30,7 +30,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from core.ghl_embed import VALID_GHL_EMBED_KINDS, parse_ghl_embed_value
-from core.typography import detect_typography_tokens
+from core.typography import detect_typography
 
 
 VALID_FIELD_TYPES = {
@@ -259,8 +259,12 @@ def build_schema(html: str) -> dict[str, Any]:
     sections: list[dict[str, Any]] = []
     defaults: dict[str, dict[str, str]] = {}
 
-    typography_tokens = detect_typography_tokens(soup)
-    brand = _parse_brand_tokens(soup, {t["name"] for t in typography_tokens})
+    typography = detect_typography(soup)
+    typography_tokens = typography["tokens"]
+    brand = _parse_brand_tokens(
+        soup,
+        {t["name"] for t in typography_tokens} | {s["name"] for s in typography["slots"]},
+    )
     if brand:
         sections.append(brand)
         defaults["brand"] = {f["id"].split(".")[-1]: f["default"] for f in brand["fields"]}
@@ -380,6 +384,8 @@ def build_schema(html: str) -> dict[str, Any]:
         "link_targets": link_targets,
         "theme_tokens": theme_tokens,
         "typography_tokens": typography_tokens,
+        "font_slots": typography["slots"],
+        "text_groups": typography["groups"],
     }
 
 

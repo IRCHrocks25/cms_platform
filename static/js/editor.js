@@ -4313,6 +4313,12 @@
       buildSizeSelect(sel, list, content._global[key]);
       sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
     });
+    document.querySelectorAll("[data-global-plainselect]").forEach(function (sel) {
+      var key = sel.getAttribute("data-global-bind");
+      sel.value = content._global[key] || "";
+      if (sel.value !== (content._global[key] || "")) sel.value = "";
+      sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
+    });
     document.querySelectorAll("[data-global-swatches]").forEach(function (container) {
       var key = container.getAttribute("data-global-swatches");
       buildSwatches(container, content._global[key], function (c) { commitGlobal(key, c); });

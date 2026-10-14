@@ -15,7 +15,12 @@ from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
 from core.parser import build_schema, effective_field_type, parse_select_options
-from core.typography import detect_typography_tokens, preview_role_map, typography_css
+from core.typography import (
+    detect_typography,
+    font_families,
+    preview_role_map,
+    typography_css,
+)
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -216,9 +221,9 @@ PREVIEW_BRIDGE_SCRIPT = """
   function cmsSafeFont(value) { return String(value == null ? '' : value).replace(/[^A-Za-z0-9 \\-]/g, '').trim(); }
   var CMS_SAFE_LENGTH = /^[0-9]{1,3}([.][0-9]{1,3})?(px|rem|em)$/;
   var CMS_TYPO_KEYS = { 'body-font': 'fontFamily', 'heading-font': 'headingFamily',
-    'body-size': 'baseSize', 'heading-size': 'headingSize' };
+    'body-size': 'baseSize', 'heading-size': 'headingSize', 'title-font': 'titleFamily' };
   var CMS_TYPO_CONTRACT = { 'body-font': 'font-body', 'heading-font': 'font-heading',
-    'body-size': 'text-body', 'heading-size': 'text-heading' };
+    'body-size': 'text-body', 'heading-size': 'text-heading', 'title-font': 'font-title' };
   var cmsTypographyMap = null;
   function cmsTypography() {
     if (cmsTypographyMap) return cmsTypographyMap;
@@ -747,10 +752,10 @@ PREVIEW_BRIDGE_SCRIPT = """
       var bodyDecls = '';
       var gFam = cmsSafeFont(g.fontFamily), gSize = cmsSafeToken(g.baseSize),
           gText = cmsSafeCssValue(g.textColor), gBg = cmsSafeCssValue(g.pageBg),
-          gHead = cmsSafeFont(g.headingFamily);
+          gHead = cmsSafeFont(g.headingFamily), gTitle = cmsSafeFont(g.titleFamily);
       // Same rules as core/typography.py: a role the template carries in a
       // token is overridden there instead of through body / h1-h6.
-      var typo = cmsTypography(), rootDecls = '';
+      var typoMap = cmsTypography(), typo = typoMap.roles || {}, rootDecls = '', declared = {};
       Object.keys(typo).forEach(function (role) {
         var t = typo[role], raw = g[CMS_TYPO_KEYS[role]], val = '';
         if (t.generic) {
@@ -759,7 +764,14 @@ PREVIEW_BRIDGE_SCRIPT = """
         } else if (CMS_SAFE_LENGTH.test(String(raw == null ? '' : raw).trim())) {
           val = String(raw).trim();
         }
-        if (val) rootDecls += '--' + t.name + ': ' + val + ';';
+        if (val) { rootDecls += '--' + t.name + ': ' + val + ';'; declared[t.name] = true; }
+      });
+      var slotNames = {};
+      (typoMap.slots || []).forEach(function (s) {
+        slotNames[s.name] = true;
+        if (declared[s.name] || s.key.indexOf('font:') !== 0) return;
+        var fam = cmsSafeFont(g[s.key]);
+        if (fam) { rootDecls += '--' + s.name + ": '" + fam + "', " + s.generic + ';'; cmsEnsureFont(fam); }
       });
       Object.keys(typo).forEach(function (role) {
         var contract = CMS_TYPO_CONTRACT[role];
@@ -768,7 +780,44 @@ PREVIEW_BRIDGE_SCRIPT = """
       if (typo['body-font']) gFam = '';
       if (typo['body-size']) gSize = '';
       if (typo['heading-font']) gHead = '';
+      if (gTitle && !typo['title-font']) {
+        rootDecls += "--font-title: '" + gTitle + "', " + ((typo['heading-font'] || {}).generic || 'sans-serif') + ';';
+        cmsEnsureFont(gTitle);
+      }
+      (typoMap.slots || []).forEach(function(s) {
+        if (s.fallback && !gTitle && ['title','heading','body'].some(function(id) { return g['group:' + id] === s.name; })) {
+          rootDecls += '--' + s.name + ': var(--' + s.fallback + ');';
+        }
+      });
       if (rootDecls) css += ':root{' + rootDecls + '}';
+      var titleSlot = typo['title-font'] && typo['title-font'].name;
+      var headingSlot = typo['heading-font'] && typo['heading-font'].name;
+      var bodySlot = typo['body-font'] && typo['body-font'].name;
+      var headingOn = !!cmsSafeFont(g.headingFamily);
+      var bodyOn = !!cmsSafeFont(g.fontFamily);
+      var groupAliases = '';
+      (typoMap.groups || []).forEach(function (grp) {
+        var remap = g['group:' + grp.id];
+        var target = (remap && slotNames[remap]) ? remap
+          : ((grp.id === 'title' && (gTitle || titleSlot)) ? (titleSlot || 'font-title')
+            : (grp.id === 'title' || grp.id === 'heading') ? headingSlot
+            : (grp.id === 'body' ? bodySlot : ''));
+        var remapOn = !!(remap && slotNames[remap]);
+        if (!target || (!slotNames[target] && !(grp.id === 'title' && target === 'font-title' && gTitle))) return;
+        if (!(remapOn || (grp.id === 'title' && gTitle) || ((grp.id === 'title' || grp.id === 'heading') && headingOn)
+            || (grp.id === 'body' && bodyOn))) return;
+        if (remapOn) groupAliases += '--cms-font-' + grp.id + ': var(--' + target + ');';
+        (grp.rules || grp.selectors.map(function(s) { return {selector:s, context:[], important:false}; })).forEach(function(rule) {
+          var part = rule.selector + '{font-family:var(--' + target + ')' + (rule.important ? '!important' : '') + '}';
+          (rule.context || []).slice().reverse().forEach(function(scope) { part = scope + '{' + part + '}'; });
+          css += part;
+        });
+      });
+      if (slotNames[g['group:heading']] && !slotNames[g['group:title']]) {
+        var titleFallback = titleSlot || (gTitle ? 'font-title' : headingSlot);
+        if (titleFallback) groupAliases += '--cms-font-title: var(--' + titleFallback + ');';
+      }
+      if (groupAliases) css += ':root{' + groupAliases + '}';
       document.querySelectorAll('style[data-cms-global], style[data-cms-typography]').forEach(function (s) {
         s.parentNode.removeChild(s);
       });
@@ -777,7 +826,10 @@ PREVIEW_BRIDGE_SCRIPT = """
       if (gText) bodyDecls += 'color:' + gText + ';';
       if (gBg) bodyDecls += 'background-color:' + gBg + ';';
       if (bodyDecls) css += 'body{' + bodyDecls + '}';
-      if (gHead) { css += 'h1,h2,h3,h4,h5,h6{font-family:' + gHead + ';}'; cmsEnsureFont(gHead); }
+      if (gHead) { css += (gTitle ? 'h2,h3,h4,h5,h6' : 'h1,h2,h3,h4,h5,h6') + '{font-family:' + gHead + ';}'; cmsEnsureFont(gHead); }
+      if (gTitle && !(typoMap.groups || []).some(function(grp) { return grp.id === 'title'; })) {
+        css += 'h1{font-family:' + gTitle + ';}'; cmsEnsureFont(gTitle);
+      }
       var gtag = document.getElementById('cms-global-style');
       if (!gtag) { gtag = document.createElement('style'); gtag.id = 'cms-global-style'; document.head.appendChild(gtag); }
       gtag.textContent = css;
@@ -2011,6 +2063,7 @@ def _apply_global_styles(
     base_size = global_styles.get("baseSize")
     text_color = _safe_css_value(global_styles.get("textColor") or "")
     heading_family = _sanitize_font_family(global_styles.get("headingFamily") or "")
+    title_family = _sanitize_font_family(global_styles.get("titleFamily") or "")
     page_bg = _safe_css_value(global_styles.get("pageBg") or "")
     if "body-font" in skip_roles:
         font_family = ""
@@ -2031,7 +2084,10 @@ def _apply_global_styles(
     if body_decls:
         rules.append("body{" + " ".join(body_decls) + "}")
     if heading_family:
-        rules.append("h1,h2,h3,h4,h5,h6{font-family: " + heading_family + ";}")
+        selectors = "h2,h3,h4,h5,h6" if title_family else "h1,h2,h3,h4,h5,h6"
+        rules.append(selectors + "{font-family: " + heading_family + ";}")
+    if title_family and "title-font" not in skip_roles:
+        rules.append("h1{font-family: " + title_family + ";}")
     if not rules:
         return
 
@@ -2042,10 +2098,11 @@ def _apply_global_styles(
 
 
 def _apply_typography(
-    soup: BeautifulSoup, typography: list, global_styles: dict, *, preview: bool
+    soup: BeautifulSoup, typography: dict, global_styles: dict, *, preview: bool
 ) -> set[str]:
-    """Drive the template's typography tokens from the Design controls and
-    publish contract aliases. Returns the roles a token carries."""
+    """Drive the template's typography tokens, font slots and text groups from
+    the Design controls and publish contract aliases. Returns the roles a
+    token carries."""
     head = soup.find("head") or soup.find("body") or soup
     css = typography_css(typography, global_styles)
     if css:
@@ -2053,11 +2110,14 @@ def _apply_typography(
         tag["data-cms-typography"] = "true"
         tag.string = css
         head.append(tag)
-    if preview and typography:
+    if preview and (typography["tokens"] or typography["slots"] or typography["groups"]):
         data = soup.new_tag("script", type="application/json", id="cms-typography")
-        data.string = json.dumps(preview_role_map(typography))
+        data.string = json.dumps(preview_role_map(typography)).replace("<", "\\u003c")
         head.append(data)
-    return {t["role"] for t in typography}
+    roles = {t["role"] for t in typography["tokens"]}
+    if any(g["id"] == "title" for g in typography["groups"]):
+        roles.add("title-font")
+    return roles
 
 
 def _apply_tokens(soup: BeautifulSoup, tokens: dict) -> None:
@@ -2111,7 +2171,7 @@ def _collect_font_families(content: dict) -> list[str]:
                     seen.setdefault(fam, None)
     glob = content.get("_global")
     if isinstance(glob, dict):
-        for key in ("fontFamily", "headingFamily"):
+        for key in ("fontFamily", "headingFamily", "titleFamily"):
             fam = _sanitize_font_family(glob.get(key, ""))
             if fam:
                 seen.setdefault(fam, None)
@@ -2329,7 +2389,7 @@ def render_site(
 
     soup = BeautifulSoup(template_html, "lxml")
     _auto_annotate(soup)
-    typography = detect_typography_tokens(soup)
+    typography = detect_typography(soup)
 
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})
@@ -2386,7 +2446,9 @@ def render_site(
         _apply_global_styles(soup, global_styles, skip_roles=typography_roles)
     if isinstance(content, dict) and isinstance(content.get("_tokens"), dict):
         _apply_tokens(soup, content["_tokens"])
-    _inject_font_links(soup, _collect_font_families(content if isinstance(content, dict) else {}))
+    families = _collect_font_families(content if isinstance(content, dict) else {})
+    families += [f for f in font_families(typography, global_styles) if f not in families]
+    _inject_font_links(soup, families)
 
     if isinstance(content, dict) and content.get("_hidden"):
         _apply_hidden(soup, content["_hidden"], preview=preview)
