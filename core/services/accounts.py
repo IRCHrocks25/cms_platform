@@ -145,6 +145,7 @@ def create_tenant_account(
     custom_domain,
     username,
     email,
+    owner_user=None,
     template=None,
     html=None,
     new_template=None,
@@ -162,7 +163,8 @@ def create_tenant_account(
       path); richer than ``html`` when a custom name/description is needed
 
     The generated password is returned to the caller and is never persisted
-    outside Django's password hash.
+    outside Django's password hash. Suite provisioning may pass an existing
+    ``owner_user`` instead, which creates no new person or password.
 
     ``is_published`` defaults to False so a brand-new client site starts as a
     draft: the operator (or client) publishes deliberately once content is
@@ -206,7 +208,12 @@ def create_tenant_account(
             "html_source": html,
         }
 
-    password = generate_password()
+    if owner_user is not None:
+        if owner_user.pk is None or username is not None or email is not None:
+            raise ValueError("existing owner requires a saved user and no login fields")
+        password = None
+    else:
+        password = generate_password()
 
     domain = custom_domains.normalize_domain(custom_domain) if custom_domain else ""
     if domain and not custom_domains.DOMAIN_RE.match(domain):
@@ -221,14 +228,17 @@ def create_tenant_account(
         if inline:
             template = Template.objects.create(**new_template)
 
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-        )
-        user.is_active = True
-        user.is_staff = False
-        user.save(update_fields=["is_active", "is_staff"])
+        if owner_user is None:
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+            )
+            user.is_active = True
+            user.is_staff = False
+            user.save(update_fields=["is_active", "is_staff"])
+        else:
+            user = User.objects.get(pk=owner_user.pk)
 
         tenant = Tenant.objects.create(
             name=name,
