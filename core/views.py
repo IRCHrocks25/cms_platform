@@ -1,6 +1,5 @@
 import json
 
-from django.core.paginator import Paginator
 from django.http import (
     Http404,
     HttpResponse,
@@ -229,28 +228,23 @@ def _blog_index(request, tenant, *, blog_base):
         raise Http404("Site not published")
 
     settings = blog_render.get_blog_settings(tenant)
-    style = settings["template"]
-    page_size = blog_render.INDEX_PAGE_SIZE.get(style, 8)
-
-    posts = blog_render.published_posts(tenant).order_by("-publish_date", "-created_at")
-    paginator = Paginator(posts, page_size)
-    page = paginator.get_page(request.GET.get("page"))
+    context = blog_render.index_context(
+        tenant,
+        settings=settings,
+        blog_base=blog_base,
+        category=request.GET.get("category", ""),
+        sort=request.GET.get("sort", ""),
+        page=request.GET.get("page"),
+    )
 
     site_settings = dict(tenant.site_settings or {})
     site_settings["page_title"] = f"{settings['title']} · {tenant.name}"
 
     html = blog_render.render_index(
         tenant,
-        {
-            "tenant": tenant,
-            "settings": settings,
-            "style": style,
-            "page_obj": page,
-            "posts": page.object_list,
-            "accent": blog_render.accent_color(tenant),
-            "blog_base": blog_base,
-        },
-        style=style,
+        context,
+        style=settings["template"],
+        index_layout=settings["index_layout"],
         request=request,
     )
     html = apply_head_settings(html, site_settings)

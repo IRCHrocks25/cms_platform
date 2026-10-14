@@ -61,6 +61,24 @@ BLOG_STRIP_CHOICES = [
 BLOG_STRIP_IDS = {c[0] for c in BLOG_STRIP_CHOICES}
 DEFAULT_BLOG_STRIP = BLOG_STRIP_CARDS
 
+# Blog index (post listing) layouts. "style" keeps the listing that ships with
+# the chosen blog page style (minimal/magazine/cards), the default and what
+# every site had before these existed. The others are explicit image/text
+# arrangements rendered by templates/blog/listing/index.html, independent of
+# the page style (which still drives post pages).
+BLOG_INDEX_LAYOUT_STYLE = "style"
+BLOG_INDEX_LAYOUT_IMAGE_LEFT = "image_left"
+BLOG_INDEX_LAYOUT_IMAGE_RIGHT = "image_right"
+BLOG_INDEX_LAYOUT_IMAGE_ABOVE = "image_above"
+BLOG_INDEX_LAYOUT_CHOICES = [
+    (BLOG_INDEX_LAYOUT_STYLE, "Match blog page style"),
+    (BLOG_INDEX_LAYOUT_IMAGE_LEFT, "Image left, text right"),
+    (BLOG_INDEX_LAYOUT_IMAGE_RIGHT, "Text left, image right"),
+    (BLOG_INDEX_LAYOUT_IMAGE_ABOVE, "Large image above text"),
+]
+BLOG_INDEX_LAYOUT_IDS = {c[0] for c in BLOG_INDEX_LAYOUT_CHOICES}
+DEFAULT_BLOG_INDEX_LAYOUT = BLOG_INDEX_LAYOUT_STYLE
+
 
 class Template(models.Model):
     EDITING_RAW = "raw"
@@ -714,6 +732,12 @@ class BlogPost(models.Model):
     excerpt = models.TextField(blank=True, default="")
     body = models.TextField(blank=True, default="")
     author = models.CharField(max_length=120, blank=True, default="")
+    # One optional category per post. `category` is the display name the
+    # client typed; `category_slug` is derived on save and is what the public
+    # index filters on (?category=<slug>), so "News" and "news " group together.
+    # Blank = uncategorized: listed under "All categories" only.
+    category = models.CharField(max_length=80, blank=True, default="")
+    category_slug = models.SlugField(max_length=80, blank=True, default="")
 
     status = models.CharField(
         max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT
@@ -739,6 +763,7 @@ class BlogPost(models.Model):
         indexes = [
             models.Index(fields=["tenant", "status"]),
             models.Index(fields=["tenant", "featured"]),
+            models.Index(fields=["tenant", "category_slug"]),
         ]
 
     def __str__(self):
@@ -747,6 +772,14 @@ class BlogPost(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = _unique_blog_slug(self.tenant, self.title, instance=self)
+        self.category = " ".join((self.category or "").split())[:80]
+        self.category_slug = slugify(self.category)[:80].strip("-")
+        if not self.category_slug:
+            self.category = ""  # e.g. "!!!": nothing filterable, so uncategorized
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "category" in update_fields \
+                and "category_slug" not in update_fields:
+            kwargs["update_fields"] = list(update_fields) + ["category_slug"]
         # Invariant: a published post MUST have a publish_date. The public
         # queries (`published_posts`, `is_live`) require publish_date IS NOT
         # NULL for stable ordering/display, so a published post without one

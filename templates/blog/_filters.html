@@ -1,0 +1,22 @@
+{% comment %}
+Visitor-facing category filter + date sort for every blog index layout. Plain
+links (no JS): each keeps the other control's selection via category_qs /
+sort_qs, and changing either one resets to page 1. Hidden when there is
+nothing to choose (no categories and fewer than two posts).
+{% endcomment %}{% if categories or is_filtered or page_obj.paginator.count > 1 %}
+<div class="blog-filters">
+  {% if categories or is_filtered %}
+    <nav class="blog-cats" aria-label="Filter posts by category">
+      <a href="{{ blog_base }}{% if sort_qs %}?{{ sort_qs|slice:':-1' }}{% endif %}" class="blog-cat"{% if not current_category %} aria-current="page"{% endif %}>All categories</a>
+      {% for cat in categories %}
+        <a href="{{ blog_base }}?{{ sort_qs }}category={{ cat.slug|urlencode }}" class="blog-cat"{% if cat.slug == current_category %} aria-current="page"{% endif %}>{{ cat.name }}</a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+  <nav class="blog-sort" aria-label="Sort posts by date">
+    <span class="blog-sort-label">Sort</span>
+    <a href="{{ blog_base }}{% if category_qs %}?{{ category_qs|slice:':-1' }}{% endif %}" class="blog-sort-opt"{% if current_sort == 'newest' %} aria-current="true"{% endif %}>Newest first</a>
+    <a href="{{ blog_base }}?{{ category_qs }}sort=oldest" class="blog-sort-opt"{% if current_sort == 'oldest' %} aria-current="true"{% endif %}>Oldest first</a>
+  </nav>
+</div>
+{% endif %}

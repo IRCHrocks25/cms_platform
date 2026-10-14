@@ -31,6 +31,8 @@
     <p>{{ tenant.name }}</p>
   </div>
 
+  {% include "blog/_filters.html" %}
+
   {% if posts %}
     {% for post in posts %}
       {% if forloop.first and page_obj.number == 1 %}
@@ -44,6 +46,7 @@
             <div class="blog-meta mag-lead-meta">
               <time>{{ post.publish_date|date:"M j, Y" }}</time>
               {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
+              {% include "blog/_post_category.html" %}
             </div>
             <p class="mag-lead-excerpt">{{ post.display_excerpt }}</p>
             <a class="mag-readmore" href="{{ blog_base }}{{ post.slug }}/">Continue reading →</a>
@@ -59,7 +62,7 @@
             <a href="{{ blog_base }}{{ post.slug }}/">
               <img class="mag-card-cover" src="{{ post.cover_image|default:'https://placehold.co/600x340?text=+' }}" alt="{{ post.title }}">
             </a>
-            <div class="blog-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
+            <div class="blog-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time>{% include "blog/_post_category.html" %}</div>
             <h3 class="mag-card-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h3>
             <p class="mag-card-excerpt">{{ post.display_excerpt }}</p>
           </article>
@@ -67,6 +70,8 @@
       {% endfor %}
     </div>
     {% include "blog/_pager.html" %}
+  {% elif is_filtered %}
+    {% include "blog/_filtered_empty.html" %}
   {% else %}
     <div class="blog-empty">
       <h2>No stories yet</h2>

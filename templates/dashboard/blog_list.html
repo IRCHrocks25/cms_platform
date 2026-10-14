@@ -65,7 +65,7 @@
               <tr>
                 <td data-label="Post">
                   <a href="{{ row.urls.edit }}" class="cell-strong">{{ row.post.title }}</a>
-                  <div class="cell-muted"><code>/blog/{{ row.post.slug }}/</code></div>
+                  <div class="cell-muted"><code>/blog/{{ row.post.slug }}/</code>{% if row.post.category %} · {{ row.post.category }}{% endif %}</div>
                 </td>
                 <td data-label="Status">
                   {% if row.post.status == 'published' %}
@@ -145,68 +145,107 @@
     <section class="card stack-5 page-section content-block">
       <div class="row-between">
         <div>
-          <h2>Homepage strip</h2>
-          <p class="page-subtitle mt-1">Choose the look and which posts appear on your homepage.</p>
+          <h2>Blog settings</h2>
+          <p class="page-subtitle mt-1">Your blog pages and your homepage strip are set separately. Previews update before you save.</p>
         </div>
       </div>
 
-      <form method="post" action="{{ blog_urls.settings }}" class="stack-4">
+      <form method="post" action="{{ blog_urls.settings }}" class="stack-5">
         {% csrf_token %}
-        <div class="blog-settings-grid">
-          <div class="field">
-            <label class="field-label" for="bs-strip-style">Homepage strip layout</label>
-            <select class="select" name="strip_style" id="bs-strip-style">
-              {% for value, label in strip_choices %}
-                <option value="{{ value }}" {% if blog_settings.strip_style == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <span class="field-hint">How featured posts look on your homepage. Preview updates below.</span>
+        <fieldset class="blog-settings-group stack-4">
+          <legend class="blog-settings-legend">Blog pages</legend>
+          <div class="blog-settings-grid">
+            <div class="field">
+              <label class="field-label" for="bs-title">Blog title</label>
+              <input class="input" type="text" name="title" id="bs-title" maxlength="120" value="{{ blog_settings.title }}">
+            </div>
+            <div class="field">
+              <label class="field-label" for="bs-template">Blog page style</label>
+              <select class="select" name="template" id="bs-template">
+                {% for value, label in template_choices %}
+                  <option value="{{ value }}" {% if blog_settings.template == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <span class="field-hint">The look of individual post pages. Posts can override it.</span>
+            </div>
+            <div class="field">
+              <label class="field-label" for="bs-index-layout">Post list layout</label>
+              <select class="select" name="index_layout" id="bs-index-layout">
+                {% for value, label in index_layout_choices %}
+                  <option value="{{ value }}" {% if blog_settings.index_layout == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <span class="field-hint">How posts are arranged on your blog's main page. Every layout stacks image over text on phones.</span>
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="bs-template">Blog page style</label>
-            <select class="select" name="template" id="bs-template">
-              {% for value, label in template_choices %}
-                <option value="{{ value }}" {% if blog_settings.template == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <span class="field-hint">Applies to the blog index &amp; individual post pages.</span>
+
+          <div class="strip-preview-panel">
+            <div class="strip-preview-head">
+              <span class="preview-status">
+                <span class="status-dot"></span>
+                <span id="index-preview-status">Blog page preview</span>
+              </span>
+              <div class="row">
+                <div class="preview-width-toggle" id="index-viewport-toggle" role="group" aria-label="Preview width">
+                  <button type="button" data-viewport="desktop" class="active" aria-pressed="true">Desktop</button>
+                  <button type="button" data-viewport="mobile" aria-pressed="false">Mobile</button>
+                </div>
+              </div>
+            </div>
+            <div class="strip-preview-frame-wrap">
+              <iframe id="index-preview-frame" class="strip-preview-frame index-preview-frame"
+                      data-base="{{ blog_urls.index_preview }}"
+                      title="Blog page preview" loading="lazy"></iframe>
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="bs-title">Blog title</label>
-            <input class="input" type="text" name="title" id="bs-title" maxlength="120" value="{{ blog_settings.title }}">
+        </fieldset>
+
+        <fieldset class="blog-settings-group stack-4">
+          <legend class="blog-settings-legend">Homepage strip</legend>
+          <div class="blog-settings-grid">
+            <div class="field">
+              <label class="field-label" for="bs-strip-style">Homepage strip layout</label>
+              <select class="select" name="strip_style" id="bs-strip-style">
+                {% for value, label in strip_choices %}
+                  <option value="{{ value }}" {% if blog_settings.strip_style == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <span class="field-hint">How featured posts look on your homepage. Separate from the blog page.</span>
+            </div>
+            <div class="field">
+              <label class="field-label" for="bs-heading">Strip heading</label>
+              <input class="input" type="text" name="strip_heading" id="bs-heading" maxlength="120" value="{{ blog_settings.strip_heading }}">
+            </div>
+            <div class="field">
+              <label class="field-label" for="bs-count">Posts in strip</label>
+              <input class="input" type="number" name="strip_count" id="bs-count" min="1" max="{{ strip_max }}" value="{{ blog_settings.strip_count }}">
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="bs-heading">Strip heading</label>
-            <input class="input" type="text" name="strip_heading" id="bs-heading" maxlength="120" value="{{ blog_settings.strip_heading }}">
+          <label class="checkbox-row">
+            <input type="checkbox" name="strip_enabled" id="bs-enabled" {% if blog_settings.strip_enabled %}checked{% endif %}>
+            Show the blog strip on the homepage
+          </label>
+
+          <div class="strip-preview-panel">
+            <div class="strip-preview-head">
+              <span class="preview-status">
+                <span class="status-dot"></span>
+                <span id="strip-preview-status">Homepage strip preview</span>
+              </span>
+              <span class="field-hint m-0">Reflects unsaved style, heading &amp; count.</span>
+            </div>
+            <div class="strip-preview-frame-wrap">
+              <iframe id="strip-preview-frame" class="strip-preview-frame"
+                      data-base="{{ blog_urls.strip_preview }}"
+                      title="Homepage strip preview" loading="lazy"></iframe>
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="bs-count">Posts in strip</label>
-            <input class="input" type="number" name="strip_count" id="bs-count" min="1" max="{{ strip_max }}" value="{{ blog_settings.strip_count }}">
-          </div>
-        </div>
-        <label class="checkbox-row">
-          <input type="checkbox" name="strip_enabled" id="bs-enabled" {% if blog_settings.strip_enabled %}checked{% endif %}>
-          Show the blog strip on the homepage
-        </label>
+        </fieldset>
+
         <div class="row-end">
-          <button type="submit" class="btn btn-primary">Save strip settings</button>
+          <button type="submit" class="btn btn-primary">Save blog settings</button>
         </div>
       </form>
-
-      <div class="strip-preview-panel">
-        <div class="strip-preview-head">
-          <span class="preview-status">
-            <span class="status-dot"></span>
-            <span id="strip-preview-status">Homepage strip preview</span>
-          </span>
-          <span class="field-hint m-0">Reflects unsaved style, heading &amp; count.</span>
-        </div>
-        <div class="strip-preview-frame-wrap">
-          <iframe id="strip-preview-frame" class="strip-preview-frame"
-                  data-base="{{ blog_urls.strip_preview }}"
-                  title="Homepage strip preview" loading="lazy"></iframe>
-        </div>
-      </div>
 
       <div>
         <h3>Featured posts <span class="cell-muted font-normal">(drag or use the move controls)</span></h3>
@@ -238,4 +277,5 @@
   </script>
   <script src="{% static 'js/blog_reorder.js' %}"></script>
   <script src="{% static 'js/blog_strip_preview.js' %}"></script>
+  <script src="{% static 'js/blog_index_preview.js' %}"></script>
 {% endblock %}

@@ -103,8 +103,42 @@
           <button type="button" data-action="image" aria-label="Insert image">Image</button>
           <button type="button" data-cmd="removeFormat" aria-label="Clear formatting">Clear</button>
         </div>
-        <div class="cms-field-richtext rt-editor" id="blog-body-editor" contenteditable="true"
-             data-placeholder="Write your post…"></div>
+        <div class="rt-editor-wrap" id="rt-editor-wrap">
+          <div class="cms-field-richtext rt-editor" id="blog-body-editor" contenteditable="true"
+               data-placeholder="Write your post…" aria-describedby="rt-image-hint"></div>
+          <div class="rt-image-frame" id="rt-image-frame" hidden>
+            <span class="rt-image-handle" id="rt-image-handle" title="Drag to resize"></span>
+          </div>
+        </div>
+        <span class="field-hint" id="rt-image-hint">Click or Tab to an image to position, resize, or describe it. Press Enter on a selected image to open its settings.</span>
+        <div class="rt-image-panel" id="rt-image-panel" role="group" aria-label="Selected image settings" hidden>
+          <div class="rt-image-panel-row">
+            <span class="rt-image-panel-label" id="rt-image-align-label">Position</span>
+            <div class="rt-segmented" role="radiogroup" aria-labelledby="rt-image-align-label" id="rt-image-align">
+              <button type="button" role="radio" data-align="full" aria-checked="false">Above text</button>
+              <button type="button" role="radio" data-align="left" aria-checked="false">Left of text</button>
+              <button type="button" role="radio" data-align="right" aria-checked="false">Right of text</button>
+            </div>
+          </div>
+          <div class="rt-image-panel-row">
+            <label class="rt-image-panel-label" for="rt-image-width-range">Width</label>
+            <input type="range" id="rt-image-width-range" min="10" max="100" step="5" value="100" aria-describedby="rt-image-width-hint">
+            <span class="rt-image-width-num">
+              <input class="input" type="number" id="rt-image-width" min="10" max="100" step="5" inputmode="numeric" aria-label="Width in percent">
+              <span aria-hidden="true">%</span>
+            </span>
+            <button type="button" class="btn btn-ghost btn-sm" id="rt-image-width-auto">Original size</button>
+          </div>
+          <span class="field-hint" id="rt-image-width-hint">Percent of the article column. Images beside text go up to 70%.</span>
+          <div class="rt-image-panel-row">
+            <label class="rt-image-panel-label" for="rt-image-alt">Alt text</label>
+            <input class="input" type="text" id="rt-image-alt" maxlength="300" placeholder="Describe the image for screen readers and search">
+          </div>
+          <div class="rt-image-panel-row rt-image-panel-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="rt-image-remove">Remove image</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="rt-image-done">Done</button>
+          </div>
+        </div>
         <textarea name="body" id="blog-body-input" hidden>{{ form.body }}</textarea>
         <input type="file" id="rt-image-input" accept="image/*" hidden>
       </div>
@@ -119,6 +153,17 @@
         <label class="field-label" for="bf-author">Author <span class="field-optional">(optional)</span></label>
         <input class="input" type="text" name="author" id="bf-author" maxlength="120"
                value="{{ form.author }}" placeholder="Shown under the post title" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="bf-category">Category <span class="field-optional">(optional)</span></label>
+        <input class="input" type="text" name="category" id="bf-category" maxlength="80"
+               value="{{ form.category }}" list="bf-category-options" autocomplete="off"
+               placeholder="e.g. Marketing tips">
+        <datalist id="bf-category-options">
+          {% for name in category_suggestions %}<option value="{{ name }}">{% endfor %}
+        </datalist>
+        <span class="field-hint">Visitors can filter your blog by category. Reuse an existing name to group posts; leave blank for none.</span>
       </div>
 
       <div class="blog-panel stack-4">
