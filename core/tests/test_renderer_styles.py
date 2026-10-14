@@ -593,6 +593,20 @@ class UrlFieldSanitizeTests(SimpleTestCase):
         self.assertEqual(footer.get_text(strip=True), "Services")
         self.assertNotEqual(footer.get("data-edit"), "navigation.services")
 
+    def test_footer_nav_with_same_words_and_href_stays_independent(self):
+        soup = self._render(
+            '<header><nav data-section="navigation">'
+            '<a data-edit="navigation.services" data-type="link" '
+            'href="/services">Services</a></nav></header>'
+            '<footer><nav><a href="/services">Services</a></nav></footer>',
+            {"navigation": {"services_label": "What I Do"}},
+        )
+        self.assertEqual(soup.select_one("header nav a").get_text(strip=True), "What I Do")
+        footer = soup.select_one("footer nav a")
+        self.assertEqual(footer.get("href"), "/services")
+        self.assertEqual(footer.get_text(strip=True), "Services")
+        self.assertNotEqual(footer.get("data-edit"), "navigation.services")
+
     def test_https_link_applied(self):
         soup = self._render(
             '<a data-edit="hero.cta" data-type="link" href="/ok" rel="nofollow">Go</a>',

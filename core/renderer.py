@@ -2578,15 +2578,30 @@ def _visible_label(el) -> str:
 
 
 def _in_navigation_context(el) -> bool:
-    """Limit inferred copies to navigation chrome, not unrelated body links."""
-    for node in (el, *el.parents):
-        if node.name in ("nav", "header"):
-            return True
+    """Only infer copies in primary navigation or its mobile menu."""
+    ancestry = (el, *el.parents)
+    # A footer can contain its own <nav>; those words still belong to the
+    # footer even when they happen to match the primary menu and destination.
+    if any(node.name in ("footer", "main", "article") for node in ancestry):
+        return False
+    if any(node.name == "header" for node in ancestry):
+        return True
+    field_id = el.get("data-edit") or ""
+    if field_id.split(".", 1)[0] in ("header", "nav", "navigation"):
+        return True
+    mobile_names = {
+        "mmenu", "mobile-menu", "mobile-nav", "site-nav", "nav-links",
+        "site-navigation",
+    }
+    for node in ancestry:
         if not hasattr(node, "get"):
             continue
-        names = [node.get("id") or "", node.get("data-section") or ""]
-        names.extend(node.get("class") or [])
-        if any("nav" in name.lower() or "menu" in name.lower() for name in names):
+        section = (node.get("data-section") or "").strip().lower()
+        region = (node.get("data-region") or "").strip().lower()
+        if section in ("header", "nav", "navigation") or region.startswith("header"):
+            return True
+        names = [node.get("id") or "", *(node.get("class") or [])]
+        if any(name.lower() in mobile_names for name in names):
             return True
     return False
 
