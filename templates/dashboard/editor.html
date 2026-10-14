@@ -193,6 +193,7 @@
             <button type="button"
                     class="sidebar-link{% if section.is_layout %} is-layout{% endif %}{% if section.depth %} is-nested{% endif %}"
                     data-jump="{{ section.id }}"
+                    {% if block_mode and not section.is_instance %}data-static-section="1"{% endif %}
                     data-depth="{{ section.depth|default:0 }}"
                     style="--tree-depth: {{ section.depth|default:0 }}">
               <span class="sidebar-link-icon" aria-hidden="true">

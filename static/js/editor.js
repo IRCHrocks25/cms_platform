@@ -4345,7 +4345,8 @@
     if (!link || link.getAttribute("data-cms-layer") === "1") return;
     link.setAttribute("data-cms-layer", "1");
     var isChrome = link.getAttribute("data-chrome") === "1";
-      if (BLOCKS && !isChrome) {
+    var isStaticSection = link.getAttribute("data-static-section") === "1";
+      if (BLOCKS && !isChrome && !isStaticSection) {
         link.setAttribute("draggable", "true");
         link.setAttribute("title", "Drag onto another section to move it");
         link.addEventListener("dragstart", function (e) {

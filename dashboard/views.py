@@ -3268,7 +3268,9 @@ def _render_editor(request, tenant, *, scope, page=None):
                 slot,
                 _region_group.get(slot, "Sections"),
             )
-        content_sections = instance_sections
+        # The shell can also own editable content outside its block regions
+        # (for example a modal). Keep those sections after the movable blocks.
+        content_sections = instance_sections + content_sections
         _blocks.ensure_header(content)
 
     grouped: dict[str, list] = {}
