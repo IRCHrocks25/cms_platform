@@ -99,6 +99,7 @@ UNIVERSAL_ATTRS = frozenset({
     # re-render keeps the dashboard's field bindings intact.
     "data-section", "data-edit", "data-type", "data-label",
     "data-icon", "data-group", "data-tokens", "data-cms-ref",
+    "data-cms-form",
 })
 
 # URL schemes considered safe for a/href and media/src.

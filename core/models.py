@@ -405,6 +405,49 @@ class Tenant(models.Model):
         return super().delete(using=using, keep_parents=keep_parents)
 
 
+class BusinessFormBinding(models.Model):
+    """Provisioner-owned destination for every native form on one site."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.PROTECT, related_name="business_form_binding")
+    business_id = models.UUIDField()
+    receiver_url = models.URLField(max_length=600)
+    signing_secret_ciphertext = models.CharField(max_length=700)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class FormSubmission(models.Model):
+    """The acknowledged, durable Sites-side record of a lead submission."""
+
+    event_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.PROTECT, related_name="form_submissions")
+    business_id = models.UUIDField()
+    page = models.ForeignKey("core.Page", null=True, blank=True, on_delete=models.PROTECT)
+    form_id = models.SlugField(max_length=80)
+    name = models.CharField(max_length=200, blank=True)
+    email = models.EmailField(max_length=254, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    message = models.TextField(blank=True)
+    consent = models.BooleanField(default=False)
+    source = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class FormDelivery(models.Model):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    STATUS_CHOICES = [(PENDING, "Pending"), (DELIVERED, "Delivered")]
+
+    submission = models.OneToOneField(FormSubmission, on_delete=models.PROTECT, related_name="delivery")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=PENDING)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["status", "next_attempt_at"], name="core_form_due_idx")]
+
+
 class EmbeddableAssistant(models.Model):
     """Configurable chat assistant profile for external iframe/script embeds."""
 

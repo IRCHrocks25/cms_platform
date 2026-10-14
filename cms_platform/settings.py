@@ -12,6 +12,11 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _SECRET_KEY_FALLBACK)
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 
+# S11/S12 pair stays off until the receiver contract and provisioned bindings
+# are deployed. A disabled site never exposes the new public submission route.
+SITES_BUSINESS_FORMS_ENABLED = os.environ.get("SITES_BUSINESS_FORMS_ENABLED", "0") == "1"
+SITES_FORM_ENCRYPTION_KEY = os.environ.get("SITES_FORM_ENCRYPTION_KEY", "")
+
 # Refuse to boot a production server (DEBUG off) on the shared dev secret. The
 # fallback is fine for local dev (DEBUG stays on by default), but shipping it to
 # production would let anyone forge sessions/signatures (A5).

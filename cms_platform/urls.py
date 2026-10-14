@@ -25,6 +25,7 @@ def healthz(request):
 from core import seo_views
 from core import views as core_views
 from core import ghl_views
+from api.form_views import submit_business_form
 from core.auth_views import (
     TenantAwareLoginView,
     TenantPasswordResetConfirmView,
@@ -87,6 +88,8 @@ urlpatterns = [
     path("privacy/", ghl_views.privacy, name="privacy"),
     path("terms/", ghl_views.terms, name="terms"),
 
+    path("api/site-forms/submit/", submit_business_form, name="site_form_submit"),
+    path("site/<slug:subdomain>/api/site-forms/submit/", submit_business_form, name="site_form_submit_public"),
     path("api/", api.urls),
     # MCP Streamable HTTP — no trailing slash (APPEND_SLASH 301 breaks POST clients).
     path("mcp", McpView.as_view(), name="mcp"),
