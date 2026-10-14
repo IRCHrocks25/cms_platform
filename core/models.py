@@ -396,6 +396,12 @@ class Tenant(models.Model):
         return self.memberships.filter(user=user).exists()
 
     def delete(self, using=None, keep_parents=False):
+        if self.pk and SuiteTenantBinding.objects.filter(tenant_id=self.pk).exists():
+            # A suite binding is immutable. Refuse before CMS-29's template
+            # preparation, which would otherwise modify the owned template.
+            from django.db.models.deletion import ProtectedError
+
+            raise ProtectedError("suite-bound tenant cannot be deleted", [self])
         # CMS-29: re-slug owned clones before SET_NULL promotes them to the
         # library, so uniq_library_template_slug cannot abort the delete.
         # Imported here to avoid a models ↔ services cycle at import time.
@@ -403,6 +409,41 @@ class Tenant(models.Model):
 
         prepare_owned_templates_for_tenant_delete(self)
         return super().delete(using=using, keep_parents=keep_parents)
+
+
+class SuiteTenantBinding(models.Model):
+    """Inactive suite linkage; only a future privileged provisioner may expose it."""
+
+    MODE_CREATE = "created"
+    MODE_LINK = "linked"
+    MODE_CHOICES = [(MODE_CREATE, "Created"), (MODE_LINK, "Linked")]
+
+    business_id = models.UUIDField(unique=True)
+    operation_key = models.UUIDField(unique=True)
+    tenant = models.OneToOneField(
+        Tenant, on_delete=models.PROTECT, related_name="suite_binding"
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="suite_tenant_bindings",
+    )
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+    request_hash = models.CharField(max_length=64)
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="confirmed_suite_tenant_bindings",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SuiteFormBinding(models.Model):
+    """Provisioned empty slot; form delivery remains disabled until S11-S14."""
+
+    suite_binding = models.OneToOneField(
+        SuiteTenantBinding, on_delete=models.CASCADE, related_name="form_binding"
+    )
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class EmbeddableAssistant(models.Model):
