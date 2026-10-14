@@ -60,6 +60,43 @@ class FooterCreditRenderTests(SimpleTestCase):
         self.assertEqual(soup.footer.get_text(" ", strip=True), "Copyright")
         self.assertIsNone(soup.select_one('[data-edit="footer.builtBy"]'))
 
+    def test_false_removes_split_credit_separator_but_keeps_other_item_separator(self):
+        for separator in ("|", "·", "-"):
+            for preview in (False, True):
+                with self.subTest(separator=separator, preview=preview):
+                    html = (
+                        "<footer data-section='footer'><span>Copyright</span>\n"
+                        f"<span class='credit-separator'> {separator} </span>\n"
+                        "<span>Built by </span><a data-edit='footer.builtBy' "
+                        "data-type='link' href='/'>KATEK</a>"
+                        "<span class='privacy-separator'> | </span>"
+                        "<a href='/privacy'>Privacy</a></footer>"
+                    )
+                    soup = BeautifulSoup(
+                        render_site(
+                            html, {}, preview=preview,
+                            site_settings={"show_footer_credit": False},
+                        ),
+                        "lxml",
+                    )
+                    self.assertIsNone(soup.select_one(".credit-separator"))
+                    self.assertIsNone(soup.select_one('[data-edit="footer.builtBy"]'))
+                    self.assertNotIn("Built by", soup.footer.get_text(" ", strip=True))
+                    self.assertIsNotNone(soup.select_one(".privacy-separator"))
+                    self.assertEqual(soup.footer.get_text(" ", strip=True), "Copyright | Privacy")
+
+    def test_false_removes_split_credit_text_node_separator(self):
+        html = (
+            "<footer data-section='footer'><span>Copyright</span> | "
+            "<span>Built by </span><a data-edit='footer.builtBy' "
+            "data-type='link' href='/'>KATEK</a></footer>"
+        )
+        soup = BeautifulSoup(
+            render_site(html, {}, site_settings={"show_footer_credit": False}),
+            "lxml",
+        )
+        self.assertEqual(soup.footer.get_text(" ", strip=True), "Copyright")
+
     def test_false_removes_separator_with_template_whitespace(self):
         html = FOOTER.replace(
             "</span><span class='separator'> | </span><span class='credit'>",

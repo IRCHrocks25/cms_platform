@@ -2558,7 +2558,25 @@ def _apply_hidden(soup: BeautifulSoup, hidden: Any, *, preview: bool) -> None:
         (soup.find("head") or soup.find("body") or soup).append(style)
 
 
-_CREDIT_SEPARATOR_RE = re.compile(r"^[\s|·•]+$")
+_CREDIT_SEPARATOR_RE = re.compile(r"^[\s|·•-]+$")
+
+
+def _remove_credit_separator(node: Tag, direction: str) -> bool:
+    """Remove a separator directly next to the credit, skipping whitespace nodes."""
+    sibling = getattr(node, direction)
+    blanks = []
+    while isinstance(sibling, NavigableString) and not str(sibling).strip():
+        blanks.append(sibling)
+        sibling = getattr(sibling, direction)
+    if sibling is None:
+        return False
+    text = sibling.get_text() if isinstance(sibling, Tag) else str(sibling)
+    if not (_CREDIT_SEPARATOR_RE.fullmatch(text) and text.strip()):
+        return False
+    sibling.extract()
+    for blank in blanks:
+        blank.extract()
+    return True
 
 
 def _remove_footer_credit(soup: BeautifulSoup) -> None:
@@ -2592,18 +2610,8 @@ def _remove_footer_credit(soup: BeautifulSoup) -> None:
 
     if wrapper is not None:
         for direction in ("previous_sibling", "next_sibling"):
-            sibling = getattr(wrapper, direction)
-            blanks = []
-            while isinstance(sibling, NavigableString) and not str(sibling).strip():
-                blanks.append(sibling)
-                sibling = getattr(sibling, direction)
-            if sibling is not None:
-                text = sibling.get_text() if isinstance(sibling, Tag) else str(sibling)
-                if _CREDIT_SEPARATOR_RE.fullmatch(text) and text.strip():
-                    sibling.extract()
-                    for blank in blanks:
-                        blank.extract()
-                    break
+            if _remove_credit_separator(wrapper, direction):
+                break
         wrapper.decompose()
         return
 
@@ -2611,12 +2619,13 @@ def _remove_footer_credit(soup: BeautifulSoup) -> None:
     # copyright text, removing only the adjacent "| Built by " text run.
     previous = link.previous_sibling
     if isinstance(previous, NavigableString):
-        prefix = re.search(r"(?:[|·•]\s*)?Built\s+by\s*$", str(previous), re.IGNORECASE)
+        prefix = re.search(r"(?:[|·•-]\s*)?Built\s+by\s*$", str(previous), re.IGNORECASE)
         if prefix:
             previous.replace_with(str(previous)[:prefix.start()])
     elif isinstance(previous, Tag) and re.fullmatch(
         r"\s*Built\s+by\s*", previous.get_text(), re.IGNORECASE
     ):
+        _remove_credit_separator(previous, "previous_sibling")
         previous.decompose()
     link.decompose()
 
