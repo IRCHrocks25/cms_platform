@@ -475,6 +475,9 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (cmsEditingEl === el) return;
     if (cmsEditingEl) cmsCommitEdit();
     var dt = el.getAttribute('data-type') || (el.hasAttribute('data-header-link') ? 'text' : '');
+    // Designed nav words are often data-type=link (the URL). The bar still
+    // renames the visible word; the href stays on the link field.
+    if (el.hasAttribute('data-header-link')) dt = 'text';
     if (dt !== 'text' && dt !== 'richtext') return;
     cmsEditingEl = el;
     cmsEditOrig = el.innerHTML;
@@ -536,7 +539,9 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (e.key === 'Escape') { e.preventDefault(); cmsCancelEdit(); return; }
     if (e.key === 'Enter' && !e.shiftKey) {
       var dt = cmsEditingEl.getAttribute('data-type') || 'text';
-      if (dt === 'text') { e.preventDefault(); cmsCommitEdit(); }
+      if (dt === 'text' || cmsEditingEl.hasAttribute('data-header-link')) {
+        e.preventDefault(); cmsCommitEdit();
+      }
     }
   });
 
@@ -3039,6 +3044,7 @@ def render_page_from_blocks(
         MAX_BLOCK_DEPTH,
         _HEADER_SLOTS,
         alias_chrome_regions,
+        apply_designed_header_labels,
         apply_header_chrome,
         _apply_header_name,
         normalize_header,
@@ -3096,6 +3102,8 @@ def render_page_from_blocks(
 
     if paint_header:
         apply_header_chrome(soup, header_meta, preview=preview)
+    else:
+        apply_designed_header_labels(soup, header_meta)
 
     # Opt-in menus outside the header still get published pages. The header
     # navbar is painted from ``_header`` above; don't refill those markers.

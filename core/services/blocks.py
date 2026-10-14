@@ -15,6 +15,7 @@ This module is the seam between the data model (``BlockType`` +
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
@@ -290,19 +291,132 @@ def _header_has_designed_markup(soup) -> bool:
     return False
 
 
+_DESIGNED_NAV_SKIP = {"brand", "site-brand", "nav-cta", "site-header-cta"}
+
+
+def _designed_nav_id(index: int, href: str) -> str:
+    """Stable menu id for one designed nav anchor (``nav_`` + 8 hex chars)."""
+    digest = hashlib.sha1(f"{index}:{href}".encode()).hexdigest()[:8]
+    return f"nav_{digest}"
+
+
+def _is_designed_nav_anchor(el) -> bool:
+    """True for a menu word in a designed header, not the logo or CTA."""
+    classes = set(el.get("class") or [])
+    if classes & _DESIGNED_NAV_SKIP:
+        return False
+    parent = el.parent
+    while parent is not None and getattr(parent, "name", None) not in (None, "header", "[document]"):
+        if getattr(parent, "name", None) == "header":
+            break
+        pclasses = set(parent.get("class") or []) if hasattr(parent, "get") else set()
+        if pclasses & {"brand", "site-brand", "site-header-brand"}:
+            return False
+        parent = getattr(parent, "parent", None)
+    if el.find("img") and not el.get_text(strip=True):
+        return False
+    return bool(el.get_text(strip=True))
+
+
+def _designed_nav_anchors(soup) -> list:
+    header = soup.find("header")
+    if header is None:
+        return []
+    return [el for el in header.find_all("a") if _is_designed_nav_anchor(el)]
+
+
+def _menu_matches_designed_anchors(menu: list, anchors: list) -> bool:
+    """True when the saved menu is the same links, possibly with new labels."""
+    if len(menu) != len(anchors):
+        return False
+    for item, anchor in zip(menu, anchors):
+        if _safe_header_href(item.get("href") or "/") != _safe_header_href(
+            anchor.get("href") or "/"
+        ):
+            return False
+    return True
+
+
+def _set_anchor_label(el, label: str) -> None:
+    """Write a menu label onto an anchor without dropping icon children."""
+    text = str(label or "").strip()[:80]
+    if not text or el.get_text(strip=True) == text:
+        return
+    texts = [node for node in el.find_all(string=True) if str(node).strip()]
+    if el.find(True) and texts:
+        texts[0].replace_with(text)
+        for extra in texts[1:]:
+            extra.extract()
+        return
+    el.string = text
+
+
+def _header_structure_customized(meta: dict | None) -> bool:
+    """True when the client changed logo, layout, or the CTA — not just labels."""
+    if not meta:
+        return False
+    if meta.get("logo"):
+        return True
+    btn = meta.get("button") or {}
+    if btn.get("on") and btn.get("label"):
+        return True
+    if meta.get("show_name") is False:
+        return True
+    if meta.get("layout") in ("packed", "centered"):
+        return True
+    return False
+
+
+def apply_designed_header_labels(soup, header_meta=None) -> None:
+    """Let a designed navbar's words be renamed without replacing the bar.
+
+    The Header panel edits ``_header.menu``. On a designed page those words
+    already live on the agency's own anchors, so a label change is written
+    onto those anchors and each one is marked ``data-header-link`` for the
+    click-to-rename control. Logo and CTA anchors are left alone.
+    """
+    if not _header_has_designed_markup(soup):
+        return
+    meta = header_meta if isinstance(header_meta, dict) else normalize_header(header_meta)
+    if should_paint_header(soup, meta):
+        return
+    anchors = _designed_nav_anchors(soup)
+    if not anchors:
+        return
+    menu = meta.get("menu") or []
+    matched = bool(menu) and _menu_matches_designed_anchors(menu, anchors)
+    for index, anchor in enumerate(anchors):
+        href = anchor.get("href") or "/"
+        item = menu[index] if matched else None
+        anchor["data-header-link"] = item["id"] if item else _designed_nav_id(index, href)
+        if not anchor.get("data-type"):
+            anchor["data-type"] = "text"
+        if item:
+            _set_anchor_label(anchor, item.get("label") or "")
+
+
 def should_paint_header(soup, header_meta=None) -> bool:
     """Whether ``apply_header_chrome`` should replace the header contents.
 
     Blank builder shells get the unified Header panel paint. Designed agency
-    pages keep their own navbar unless the client has actually configured
-    ``_header``. Headers we never chrome-ified are left alone.
+    pages keep their own navbar when the client has only renamed menu words.
+    A real header change (logo, layout, CTA, or a different set of links)
+    still replaces the bar. Headers we never chrome-ified are left alone.
     """
     meta = header_meta if isinstance(header_meta, dict) else normalize_header(header_meta)
+    if _header_has_designed_markup(soup):
+        if _header_structure_customized(meta):
+            return True
+        menu = meta.get("menu") or []
+        anchors = _designed_nav_anchors(soup)
+        if menu and anchors and not _menu_matches_designed_anchors(menu, anchors):
+            return True
+        return False
     if _header_meta_is_customized(meta):
         return True
     if soup.find(class_="site-header-inner") is None:
         return False
-    return not _header_has_designed_markup(soup)
+    return True
 
 
 def apply_header_chrome(soup, header_meta=None, *, preview: bool = False) -> None:
