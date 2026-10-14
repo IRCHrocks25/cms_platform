@@ -61,6 +61,9 @@ IAM resolves to body font = `--body`, heading font = `--disp`.
 * No new content namespace. The existing Design controls keep writing
   `_global`, and a new `headingSize` key is added. The Heading size control only
   appears when the template has a heading-size token.
+* The block editor's toolbar had no way to reach these controls (its Design
+  button opens Brand colors only). A Fonts button opens the "Colors & fonts"
+  section in the side drawer when the template has typography tokens.
 * Save validation: `headingSize` is accepted only as a plain length
   (a number of up to three digits with `px`, `rem` or `em`). Font names keep
   the existing sanitizer.

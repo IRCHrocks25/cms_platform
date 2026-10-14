@@ -13,6 +13,7 @@ from django.db import OperationalError
 from django.test import Client, override_settings
 
 from core.models import Template, Tenant
+from core.services.blocks import upgrade_shell_chrome_slots
 from core.tests.test_typography_tokens import IAM_TPL
 
 try:
@@ -144,6 +145,36 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                 self.assertIn("Oswald", fonts[".h-title"])
                 self.assertIn("Oswald", fonts[".sec-h"])
                 self.assertIn("Inter", fonts[".tag"])
+
+    def test_block_editor_toolbar_opens_font_controls(self):
+        shell = upgrade_shell_chrome_slots(
+            "<!doctype html><html><head><title>T</title><style>"
+            ":root{--disp:'Bebas Neue',sans-serif;--body:'Inter',sans-serif}"
+            "body{font-family:var(--body)} .ft-h{font-family:var(--disp)}"
+            "</style></head><body>"
+            '<header data-section="nav" data-group="Header">'
+            '<span data-edit="nav.brand" data-type="text">Brand</span></header>'
+            '<main data-region="main"></main>'
+            '<footer data-section="footer" data-group="Footer">'
+            '<h3 class="ft-h" data-edit="footer.title" data-type="text">Talk to us</h3>'
+            '<p class="ft-p" data-edit="footer.name" data-type="text">Co</p></footer>'
+            "</body></html>"
+        )
+        self.tenant.template.html_source = shell
+        self.tenant.template.save()
+        self.tenant.content = {"regions": {"main": []}}
+        self.tenant.save()
+
+        self.page.goto(f"{self.live_server_url}/dashboard/sites/{self.tenant.pk}/edit/")
+        self.page.wait_for_selector("#preview-loading", state="hidden")
+        self.page.click('[data-chrome-drawer="_global"]')
+        self.page.wait_for_selector('[data-global-bind="headingFamily"]', state="visible")
+
+        self.page.select_option('[data-global-bind="headingFamily"]', "Oswald")
+        self.page.select_option('[data-global-bind="fontFamily"]', "Poppins")
+        self.preview_font(".ft-h", "Oswald")
+        self.preview_font(".ft-p", "Poppins")
+        self.saved_global({"headingFamily": "Oswald", "fontFamily": "Poppins"})
 
     def test_resetting_to_default_restores_template_font_live(self):
         self.tenant.content = {"_global": {"headingFamily": "Oswald"}}
