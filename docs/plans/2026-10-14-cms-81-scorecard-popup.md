@@ -26,7 +26,7 @@
 **Files:**
 - Modify: `core/management/commands/annotate_jill_scorecard_popup.py`
 
-1. Implement `annotate_scorecard_popup(html)` to locate exactly one modal and role container, validate the three known `data-quiz` anchors and their `.r-title` descendants, and add `data-section`, `data-label`, `data-type`, and `data-edit` attributes. Set `data-style="off"` on URL fields to avoid irrelevant style controls.
+1. Implement `annotate_scorecard_popup(html)` to locate exactly one modal and role container, validate the three known `data-quiz` anchors and their `.r-title` descendants, and add `data-section`, `data-label`, `data-type`, and `data-edit` attributes. Keep the annotation limited to attributes the rendered-content preservation guard already treats as metadata.
 2. Reject missing/duplicate roles and conflicting markers with `CommandError`. Return the original HTML when already correctly annotated; avoid reserializing a whole page on the idempotent path.
 3. Run the focused test again and make it pass.
 4. Commit this focused test and implementation.
