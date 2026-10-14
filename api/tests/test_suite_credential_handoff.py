@@ -19,6 +19,8 @@ from api.suite_credential_handoff import (
     begin_suite_credential_handoff,
     purge_expired_suite_handoffs,
 )
+from core.models import TenantMembership
+from core.services.accounts import OwnerTransferError, transfer_and_remove_owner
 from core.services.suite_bindings import create_suite_site
 
 
@@ -77,6 +79,36 @@ class SuiteCredentialHandoffTests(TestCase):
         self.assertEqual(self.ack().pk, credential.pk)
         with self.assertRaises(SuiteCredentialHandoffError):
             self.begin()
+
+    def test_bound_owner_transfer_denial_preserves_binding_and_pending_handoff(self):
+        receipt = self.begin()
+        original = self.binding.tenant.memberships.get(user=self.owner)
+        successor_user = get_user_model().objects.create_user("handoff-successor", password="x")
+        successor = TenantMembership.objects.create(
+            tenant=self.binding.tenant, user=successor_user,
+            role=TenantMembership.ROLE_OWNER,
+        )
+
+        with self.assertRaises(OwnerTransferError):
+            transfer_and_remove_owner(
+                self.binding.tenant_id, original.pk, successor.pk,
+                actor_id=self.operator.pk,
+            )
+
+        self.binding.tenant.refresh_from_db()
+        self.assertEqual(self.binding.tenant.owner_id, self.owner.pk)
+        self.assertTrue(TenantMembership.objects.filter(pk=original.pk).exists())
+        self.assertTrue(TenantMembership.objects.filter(pk=successor.pk).exists())
+        replay = create_suite_site(
+            business_id=self.binding.business_id,
+            operation_key=self.binding.operation_key,
+            name="Handoff", subdomain="handoff", owner=self.owner, html=HTML,
+            operator=self.operator,
+        )
+        self.assertEqual(replay.pk, self.binding.pk)
+        self.assertEqual(self.begin().token, receipt.token)
+        self.ack()
+        self.assertEqual(resolve_service_token(receipt.token).tenant.pk, self.binding.tenant_id)
 
     def test_rotation_keeps_old_usable_until_ack_then_revokes_it(self):
         first = self.begin()
