@@ -138,7 +138,8 @@ function openMenu(menu, focusIndex = 0) {
   menu.items[focusIndex]?.focus();
 }
 
-document.querySelectorAll("[data-menu]").forEach((root) => {
+function initializeMenus(scope = document) {
+scope.querySelectorAll("[data-menu]").forEach((root) => {
   const trigger = root.querySelector("[data-menu-trigger]");
   const popup = root.querySelector('[role="menu"]');
   const items = Array.from(root.querySelectorAll("[data-menu-item]"));
@@ -191,6 +192,100 @@ document.querySelectorAll("[data-menu]").forEach((root) => {
   popup.addEventListener("click", (event) => {
     if (event.target.closest("[data-menu-item]")) closeMenu(menu);
   });
+});
+}
+
+initializeMenus();
+
+document.querySelectorAll("[data-site-search]").forEach((form) => {
+  const input = form.elements.q;
+  const status = form.elements.status;
+  const results = document.querySelector("[data-site-results]");
+  const clear = form.querySelector("[data-site-clear]");
+  if (!input || !results) return;
+  let timer;
+  let controller;
+  let revision = 0;
+  let useFallback = false;
+
+  function searchUrl() {
+    const url = new URL(form.action || window.location.href);
+    url.searchParams.set("status", status.value);
+    if (input.value.trim()) url.searchParams.set("q", input.value.trim());
+    else url.searchParams.delete("q");
+    return url;
+  }
+
+  function syncFilters() {
+    clear.hidden = !input.value.trim() && status.value === "all";
+    form.querySelectorAll("[data-site-status] a").forEach((link) => {
+      const url = searchUrl();
+      const value = new URL(link.href).searchParams.get("status");
+      url.searchParams.set("status", value);
+      link.href = url.href;
+      link.classList.toggle("active", value === status.value);
+    });
+  }
+
+  async function search(currentRevision) {
+    const url = searchUrl();
+    controller = new AbortController();
+    results.setAttribute("aria-busy", "true");
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error("Search failed");
+      const html = new DOMParser().parseFromString(await response.text(), "text/html");
+      const replacement = html.querySelector("[data-site-results]");
+      if (!replacement) throw new Error("Search results missing");
+      if (currentRevision !== revision) return;
+      menus.forEach((menu) => closeMenu(menu));
+      for (let index = menus.length - 1; index >= 0; index--) {
+        if (results.contains(menus[index].root)) menus.splice(index, 1);
+      }
+      results.replaceChildren(...replacement.childNodes);
+      initializeMenus(results);
+      window.history.replaceState(null, "", url);
+    } catch (error) {
+      if (error.name !== "AbortError" && currentRevision === revision) {
+        // Keep a working server-rendered fallback if the request fails.
+        useFallback = true;
+        form.querySelector("[data-site-search-submit]").hidden = false;
+      }
+    } finally {
+      if (currentRevision === revision) results.removeAttribute("aria-busy");
+    }
+  }
+
+  function schedule(delay = 250) {
+    clearTimeout(timer);
+    controller?.abort();
+    const currentRevision = ++revision;
+    syncFilters();
+    timer = setTimeout(() => search(currentRevision), delay);
+  }
+
+  input.addEventListener("input", () => schedule(input.value ? 250 : 0));
+  input.addEventListener("search", () => schedule(0));
+  form.addEventListener("submit", (event) => {
+    if (useFallback) return;
+    event.preventDefault();
+    schedule(0);
+  });
+  form.querySelector("[data-site-status]").addEventListener("click", (event) => {
+    const link = event.target.closest("a");
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    status.value = new URL(link.href).searchParams.get("status");
+    schedule(0);
+  });
+  clear.addEventListener("click", (event) => {
+    event.preventDefault();
+    input.value = "";
+    status.value = "all";
+    schedule(0);
+  });
+  form.querySelector("[data-site-search-submit]").hidden = true;
+  syncFilters();
 });
 
 document.addEventListener("click", (event) => {

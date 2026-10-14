@@ -16,7 +16,8 @@
       </a>
     </div>
 
-    <form method="get" class="filter-bar">
+    <form method="get" class="filter-bar" data-site-search>
+      <input type="hidden" name="status" value="{{ status|default:'all' }}">
       <input
         class="input"
         type="search"
@@ -25,20 +26,19 @@
         value="{{ q }}"
         autocomplete="off"
       >
-      <div class="filter-pills">
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=all"
+      <div class="filter-pills" data-site-status>
+        <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}status=all"
            class="filter-pill {% if status == 'all' or not status %}active{% endif %}">All</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=published"
+        <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}status=published"
            class="filter-pill {% if status == 'published' %}active{% endif %}">Published</a>
-        <a href="?{% if q %}q={{ q }}&{% endif %}status=draft"
+        <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}status=draft"
            class="filter-pill {% if status == 'draft' %}active{% endif %}">Draft</a>
       </div>
-      {% if q or status and status != 'all' %}
-        <a href="?" class="btn btn-ghost btn-sm">Clear</a>
-      {% endif %}
-      <noscript><button type="submit" class="btn btn-secondary btn-sm">Search</button></noscript>
+      <a href="?" class="btn btn-ghost btn-sm" data-site-clear {% if not q and status == 'all' %}hidden{% endif %}>Clear</a>
+      <button type="submit" class="btn btn-secondary btn-sm" data-site-search-submit>Search</button>
     </form>
 
+    <div data-site-results aria-live="polite">
     {% if tenants %}
       <div class="card card-flush content-block">
         <table class="data-table" data-responsive-table>
@@ -135,5 +135,6 @@
         {% endif %}
       </div>
     {% endif %}
+    </div>
   </div>
 {% endblock %}
