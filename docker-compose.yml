@@ -30,6 +30,10 @@ services:
       # Fernet key for encrypting GHL OAuth tokens at rest. Without it the
       # connect/callback/bind flows fail closed (503). See settings.py.
       GHL_TOKEN_ENCRYPTION_KEY: ${GHL_TOKEN_ENCRYPTION_KEY:-}
+      # Default-off suite credential retry encryption. No provisioning route
+      # is enabled by setting this alone; key is required when wired later.
+      SUITE_CREDENTIAL_HANDOFF_FERNET_KEY: ${SUITE_CREDENTIAL_HANDOFF_FERNET_KEY:-}
+      SUITE_CREDENTIAL_HANDOFF_TTL_SECONDS: ${SUITE_CREDENTIAL_HANDOFF_TTL_SECONDS:-900}
       # GHL global Ed25519 webhook public key (PEM, \n-escaped one-liner ok).
       # When set, /connect/webhook/ enforces X-GHL-Signature verification.
       GHL_WEBHOOK_PUBLIC_KEY: ${GHL_WEBHOOK_PUBLIC_KEY:-}
