@@ -57,6 +57,20 @@ leaks into the page as literal text.
   .cms-blog .blog-pager a:hover{border-color:var(--blog-accent);color:var(--blog-accent);text-decoration:none;}
   .cms-blog .blog-pager .is-disabled{opacity:.4;}
 
+  /* ---- Index filters: category chips + date sort ---------------------- */
+  .cms-blog .blog-filters{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;margin:0 0 40px;padding-bottom:20px;border-bottom:1px solid var(--blog-line);}
+  .cms-blog .blog-cats{display:flex;flex-wrap:wrap;gap:8px;}
+  .cms-blog .blog-cat{padding:6px 14px;border:1px solid var(--blog-line);border-radius:999px;font-size:13.5px;font-weight:500;color:var(--blog-soft);}
+  .cms-blog .blog-cat:hover{border-color:var(--blog-accent);color:var(--blog-accent);text-decoration:none;}
+  .cms-blog .blog-cat[aria-current]{background:var(--blog-ink);border-color:var(--blog-ink);color:#fff;}
+  .cms-blog .blog-sort{display:flex;align-items:center;gap:6px;font-size:13.5px;}
+  .cms-blog .blog-sort-label{color:var(--blog-muted);font-weight:600;letter-spacing:.07em;text-transform:uppercase;font-size:12px;margin-right:4px;}
+  .cms-blog .blog-sort-opt{padding:6px 12px;border-radius:8px;color:var(--blog-soft);font-weight:500;}
+  .cms-blog .blog-sort-opt:hover{color:var(--blog-accent);text-decoration:none;}
+  .cms-blog .blog-sort-opt[aria-current]{background:var(--blog-surface);color:var(--blog-ink);}
+  .cms-blog .blog-meta .blog-meta-cat{color:inherit;}
+  .cms-blog .blog-meta .blog-meta-cat:hover{color:var(--blog-accent);text-decoration:none;}
+
   .cms-blog .blog-empty{text-align:center;padding:96px 24px;color:var(--blog-muted);}
   .cms-blog .blog-empty h2{font-family:var(--blog-serif);font-size:30px;color:var(--blog-ink);margin:0 0 8px;}
 
@@ -73,6 +87,38 @@ leaks into the page as literal text.
   .cms-blog .blog-prose li{margin-bottom:10px;}
   .cms-blog .blog-prose li::marker{color:var(--blog-muted);}
   .cms-blog .blog-prose img{border-radius:12px;margin:32px 0;}
+  /* Article image placement + display width (CMS-78). Values are fixed by
+     the sanitizer allowlist (sanitizer.IMAGE_ALIGNS / data-width 10-100 step
+     5); images without them render exactly as before. Below 640px, images
+     placed beside text drop under it at full width. */
+  .cms-blog .blog-prose img{height:auto;}
+  .cms-blog .blog-prose::after{content:"";display:table;clear:both;}
+  .cms-blog .blog-prose h2,.cms-blog .blog-prose h3,.cms-blog .blog-prose hr,.cms-blog .blog-prose blockquote,.cms-blog .blog-prose pre{clear:both;}
+  .cms-blog .blog-prose img[data-align="full"]{margin-inline:auto;}
+  .cms-blog .blog-prose img[data-align="left"]{float:left;width:40%;max-width:70%;margin:6px 28px 16px 0;}
+  .cms-blog .blog-prose img[data-align="right"]{float:right;width:40%;max-width:70%;margin:6px 0 16px 28px;}
+  .cms-blog .blog-prose img[data-width="10"]{width:10%;}
+  .cms-blog .blog-prose img[data-width="15"]{width:15%;}
+  .cms-blog .blog-prose img[data-width="20"]{width:20%;}
+  .cms-blog .blog-prose img[data-width="25"]{width:25%;}
+  .cms-blog .blog-prose img[data-width="30"]{width:30%;}
+  .cms-blog .blog-prose img[data-width="35"]{width:35%;}
+  .cms-blog .blog-prose img[data-width="40"]{width:40%;}
+  .cms-blog .blog-prose img[data-width="45"]{width:45%;}
+  .cms-blog .blog-prose img[data-width="50"]{width:50%;}
+  .cms-blog .blog-prose img[data-width="55"]{width:55%;}
+  .cms-blog .blog-prose img[data-width="60"]{width:60%;}
+  .cms-blog .blog-prose img[data-width="65"]{width:65%;}
+  .cms-blog .blog-prose img[data-width="70"]{width:70%;}
+  .cms-blog .blog-prose img[data-width="75"]{width:75%;}
+  .cms-blog .blog-prose img[data-width="80"]{width:80%;}
+  .cms-blog .blog-prose img[data-width="85"]{width:85%;}
+  .cms-blog .blog-prose img[data-width="90"]{width:90%;}
+  .cms-blog .blog-prose img[data-width="95"]{width:95%;}
+  .cms-blog .blog-prose img[data-width="100"]{width:100%;}
+  @media (max-width:640px){
+    .cms-blog .blog-prose img[data-align="left"],.cms-blog .blog-prose img[data-align="right"]{float:none;width:100%;max-width:100%;margin:28px 0;}
+  }
   .cms-blog .blog-prose figure{margin:32px 0;}
   .cms-blog .blog-prose figure img{margin:0;}
   .cms-blog .blog-prose figcaption{font-size:13.5px;color:var(--blog-muted);text-align:center;margin-top:10px;}

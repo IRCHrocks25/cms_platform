@@ -124,10 +124,10 @@ admin.site.register(ContentVersion)
 
 @admin.register(BlogPost)
 class BlogPostAdmin(admin.ModelAdmin):
-    list_display = ("title", "tenant", "status", "featured", "publish_date", "updated_at")
+    list_display = ("title", "tenant", "category", "status", "featured", "publish_date", "updated_at")
     list_filter = ("status", "featured", "tenant")
     search_fields = ("title", "slug", "tenant__name", "tenant__subdomain")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("category_slug", "created_at", "updated_at")
 
 
 @admin.register(AnnotationJob)

@@ -27,6 +27,7 @@ from core.models import (
     CustomDomain, Template, Tenant, TenantMembership, MediaAsset, ContentVersion,
     BlogPost, BLOG_TEMPLATE_CHOICES, BLOG_TEMPLATE_IDS,
     BLOG_STRIP_CHOICES, BLOG_STRIP_IDS, DEFAULT_BLOG_STRIP, _unique_blog_slug,
+    BLOG_INDEX_LAYOUT_CHOICES, BLOG_INDEX_LAYOUT_IDS, DEFAULT_BLOG_INDEX_LAYOUT,
     Page, RESERVED_PAGE_SLUGS, AnnotationJob, EmbeddableAssistant,
     tenant_subdomain_max_length, validate_tenant_subdomain,
 )
@@ -4687,6 +4688,7 @@ def _blog_nav_urls(scope, tenant):
             "preview_new": reverse("dashboard:blog_preview_new_self"),
             "sanitize": reverse("dashboard:blog_sanitize_self"),
             "strip_preview": reverse("dashboard:blog_strip_preview_self"),
+            "index_preview": reverse("dashboard:blog_index_preview_self"),
             "back": reverse("dashboard:tenant_home"),
             "editor": reverse("dashboard:tenant_home"),
             "public_base": "/blog/",
@@ -4700,6 +4702,7 @@ def _blog_nav_urls(scope, tenant):
         "preview_new": reverse("dashboard:blog_preview_new", args=[tenant.pk]),
         "sanitize": reverse("dashboard:blog_sanitize", args=[tenant.pk]),
         "strip_preview": reverse("dashboard:blog_strip_preview", args=[tenant.pk]),
+        "index_preview": reverse("dashboard:blog_index_preview", args=[tenant.pk]),
         "back": reverse("dashboard:tenant_detail", args=[tenant.pk]),
         "editor": reverse("dashboard:tenant_editor", args=[tenant.pk]),
         "public_base": f"/site/{tenant.subdomain}/blog/",
@@ -4729,7 +4732,7 @@ def _blog_post_to_form(post):
     if post is None:
         return {
             "title": "", "slug": "", "cover_image": "", "excerpt": "",
-            "body": "", "author": "", "status": BlogPost.STATUS_DRAFT,
+            "body": "", "author": "", "category": "", "status": BlogPost.STATUS_DRAFT,
             "publish_date": "", "seo_title": "", "seo_description": "",
             "og_image_url": "", "template": "", "featured": False,
         }
@@ -4740,7 +4743,7 @@ def _blog_post_to_form(post):
     return {
         "title": post.title, "slug": post.slug, "cover_image": post.cover_image,
         "excerpt": post.excerpt, "body": post.body, "author": post.author,
-        "status": post.status, "publish_date": pub,
+        "category": post.category, "status": post.status, "publish_date": pub,
         "seo_title": post.seo_title, "seo_description": post.seo_description,
         "og_image_url": post.og_image_url, "template": post.template,
         "featured": post.featured,
@@ -4777,6 +4780,7 @@ def _blog_list(request, tenant, scope):
             "blog_urls": _blog_nav_urls(scope, tenant),
             "blog_settings": blog_render.get_blog_settings(tenant),
             "template_choices": BLOG_TEMPLATE_CHOICES,
+            "index_layout_choices": BLOG_INDEX_LAYOUT_CHOICES,
             "strip_choices": BLOG_STRIP_CHOICES,
             "strip_max": BLOG_STRIP_MAX,
             "nav_section": "blog",
@@ -4815,12 +4819,26 @@ def _blog_render_form(request, tenant, scope, post, *, form_data=None, errors=No
             "preview_url": preview_url,
             "blog_urls": nav,
             "default_blog_style": blog_render.get_blog_settings(tenant)["template"],
+            "category_suggestions": _blog_category_suggestions(tenant),
             "template_choices": BLOG_TEMPLATE_CHOICES,
             "status_choices": BlogPost.STATUS_CHOICES,
             "nav_section": "blog",
         },
         status=status,
     )
+
+
+def _blog_category_suggestions(tenant):
+    """Distinct category names already used on this site (drafts included),
+    offered as autocomplete so posts reuse one spelling per category."""
+    names = {}
+    for name in (
+        tenant.blog_posts.exclude(category_slug="")
+        .order_by("-updated_at")
+        .values_list("category", flat=True)
+    ):
+        names.setdefault(name.lower(), name)
+    return sorted(names.values(), key=str.lower)
 
 
 def _blog_preview(request, tenant, scope, post):
@@ -4875,6 +4893,39 @@ def _blog_strip_preview(request, tenant, scope):
     return HttpResponse(html)
 
 
+def _blog_index_preview(request, tenant, scope):
+    """Live blog-index preview honoring *unsaved* page style + index layout.
+
+    Renders exactly what the public index renders (same context builder,
+    templates, and site chrome), so the client sees a layout before saving.
+    """
+    g = request.GET
+    settings = dict(blog_render.get_blog_settings(tenant))
+    if (g.get("template") or "") in BLOG_TEMPLATE_IDS:
+        settings["template"] = g["template"]
+    if (g.get("index_layout") or "") in BLOG_INDEX_LAYOUT_IDS:
+        settings["index_layout"] = g["index_layout"]
+    title = (g.get("title") or "").strip()
+    if title:
+        settings["title"] = title[:120]
+    context = blog_render.index_context(
+        tenant,
+        settings=settings,
+        blog_base=_blog_nav_urls(scope, tenant)["public_base"],
+        category=g.get("category", ""),
+        sort=g.get("sort", ""),
+        page=g.get("page"),
+    )
+    html = blog_render.render_index(
+        tenant,
+        context,
+        style=settings["template"],
+        index_layout=settings["index_layout"],
+        request=request,
+    )
+    return HttpResponse(html)
+
+
 def _blog_save(request, tenant, scope, post):
     title = (request.POST.get("title") or "").strip()
     slug_in = (request.POST.get("slug") or "").strip()
@@ -4882,6 +4933,7 @@ def _blog_save(request, tenant, scope, post):
     excerpt = (request.POST.get("excerpt") or "").strip()
     body = sanitize_html(request.POST.get("body") or "")
     author = (request.POST.get("author") or "").strip()
+    category = " ".join((request.POST.get("category") or "").split())[:80]
     status = (request.POST.get("status") or BlogPost.STATUS_DRAFT).strip()
     publish_in = (request.POST.get("publish_date") or "").strip()
     seo_title = (request.POST.get("seo_title") or "").strip()
@@ -4911,7 +4963,8 @@ def _blog_save(request, tenant, scope, post):
 
     form_data = {
         "title": title, "slug": slug_in, "cover_image": cover_image,
-        "excerpt": excerpt, "body": body, "author": author, "status": status,
+        "excerpt": excerpt, "body": body, "author": author,
+        "category": category, "status": status,
         "publish_date": publish_in, "seo_title": seo_title,
         "seo_description": seo_description, "og_image_url": og_image_url,
         "template": template_override, "featured": featured,
@@ -4935,6 +4988,7 @@ def _blog_save(request, tenant, scope, post):
     post.excerpt = excerpt
     post.body = body
     post.author = author
+    post.category = category
     post.status = status
     post.seo_title = seo_title
     post.seo_description = seo_description
@@ -5003,6 +5057,9 @@ def _blog_settings_save(request, tenant, scope):
     template = (request.POST.get("template") or "").strip()
     if template not in BLOG_TEMPLATE_IDS:
         template = blog_render.DEFAULT_BLOG_TEMPLATE
+    index_layout = (request.POST.get("index_layout") or "").strip()
+    if index_layout not in BLOG_INDEX_LAYOUT_IDS:
+        index_layout = DEFAULT_BLOG_INDEX_LAYOUT
     strip_style = (request.POST.get("strip_style") or "").strip()
     if strip_style not in BLOG_STRIP_IDS:
         strip_style = DEFAULT_BLOG_STRIP
@@ -5017,6 +5074,7 @@ def _blog_settings_save(request, tenant, scope):
 
     tenant.blog_settings = {
         "template": template,
+        "index_layout": index_layout,
         "title": title[:120],
         "strip_enabled": strip_enabled,
         "strip_count": strip_count,
@@ -5105,6 +5163,13 @@ def blog_sanitize(request, pk):
 def blog_strip_preview(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
     return _blog_strip_preview(request, tenant, "agency")
+
+
+@agency_operator_required
+@require_GET
+def blog_index_preview(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    return _blog_index_preview(request, tenant, "agency")
 
 
 # --------------------------------------------------------------------------- #
@@ -5337,3 +5402,9 @@ def blog_sanitize_self(request):
 @require_GET
 def blog_strip_preview_self(request):
     return _blog_strip_preview(request, request.tenant, "tenant")
+
+
+@tenant_member_required
+@require_GET
+def blog_index_preview_self(request):
+    return _blog_index_preview(request, request.tenant, "tenant")

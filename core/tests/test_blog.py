@@ -897,3 +897,445 @@ class BlogPreviewTests(TestCase):
         b = _post(self.tenant, "Order-B", featured=True, order=0)
         body = c.get(strip).content.decode()
         self.assertLess(body.index("Order-B"), body.index("Order-A"))  # order=0 first
+
+
+# --------------------------------------------------------------------------- #
+# Shared fixture for the listing / category / article-image tests below        #
+# --------------------------------------------------------------------------- #
+
+
+_NO_MANIFEST = override_settings(
+    TENANT_BASE_DOMAIN="localhost",
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    },
+)
+
+
+class _BlogSiteMixin:
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.staff = User.objects.create_user("agency", password="x", is_staff=True)
+        cls.member = User.objects.create_user("alice", password="x")
+        cls.outsider = User.objects.create_user("eve", password="x")
+        cls.tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", template=_make_template(),
+            owner=cls.staff, is_published=True,
+        )
+        TenantMembership.objects.create(tenant=cls.tenant, user=cls.member)
+
+    def _anon(self):
+        return Client(HTTP_HOST="acme.localhost")
+
+    def _tenant(self, user=None):
+        c = Client(HTTP_HOST="acme.localhost")
+        c.force_login(user or self.member)
+        return c
+
+    def _agency(self):
+        c = Client(HTTP_HOST="localhost")
+        c.force_login(self.staff)
+        return c
+
+    def _set_settings(self, **kw):
+        self.tenant.blog_settings = {**(self.tenant.blog_settings or {}), **kw}
+        self.tenant.save(update_fields=["blog_settings"])
+
+    def _index(self, query=""):
+        return self._anon().get("/blog/" + query).content.decode()
+
+    @staticmethod
+    def _current_category(body):
+        from bs4 import BeautifulSoup
+        a = BeautifulSoup(body, "lxml").select_one("a.blog-cat[aria-current]")
+        return a.get_text(strip=True) if a else None
+
+
+# --------------------------------------------------------------------------- #
+# CMS-76: selectable post-listing layouts                                      #
+# --------------------------------------------------------------------------- #
+
+
+@_NO_MANIFEST
+class BlogIndexLayoutTests(_BlogSiteMixin, TestCase):
+    LAYOUTS = ("image_left", "image_right", "image_above")
+
+    def test_legacy_settings_default_to_style_listing(self):
+        from core.services.blog_render import get_blog_settings
+        self._set_settings(template="cards")  # saved before index_layout existed
+        self.assertEqual(get_blog_settings(self.tenant)["index_layout"], "style")
+        _post(self.tenant, "Old post", cover_image="https://x/c.png")
+        body = self._index()
+        self.assertIn('class="card-grid"', body)
+        self.assertNotIn("lst-index", body)
+
+    def test_unknown_layout_falls_back_to_style(self):
+        from core.services.blog_render import get_blog_settings
+        self._set_settings(index_layout="carousel")
+        self.assertEqual(get_blog_settings(self.tenant)["index_layout"], "style")
+
+    def test_each_existing_style_still_renders_unless_changed(self):
+        _post(self.tenant, "P", cover_image="https://x/c.png")
+        markers = {"minimal": "min-list", "magazine": "mag-lead", "cards": "card-grid"}
+        for style, marker in markers.items():
+            self._set_settings(template=style, index_layout="style")
+            body = self._index()
+            self.assertIn(marker, body, style)
+            self.assertNotIn("lst-index", body, style)
+
+    def test_each_layout_renders_with_its_modifier(self):
+        _post(self.tenant, "With cover", cover_image="https://x/c.png")
+        for layout in self.LAYOUTS:
+            self._set_settings(index_layout=layout)
+            body = self._index()
+            self.assertIn(f"lst--{layout}", body, layout)
+            self.assertIn('src="https://x/c.png"', body, layout)
+            self.assertIn("With cover", body, layout)
+
+    def test_layout_is_independent_of_page_style(self):
+        _post(self.tenant, "P")
+        for style in ("minimal", "magazine", "cards"):
+            self._set_settings(template=style, index_layout="image_right")
+            self.assertIn("lst--image_right", self._index(), style)
+
+    def test_missing_cover_drops_image_column_without_placeholder(self):
+        _post(self.tenant, "No cover")
+        for layout in self.LAYOUTS:
+            self._set_settings(index_layout=layout)
+            body = self._index()
+            markup = body.split('<div class="cms-blog', 1)[1]
+            self.assertIn("lst-item--no-image", markup, layout)
+            self.assertNotIn('class="lst-cover"', markup, layout)
+            self.assertNotIn("placehold.co", body, layout)
+
+    def test_layout_css_stacks_on_mobile_and_is_scoped(self):
+        self._set_settings(index_layout="image_left")
+        _post(self.tenant, "P")
+        body = self._index()
+        self.assertIn("@media (max-width: 640px)", body)
+        self.assertIn(".cms-blog .lst--image_right .lst-cover-link { order: 0; }", body)
+
+    def test_settings_save_persists_layout_and_keeps_strip(self):
+        c = self._tenant()
+        c.post(reverse("dashboard:blog_settings_self"), {
+            "template": "magazine", "index_layout": "image_above", "title": "News",
+            "strip_style": "spotlight", "strip_heading": "Latest", "strip_count": "4",
+            "strip_enabled": "on",
+        })
+        self.tenant.refresh_from_db()
+        s = self.tenant.blog_settings
+        self.assertEqual(s["index_layout"], "image_above")
+        self.assertEqual(s["template"], "magazine")
+        self.assertEqual(s["strip_style"], "spotlight")
+        self.assertEqual(s["strip_count"], 4)
+
+    def test_settings_save_rejects_unknown_layout(self):
+        self._tenant().post(reverse("dashboard:blog_settings_self"), {
+            "template": "minimal", "index_layout": "<script>", "strip_count": "3",
+        })
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.blog_settings["index_layout"], "style")
+
+    def test_settings_survive_reload_in_dashboard(self):
+        self._set_settings(index_layout="image_right")
+        r = self._tenant().get(reverse("dashboard:blog_list_self"))
+        self.assertContains(r, 'value="image_right" selected')
+        self.assertContains(r, 'id="index-preview-frame"')
+
+    def test_homepage_strip_unaffected_by_listing_layout(self):
+        _post(self.tenant, "Starred", featured=True, cover_image="https://x/c.png")
+        self._set_settings(index_layout="image_left", strip_style="list")
+        home = self._anon().get("/").content.decode()
+        self.assertIn("Starred", home)
+        self.assertNotIn("lst--image_left", home)
+
+    def test_pagination_and_post_links_work_per_layout(self):
+        for i in range(10):
+            _post(self.tenant, f"Post {i:02d}")
+        for layout in self.LAYOUTS:
+            self._set_settings(index_layout=layout)
+            body = self._index()
+            self.assertIn('href="/blog/?page=2"', body, layout)
+            self.assertIn('href="/blog/post-09/"', body, layout)
+            page2 = self._index("?page=2")
+            self.assertIn("Page 2 of", page2, layout)
+
+    def test_index_preview_honors_unsaved_layout(self):
+        _post(self.tenant, "P")
+        url = reverse("dashboard:blog_index_preview_self")
+        r = self._tenant().get(url, {"index_layout": "image_above", "title": "Journal"})
+        self.assertContains(r, "lst--image_above")
+        self.assertContains(r, "Journal")
+        self.tenant.refresh_from_db()
+        self.assertNotIn("index_layout", self.tenant.blog_settings or {})  # not saved
+
+    def test_index_preview_agency_surface(self):
+        r = self._agency().get(
+            reverse("dashboard:blog_index_preview", args=[self.tenant.pk]),
+            {"index_layout": "image_left"},
+        )
+        self.assertContains(r, "lst--image_left")
+
+    def test_index_preview_ignores_bad_overrides(self):
+        r = self._tenant().get(reverse("dashboard:blog_index_preview_self"),
+                               {"index_layout": "nope", "template": "nope"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, "lst-index")
+
+    def test_index_preview_auth_gated(self):
+        url = reverse("dashboard:blog_index_preview_self")
+        c = Client(HTTP_HOST="acme.localhost")
+        c.force_login(self.outsider)
+        self.assertEqual(c.get(url).status_code, 403)
+        self.assertNotEqual(self._anon().get(url).status_code, 200)
+
+
+# --------------------------------------------------------------------------- #
+# CMS-77: categories, category filter, newest/oldest sorting                   #
+# --------------------------------------------------------------------------- #
+
+
+@_NO_MANIFEST
+class BlogCategoryTests(_BlogSiteMixin, TestCase):
+    def _dated(self, title, days_ago, **kw):
+        p = _post(self.tenant, title, **kw)
+        BlogPost.objects.filter(pk=p.pk).update(
+            publish_date=timezone.now() - timezone.timedelta(days=days_ago)
+        )
+        return p
+
+    def test_category_slug_derived_and_normalized(self):
+        p = _post(self.tenant, "A", category="  Marketing   Tips ")
+        self.assertEqual(p.category, "Marketing Tips")
+        self.assertEqual(p.category_slug, "marketing-tips")
+
+    def test_unsluggable_category_is_uncategorized(self):
+        p = _post(self.tenant, "A", category="!!!")
+        self.assertEqual((p.category, p.category_slug), ("", ""))
+
+    def test_update_fields_keeps_slug_in_sync(self):
+        p = _post(self.tenant, "A", category="News")
+        p.category = "Case Studies"
+        p.save(update_fields=["category"])
+        p.refresh_from_db()
+        self.assertEqual(p.category_slug, "case-studies")
+
+    def test_dashboard_create_and_edit_category(self):
+        c = self._tenant()
+        c.post(reverse("dashboard:blog_create_self"),
+               {"title": "New", "body": "<p>x</p>", "status": "published", "category": "News"})
+        post = BlogPost.objects.get(tenant=self.tenant, title="New")
+        self.assertEqual((post.category, post.category_slug), ("News", "news"))
+        c.post(reverse("dashboard:blog_edit_self", args=[post.pk]),
+               {"title": "New", "slug": post.slug, "body": "<p>x</p>",
+                "status": "published", "category": ""})
+        post.refresh_from_db()
+        self.assertEqual(post.category_slug, "")
+
+    def test_existing_post_can_be_categorized_and_form_shows_it(self):
+        post = _post(self.tenant, "Legacy")  # pre-existing, uncategorized
+        c = self._tenant()
+        c.post(reverse("dashboard:blog_edit_self", args=[post.pk]),
+               {"title": "Legacy", "slug": post.slug, "status": "published", "category": "Guides"})
+        r = c.get(reverse("dashboard:blog_edit_self", args=[post.pk]))
+        self.assertContains(r, 'value="Guides"')
+        self.assertContains(r, '<option value="Guides">')
+
+    def test_filter_shows_only_matching_published_posts(self):
+        _post(self.tenant, "News one", category="News")
+        _post(self.tenant, "Guide one", category="Guides")
+        _post(self.tenant, "Plain")
+        _post(self.tenant, "Draft news", category="News", status=BlogPost.STATUS_DRAFT)
+        body = self._index("?category=news")
+        self.assertIn("News one", body)
+        self.assertNotIn("Guide one", body)
+        self.assertNotIn(">Plain<", body)
+        self.assertNotIn("Draft news", body)
+
+    def test_default_view_lists_everything_including_uncategorized(self):
+        _post(self.tenant, "News one", category="News")
+        _post(self.tenant, "Plain")
+        body = self._index()
+        self.assertIn("News one", body)
+        self.assertIn(">Plain<", body)
+        self.assertEqual(self._current_category(body), "All categories")
+
+    def test_category_chips_only_for_published_categories(self):
+        _post(self.tenant, "N", category="News")
+        _post(self.tenant, "D", category="Secret", status=BlogPost.STATUS_DRAFT)
+        body = self._index()
+        self.assertIn("?category=news", body)
+        self.assertNotIn("Secret", body)
+
+    def test_unknown_category_is_safe_empty_state(self):
+        _post(self.tenant, "N", category="News")
+        r = self._anon().get("/blog/?category=%3Cscript%3Ealert(1)")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "No posts in this category")
+        self.assertNotContains(r, "<script>alert")
+        self.assertContains(r, 'href="/blog/">Show all posts')
+
+    def test_sort_newest_and_oldest(self):
+        self._dated("Middle", 5)
+        self._dated("Oldest", 10)
+        self._dated("Newest", 1)
+        newest = self._index()
+        self.assertLess(newest.index(">Newest<"), newest.index(">Middle<"))
+        self.assertLess(newest.index(">Middle<"), newest.index(">Oldest<"))
+        oldest = self._index("?sort=oldest")
+        self.assertLess(oldest.index(">Oldest<"), oldest.index(">Middle<"))
+        self.assertLess(oldest.index(">Middle<"), oldest.index(">Newest<"))
+
+    def test_bad_sort_falls_back_to_newest(self):
+        self._dated("Old", 9)
+        self._dated("New", 1)
+        body = self._index("?sort=sideways")
+        self.assertLess(body.index(">New<"), body.index(">Old<"))
+
+    def test_pagination_keeps_filter_and_sort(self):
+        for i in range(10):
+            self._dated(f"News {i:02d}", i, category="News")
+        body = self._index("?category=news&sort=oldest")
+        self.assertIn('href="/blog/?category=news&amp;sort=oldest&amp;page=2"', body)
+        # Switching sort keeps the category; switching category keeps the sort.
+        self.assertIn('href="/blog/?category=news"', body)
+        self.assertIn('href="/blog/?sort=oldest&amp;category=news"', body)
+        self.assertIn('href="/blog/?sort=oldest"', body)
+
+    def test_stable_pagination_no_duplicates_or_gaps(self):
+        same = timezone.now()
+        titles = [f"Tie {i:02d}" for i in range(20)]
+        for t in titles:
+            p = _post(self.tenant, t)
+            BlogPost.objects.filter(pk=p.pk).update(publish_date=same, created_at=same)
+        self._set_settings(template="minimal")  # 8 per page
+        for sort in ("newest", "oldest"):
+            seen = []
+            for page in (1, 2, 3):
+                body = self._index(f"?sort={sort}&page={page}")
+                seen += [t for t in titles if f">{t}</a>" in body]
+            self.assertEqual(sorted(seen), titles, sort)
+            self.assertEqual(len(seen), len(set(seen)), sort)
+
+    def test_every_index_template_gets_filters_and_filtered_page(self):
+        _post(self.tenant, "News one", category="News", cover_image="https://x/c.png")
+        _post(self.tenant, "Guide one", category="Guides", cover_image="https://x/c.png")
+        cases = [("minimal", "style"), ("magazine", "style"), ("cards", "style"),
+                 ("minimal", "image_left"), ("minimal", "image_right"), ("minimal", "image_above")]
+        for style, layout in cases:
+            self._set_settings(template=style, index_layout=layout)
+            body = self._index("?category=guides")
+            self.assertIn('class="blog-filters"', body, (style, layout))
+            self.assertIn("Guide one", body, (style, layout))
+            self.assertNotIn("News one", body, (style, layout))
+            self.assertEqual(self._current_category(body), "Guides", (style, layout))
+
+    def test_category_label_links_to_filter(self):
+        _post(self.tenant, "N", category="Case Studies")
+        self.assertIn('href="/blog/?category=case-studies">Case Studies</a>', self._index())
+
+    def test_agency_fallback_route_filters(self):
+        _post(self.tenant, "News one", category="News")
+        _post(self.tenant, "Plain")
+        body = Client(HTTP_HOST="localhost").get("/site/acme/blog/?category=news").content.decode()
+        self.assertIn("News one", body)
+        self.assertNotIn(">Plain<", body)
+        self.assertIn('href="/site/acme/blog/?category=news"', body)
+
+
+# --------------------------------------------------------------------------- #
+# CMS-78: article image position, display width, alt text                      #
+# --------------------------------------------------------------------------- #
+
+
+class ArticleImageSanitizerTests(TestCase):
+    def test_keeps_allowlisted_presentation(self):
+        out = sanitize_html('<img src="https://x/a.png" alt="Team" data-align="left" data-width="45">')
+        self.assertIn('data-align="left"', out)
+        self.assertIn('data-width="45"', out)
+        self.assertIn('alt="Team"', out)
+
+    def test_all_alignments_allowed(self):
+        for align in ("full", "left", "right"):
+            out = sanitize_html(f'<img src="https://x/a.png" data-align="{align}">')
+            self.assertIn(f'data-align="{align}"', out)
+
+    def test_drops_unknown_alignment(self):
+        for bad in ("center", "left;color:red", "LEFT", ""):
+            out = sanitize_html(f'<img src="https://x/a.png" data-align="{bad}">')
+            self.assertNotIn("data-align", out, bad)
+
+    def test_width_snaps_to_step_and_rejects_out_of_range(self):
+        cases = {"43": "45", "10": "10", "100": "100", "12": "10", "98": "100"}
+        for raw, expected in cases.items():
+            out = sanitize_html(f'<img src="https://x/a.png" data-width="{raw}">')
+            self.assertIn(f'data-width="{expected}"', out, raw)
+        for bad in ("5", "101", "0", "-20", "50%", "50px", "1e2", "calc(1px)", " "):
+            out = sanitize_html(f'<img src="https://x/a.png" data-width="{bad}">')
+            self.assertNotIn("data-width", out, bad)
+
+    def test_still_strips_unsafe_attrs_and_urls(self):
+        out = sanitize_html(
+            '<img src="https://x/a.png" data-align="left" style="position:fixed" '
+            'class="evil" onerror="alert(1)" data-foo="1" srcset="javascript:x">'
+        )
+        for bad in ("style=", "class=", "onerror", "data-foo", "srcset"):
+            self.assertNotIn(bad, out)
+        self.assertEqual(sanitize_html('<img src="javascript:alert(1)" data-align="left">'), "")
+        self.assertNotIn("data-align", sanitize_html('<p data-align="left">t</p>'))
+
+    def test_legacy_body_unchanged(self):
+        legacy = ('<h2>Title</h2><p>Intro <a href="/about">us</a></p>'
+                  '<p><img alt="Old" src="https://x/old.png"/></p><ul><li>a</li></ul>')
+        self.assertEqual(sanitize_html(legacy), legacy)
+        self.assertEqual(sanitize_html(sanitize_html(legacy)), legacy)
+
+
+@_NO_MANIFEST
+class ArticleImageFlowTests(_BlogSiteMixin, TestCase):
+    BODY = ('<p>Intro</p><p><img src="https://x/a.png" alt="Our team" width="1200" '
+            'height="800" data-align="right" data-width="35" tabindex="0"></p><p>More</p>')
+
+    def test_presentation_persists_through_save_and_reload(self):
+        c = self._tenant()
+        c.post(reverse("dashboard:blog_create_self"),
+               {"title": "Imgs", "body": self.BODY, "status": "published"})
+        post = BlogPost.objects.get(tenant=self.tenant, title="Imgs")
+        for attr in ('data-align="right"', 'data-width="35"', 'alt="Our team"',
+                     'width="1200"', 'height="800"'):
+            self.assertIn(attr, post.body)
+        self.assertNotIn("tabindex", post.body)
+        r = c.get(reverse("dashboard:blog_edit_self", args=[post.pk]))
+        self.assertContains(r, "data-align=&quot;right&quot;")  # in the body textarea
+
+    def test_public_detail_and_preview_render_identically(self):
+        post = _post(self.tenant, "Imgs", body=sanitize_html(self.BODY))
+        public = self._anon().get(f"/blog/{post.slug}/").content.decode()
+        preview = self._tenant().get(
+            reverse("dashboard:blog_preview_self", args=[post.pk])
+        ).content.decode()
+        sanitized = self._tenant().post(
+            reverse("dashboard:blog_sanitize_self"), {"body": self.BODY}
+        ).json()["html"]
+        self.assertIn(post.body, public)
+        self.assertIn(post.body, preview)
+        self.assertEqual(sanitized, post.body)
+
+    def test_public_css_covers_every_allowed_value_and_stacks_on_mobile(self):
+        post = _post(self.tenant, "Imgs", body=sanitize_html(self.BODY))
+        body = self._anon().get(f"/blog/{post.slug}/").content.decode()
+        for n in range(10, 101, 5):
+            self.assertIn(f'.cms-blog .blog-prose img[data-width="{n}"]{{width:{n}%;}}', body)
+        for align in ("full", "left", "right"):
+            self.assertIn(f'img[data-align="{align}"]', body)
+        self.assertIn("@media (max-width:640px)", body)
+        self.assertIn(".cms-blog .blog-prose img{height:auto;}", body)
+
+    def test_editor_exposes_image_controls(self):
+        r = self._tenant().get(reverse("dashboard:blog_create_self"))
+        for marker in ('id="rt-image-panel"', 'id="rt-image-handle"', 'id="rt-image-alt"',
+                       'id="rt-image-width-range"', 'id="rt-image-width"',
+                       'role="radiogroup"', 'data-align="left"'):
+            self.assertContains(r, marker)

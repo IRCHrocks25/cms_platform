@@ -10,8 +10,10 @@ injected here.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
+from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 
 from core.models import (
@@ -19,6 +21,9 @@ from core.models import (
     DEFAULT_BLOG_TEMPLATE,
     BLOG_STRIP_IDS,
     DEFAULT_BLOG_STRIP,
+    BLOG_INDEX_LAYOUT_IDS,
+    BLOG_INDEX_LAYOUT_STYLE,
+    DEFAULT_BLOG_INDEX_LAYOUT,
     BlogPost,
 )
 from core.renderer import render_site, merge_with_defaults, apply_head_settings
@@ -37,6 +42,7 @@ _BLOG_FONTS_LINK = (
 
 BLOG_SETTINGS_DEFAULTS = {
     "template": DEFAULT_BLOG_TEMPLATE,
+    "index_layout": DEFAULT_BLOG_INDEX_LAYOUT,
     "title": "Blog",
     "strip_enabled": True,
     "strip_count": 3,
@@ -44,8 +50,20 @@ BLOG_SETTINGS_DEFAULTS = {
     "strip_style": DEFAULT_BLOG_STRIP,
 }
 
-# Posts per page on the index, by style.
-INDEX_PAGE_SIZE = {"minimal": 8, "magazine": 7, "cards": 9}
+# Posts per page on the index, by style (or explicit listing layout).
+INDEX_PAGE_SIZE = {
+    "minimal": 8, "magazine": 7, "cards": 9,
+    "image_left": 8, "image_right": 8, "image_above": 6,
+}
+
+# Public index sort orders (?sort=). pk is the final tie-breaker so posts that
+# share a publish_date/created_at keep one stable position across pages: no
+# post is repeated on, or skipped between, two pages.
+INDEX_SORTS = {
+    "newest": ("-publish_date", "-created_at", "-pk"),
+    "oldest": ("publish_date", "created_at", "pk"),
+}
+DEFAULT_INDEX_SORT = "newest"
 STRIP_MAX = 6
 
 
@@ -56,6 +74,9 @@ def get_blog_settings(tenant) -> dict:
 
     if merged.get("template") not in BLOG_TEMPLATE_IDS:
         merged["template"] = DEFAULT_BLOG_TEMPLATE
+
+    if merged.get("index_layout") not in BLOG_INDEX_LAYOUT_IDS:
+        merged["index_layout"] = DEFAULT_BLOG_INDEX_LAYOUT
 
     if merged.get("strip_style") not in BLOG_STRIP_IDS:
         merged["strip_style"] = DEFAULT_BLOG_STRIP
@@ -99,6 +120,98 @@ def published_posts(tenant):
         status=BlogPost.STATUS_PUBLISHED,
         publish_date__isnull=False,
     )
+
+
+def index_posts(tenant, *, category: str = "", sort: str = DEFAULT_INDEX_SORT):
+    """Published posts for the public index, filtered and ordered.
+
+    ``category`` is a category slug ('' = all categories, uncategorized posts
+    included). An unknown slug yields an empty queryset, which the templates
+    show as an empty state, never an error. An unknown ``sort`` falls back to
+    newest first.
+    """
+    qs = published_posts(tenant)
+    if category:
+        qs = qs.filter(category_slug=category)
+    return qs.order_by(*INDEX_SORTS.get(sort, INDEX_SORTS[DEFAULT_INDEX_SORT]))
+
+
+def index_categories(tenant) -> list[dict]:
+    """Categories that have at least one published post, A→Z.
+
+    Returns ``[{"slug", "name"}]``. Posts are grouped by slug; the display
+    name is taken from the most recently published post in the group.
+    """
+    seen = {}
+    rows = (
+        published_posts(tenant)
+        .exclude(category_slug="")
+        .order_by("-publish_date", "-pk")
+        .values_list("category_slug", "category")
+    )
+    for slug, name in rows:
+        seen.setdefault(slug, name)
+    return sorted(
+        ({"slug": slug, "name": name} for slug, name in seen.items()),
+        key=lambda c: c["name"].lower(),
+    )
+
+
+def index_context(
+    tenant,
+    *,
+    settings: dict,
+    blog_base: str,
+    category: str = "",
+    sort: str = "",
+    page=None,
+) -> dict:
+    """Template context for a blog index page (public view + dashboard preview).
+
+    Every index template gets the same filtered, sorted page. ``filter_qs`` is
+    the active category/sort as a query-string prefix (``"category=news&"``)
+    so pager and filter links keep the visitor's selection.
+    """
+    category = (category or "").strip().lower()
+    sort = sort if sort in INDEX_SORTS else DEFAULT_INDEX_SORT
+    style = settings["template"]
+    index_layout = settings["index_layout"]
+
+    categories = index_categories(tenant)
+    paginator = Paginator(
+        index_posts(tenant, category=category, sort=sort),
+        index_page_size(style, index_layout),
+    )
+    page_obj = paginator.get_page(page)
+
+    params = {}
+    if category:
+        params["category"] = category
+    if sort != DEFAULT_INDEX_SORT:
+        params["sort"] = sort
+    category_qs = urlencode({"category": category}) + "&" if category else ""
+    sort_qs = "sort=" + sort + "&" if sort != DEFAULT_INDEX_SORT else ""
+
+    return {
+        "tenant": tenant,
+        "settings": settings,
+        "style": style,
+        "index_layout": index_layout,
+        "page_obj": page_obj,
+        "posts": page_obj.object_list,
+        "accent": accent_color(tenant),
+        "blog_base": blog_base,
+        "categories": categories,
+        "current_category": category,
+        "current_category_name": next(
+            (c["name"] for c in categories if c["slug"] == category), ""
+        ),
+        "current_sort": sort,
+        "is_filtered": bool(category),
+        "filter_qs": urlencode(params) + "&" if params else "",
+        "category_qs": category_qs,
+        "sort_qs": sort_qs,
+    }
 
 
 def featured_posts(tenant, limit: int):
@@ -166,9 +279,24 @@ def render_detail(
     return html, style
 
 
-def render_index(tenant, context, *, style, request=None) -> str:
+def index_template_path(style: str, index_layout: str) -> str:
+    """The index template: an explicit listing layout, else the style's own."""
+    if index_layout in BLOG_INDEX_LAYOUT_IDS and index_layout != BLOG_INDEX_LAYOUT_STYLE:
+        return "blog/listing/index.html"
+    return template_path(style, "index")
+
+
+def index_page_size(style: str, index_layout: str) -> int:
+    if index_layout in BLOG_INDEX_LAYOUT_IDS and index_layout != BLOG_INDEX_LAYOUT_STYLE:
+        return INDEX_PAGE_SIZE[index_layout]
+    return INDEX_PAGE_SIZE.get(style, 8)
+
+
+def render_index(tenant, context, *, style, index_layout=BLOG_INDEX_LAYOUT_STYLE, request=None) -> str:
     """Render the blog index fragment wrapped in the client's site chrome."""
-    fragment = render_to_string(template_path(style, "index"), context, request=request)
+    fragment = render_to_string(
+        index_template_path(style, index_layout), context, request=request
+    )
     home_url = _home_from_blog_base(context.get("blog_base", "/blog/"))
     return wrap_in_site_chrome(tenant, fragment, request=request, home_url=home_url)
 

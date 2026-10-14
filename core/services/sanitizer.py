@@ -41,8 +41,19 @@ DANGEROUS_TAGS = {
 # Per-tag attribute allowlist. Everything else is dropped.
 ALLOWED_ATTRS = {
     "a": {"href", "title"},
-    "img": {"src", "alt", "width", "height"},
+    "img": {"src", "alt", "width", "height", "data-align", "data-width"},
 }
+
+# Article-image presentation (CMS-78). The editor stores placement and display
+# width as two data attributes, and the public blog CSS maps each allowed value
+# to a fixed rule, so no client-authored CSS is ever stored or rendered. Any
+# other value is dropped, which renders the image exactly like a legacy one.
+#   data-align: full (block above/below text), left / right (beside text)
+#   data-width: display width as a % of the article column, 10-100, step 5
+IMAGE_ALIGNS = {"full", "left", "right"}
+IMAGE_WIDTH_MIN = 10
+IMAGE_WIDTH_MAX = 100
+IMAGE_WIDTH_STEP = 5
 
 # URL schemes considered safe for links and image sources.
 _SAFE_HREF_SCHEMES = ("http://", "https://", "mailto:")
@@ -68,6 +79,18 @@ def _is_safe_url(value: str, schemes: tuple[str, ...], *, allow_anchor: bool) ->
     if ":" not in v.split("/", 1)[0]:
         return True
     return False
+
+
+def normalize_image_width(value) -> str | None:
+    """A ``data-width`` value as a step-of-5 percentage string, or None."""
+    v = str(value or "").strip()
+    if not re.fullmatch(r"\d{1,3}", v):
+        return None
+    n = int(v)
+    if not IMAGE_WIDTH_MIN <= n <= IMAGE_WIDTH_MAX:
+        return None
+    n = int(round(n / IMAGE_WIDTH_STEP)) * IMAGE_WIDTH_STEP
+    return str(max(IMAGE_WIDTH_MIN, min(IMAGE_WIDTH_MAX, n)))
 
 
 def sanitize_html(html: str) -> str:
@@ -119,6 +142,14 @@ def sanitize_html(html: str) -> str:
                 continue
             if not tag.get("alt"):
                 tag["alt"] = ""
+            if tag.has_attr("data-align") and tag["data-align"] not in IMAGE_ALIGNS:
+                del tag["data-align"]
+            if tag.has_attr("data-width"):
+                width = normalize_image_width(tag["data-width"])
+                if width is None:
+                    del tag["data-width"]
+                else:
+                    tag["data-width"] = width
 
     return str(soup).strip()
 

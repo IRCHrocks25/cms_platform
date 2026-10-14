@@ -29,6 +29,8 @@
     <p>News &amp; stories from {{ tenant.name }}</p>
   </div>
 
+  {% include "blog/_filters.html" %}
+
   {% if posts %}
     <div class="card-grid">
       {% for post in posts %}
@@ -37,7 +39,7 @@
             <img class="card-cover" src="{{ post.cover_image|default:'https://placehold.co/600x375?text=+' }}" alt="{{ post.title }}">
           </a>
           <div class="card-body">
-            <div class="blog-meta card-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time></div>
+            <div class="blog-meta card-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time>{% include "blog/_post_category.html" %}</div>
             <h2 class="card-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
             <p class="card-excerpt">{{ post.display_excerpt }}</p>
             <div class="card-foot"><a class="card-readmore" href="{{ blog_base }}{{ post.slug }}/">Read more →</a></div>
@@ -46,6 +48,8 @@
       {% endfor %}
     </div>
     {% include "blog/_pager.html" %}
+  {% elif is_filtered %}
+    {% include "blog/_filtered_empty.html" %}
   {% else %}
     <div class="blog-empty">
       <h2>No posts yet</h2>

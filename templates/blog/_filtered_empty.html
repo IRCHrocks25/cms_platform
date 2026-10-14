@@ -1,0 +1,5 @@
+<div class="blog-empty">
+  <h2>No posts in this category</h2>
+  <p>{% if current_category_name %}Nothing has been published under “{{ current_category_name }}” yet.{% else %}This category doesn't exist or has no published posts.{% endif %}</p>
+  <p><a href="{{ blog_base }}">Show all posts</a></p>
+</div>

@@ -19,6 +19,8 @@
   <h1 class="min-index-title">{{ settings.title }}</h1>
   <p class="min-index-sub">Latest from {{ tenant.name }}</p>
 
+  {% include "blog/_filters.html" %}
+
   {% if posts %}
     <div class="min-list">
       {% for post in posts %}
@@ -26,6 +28,7 @@
           <div class="blog-meta">
             <time>{{ post.publish_date|date:"M j, Y" }}</time>
             {% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}
+            {% include "blog/_post_category.html" %}
           </div>
           <h2 class="min-item-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
           <p class="min-item-excerpt">{{ post.display_excerpt }}</p>
@@ -34,6 +37,8 @@
       {% endfor %}
     </div>
     {% include "blog/_pager.html" %}
+  {% elif is_filtered %}
+    {% include "blog/_filtered_empty.html" %}
   {% else %}
     <div class="blog-empty">
       <h2>No posts yet</h2>

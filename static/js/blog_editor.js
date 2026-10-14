@@ -16,10 +16,29 @@
 
   // ---- init body --------------------------------------------------------
   editor.innerHTML = bodyInput.value || "";
+  prepareImages();
   syncPlaceholder();
 
+  // Editor-only state on images (tabindex for keyboard access) must never
+  // reach the saved body or the preview, so serialize from a clean clone.
+  // The server sanitizer would drop it anyway; this keeps the round-trip exact.
+  function serialize() {
+    var clone = editor.cloneNode(true);
+    clone.querySelectorAll("img").forEach(function (img) {
+      img.removeAttribute("tabindex");
+    });
+    return clone.innerHTML;
+  }
+
+  function prepareImages() {
+    editor.querySelectorAll("img").forEach(function (img) {
+      if (!img.hasAttribute("tabindex")) img.setAttribute("tabindex", "0");
+    });
+  }
+
   function sync() {
-    bodyInput.value = editor.innerHTML;
+    prepareImages();
+    bodyInput.value = serialize();
     syncPlaceholder();
     scheduleBodyPreview();
   }
@@ -103,14 +122,303 @@
       editor.focus();
       upload(file)
         .then(function (data) {
-          document.execCommand("insertImage", false, data.url);
-          sync();
+          insertImage(data.url);
         })
         .catch(function () {
           window.alert("Image upload failed. Please try again.");
         })
         .finally(function () { imageInput.value = ""; });
     });
+  }
+
+  // ---- article images: position, drag-resize, alt text (CMS-78) ---------
+  // Placement and width live on the <img> as data-align (full|left|right)
+  // and data-width (10-100, step 5 = % of the article column). The server
+  // sanitizer allowlists exactly these values and the public blog CSS maps
+  // each to a fixed rule, so no client CSS is stored. Selection UI (frame,
+  // handle, panel) lives OUTSIDE the contenteditable so it is never saved.
+  var wrap = document.getElementById("rt-editor-wrap");
+  var frame = document.getElementById("rt-image-frame");
+  var handle = document.getElementById("rt-image-handle");
+  var panel = document.getElementById("rt-image-panel");
+  var alignGroup = document.getElementById("rt-image-align");
+  var widthRange = document.getElementById("rt-image-width-range");
+  var widthNum = document.getElementById("rt-image-width");
+  var widthAuto = document.getElementById("rt-image-width-auto");
+  var altInput = document.getElementById("rt-image-alt");
+  var removeBtn = document.getElementById("rt-image-remove");
+  var doneBtn = document.getElementById("rt-image-done");
+  var WIDTH_MIN = 10, WIDTH_MAX = 100, FLOAT_MAX = 70, STEP = 5;
+  var selectedImg = null;
+
+  // Browsers' own image resize handles would write inline styles that the
+  // sanitizer strips; turn them off so the only resize is ours.
+  try { document.execCommand("enableObjectResizing", false, "false"); } catch (err) {}
+
+  function escapeAttr(v) {
+    return String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  function insertImage(url) {
+    editor.focus();
+    document.execCommand(
+      "insertHTML", false,
+      "<img src=\"" + escapeAttr(url) + "\" alt=\"\" data-align=\"full\" data-rt-new=\"1\">"
+    );
+    var img = editor.querySelector("img[data-rt-new]");
+    if (!img) { sync(); return; }
+    img.removeAttribute("data-rt-new");
+    // Record the intrinsic size so the browser reserves the right aspect
+    // ratio before the image loads (no layout jump, no distortion).
+    function stampSize() {
+      if (img.naturalWidth && img.naturalHeight) {
+        img.setAttribute("width", img.naturalWidth);
+        img.setAttribute("height", img.naturalHeight);
+        sync();
+        positionFrame();
+      }
+    }
+    if (img.complete) stampSize(); else img.addEventListener("load", stampSize, { once: true });
+    sync();
+    selectImage(img);
+    if (altInput) altInput.focus();
+  }
+
+  function maxWidthFor(img) {
+    var align = img.getAttribute("data-align");
+    return align === "left" || align === "right" ? FLOAT_MAX : WIDTH_MAX;
+  }
+
+  function clampWidth(n, img) {
+    n = Math.round(n / STEP) * STEP;
+    return Math.max(WIDTH_MIN, Math.min(maxWidthFor(img), n));
+  }
+
+  // Width of the editor's content column. Image widths are a % of it, the
+  // same way the public page sizes them against the article column.
+  function contentWidth() {
+    var cs = window.getComputedStyle(editor);
+    return editor.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  }
+
+  // Displayed width as a %, so the controls start where the image looks
+  // even before it has an explicit data-width.
+  function currentWidth(img) {
+    var explicit = parseInt(img.getAttribute("data-width"), 10);
+    if (explicit) return explicit;
+    var cw = contentWidth();
+    return cw > 0 ? clampWidth((img.getBoundingClientRect().width / cw) * 100, img) : WIDTH_MAX;
+  }
+
+  function refreshPanel() {
+    if (!selectedImg || !panel) return;
+    var align = selectedImg.getAttribute("data-align") || "full";
+    if (alignGroup) {
+      alignGroup.querySelectorAll("button").forEach(function (b) {
+        var on = b.dataset.align === align;
+        b.setAttribute("aria-checked", on ? "true" : "false");
+        b.tabIndex = on ? 0 : -1;
+      });
+    }
+    var max = maxWidthFor(selectedImg);
+    var w = currentWidth(selectedImg);
+    var explicit = selectedImg.hasAttribute("data-width");
+    if (widthRange) { widthRange.max = max; widthRange.value = w; }
+    if (widthNum) {
+      widthNum.max = max;
+      widthNum.value = explicit ? w : "";
+      widthNum.placeholder = String(w);
+    }
+    if (widthAuto) widthAuto.disabled = !explicit;
+    if (altInput && document.activeElement !== altInput) {
+      altInput.value = selectedImg.getAttribute("alt") || "";
+    }
+  }
+
+  function positionFrame() {
+    if (!selectedImg || !frame || !wrap || !editor.contains(selectedImg)) {
+      if (frame) frame.hidden = true;
+      return;
+    }
+    var w = wrap.getBoundingClientRect();
+    var r = selectedImg.getBoundingClientRect();
+    frame.style.left = (r.left - w.left) + "px";
+    frame.style.top = (r.top - w.top) + "px";
+    frame.style.width = r.width + "px";
+    frame.style.height = r.height + "px";
+    frame.classList.toggle("is-right", selectedImg.getAttribute("data-align") === "right");
+    frame.hidden = false;
+  }
+
+  function selectImage(img) {
+    selectedImg = img;
+    if (panel) panel.hidden = !img;
+    if (!img) { if (frame) frame.hidden = true; return; }
+    refreshPanel();
+    positionFrame();
+  }
+
+  function setWidth(n, opts) {
+    if (!selectedImg) return;
+    selectedImg.setAttribute("data-width", String(clampWidth(n, selectedImg)));
+    positionFrame();
+    refreshPanel();
+    if (!opts || !opts.silent) sync();
+  }
+
+  function setAlign(align) {
+    if (!selectedImg) return;
+    selectedImg.setAttribute("data-align", align);
+    // Beside-text images need room for the text: start them at 40% and
+    // never wider than 70%, so switching position is always predictable.
+    if (align === "left" || align === "right") {
+      var w = parseInt(selectedImg.getAttribute("data-width"), 10);
+      if (!w) selectedImg.setAttribute("data-width", "40");
+      else if (w > FLOAT_MAX) selectedImg.setAttribute("data-width", String(FLOAT_MAX));
+    }
+    sync();
+    positionFrame();
+    refreshPanel();
+  }
+
+  function removeSelected() {
+    if (!selectedImg) return;
+    var img = selectedImg;
+    selectImage(null);
+    img.remove();
+    sync();
+    editor.focus();
+  }
+
+  editor.addEventListener("click", function (e) {
+    var img = e.target.closest && e.target.closest("img");
+    selectImage(img && editor.contains(img) ? img : null);
+  });
+  editor.addEventListener("focusin", function (e) {
+    if (e.target.tagName === "IMG") selectImage(e.target);
+  });
+  editor.addEventListener("keydown", function (e) {
+    if (e.target.tagName !== "IMG") return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      var current = alignGroup && alignGroup.querySelector("[aria-checked=\"true\"]");
+      if (current) current.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      removeSelected();
+    }
+  });
+  editor.addEventListener("input", positionFrame);
+  window.addEventListener("resize", positionFrame);
+  window.addEventListener("scroll", positionFrame, true);
+
+  // Pressing anywhere outside the editor, frame, and panel ends the selection.
+  document.addEventListener("mousedown", function (e) {
+    if (!selectedImg) return;
+    if (editor.contains(e.target) || (panel && panel.contains(e.target)) ||
+        (frame && frame.contains(e.target))) return;
+    selectImage(null);
+  });
+
+  if (alignGroup) {
+    alignGroup.addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-align]");
+      if (btn) setAlign(btn.dataset.align);
+    });
+    // Radio-group arrow keys.
+    alignGroup.addEventListener("keydown", function (e) {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].indexOf(e.key) === -1) return;
+      e.preventDefault();
+      var btns = Array.prototype.slice.call(alignGroup.querySelectorAll("button"));
+      var back = e.key === "ArrowLeft" || e.key === "ArrowUp";
+      var i = btns.indexOf(document.activeElement);
+      var next = btns[(i + (back ? -1 : 1) + btns.length) % btns.length];
+      setAlign(next.dataset.align);
+      next.focus();
+    });
+  }
+  if (widthRange) {
+    widthRange.addEventListener("input", function () {
+      setWidth(parseInt(widthRange.value, 10), { silent: true });
+    });
+    widthRange.addEventListener("change", function () {
+      setWidth(parseInt(widthRange.value, 10));
+    });
+  }
+  if (widthNum) {
+    widthNum.addEventListener("change", function () {
+      var n = parseInt(widthNum.value, 10);
+      if (n) setWidth(n); else refreshPanel();
+    });
+  }
+  if (widthAuto) {
+    widthAuto.addEventListener("click", function () {
+      if (!selectedImg) return;
+      selectedImg.removeAttribute("data-width");
+      sync();
+      positionFrame();
+      refreshPanel();
+    });
+  }
+  if (altInput) {
+    altInput.addEventListener("input", function () {
+      if (!selectedImg) return;
+      selectedImg.setAttribute("alt", altInput.value);
+      sync();
+    });
+  }
+  if (removeBtn) removeBtn.addEventListener("click", removeSelected);
+  if (doneBtn) {
+    doneBtn.addEventListener("click", function () {
+      var img = selectedImg;
+      selectImage(null);
+      if (img) img.focus();
+    });
+  }
+  if (panel) {
+    panel.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape" || !selectedImg) return;
+      e.preventDefault();
+      selectedImg.focus();
+    });
+  }
+
+  // Drag handle: width follows the pointer, snapped to 5% steps and clamped
+  // to the article column (10-100%, or 70% beside text). A centered image
+  // grows from its middle, so the pointer distance from center counts twice.
+  if (handle) {
+    var drag = null;
+    handle.addEventListener("pointerdown", function (e) {
+      if (!selectedImg) return;
+      e.preventDefault();
+      var r = selectedImg.getBoundingClientRect();
+      var centered = (selectedImg.getAttribute("data-align") || "full") === "full" &&
+        parseFloat(window.getComputedStyle(selectedImg).marginLeft) > 0;
+      drag = {
+        id: e.pointerId,
+        rect: r,
+        right: selectedImg.getAttribute("data-align") === "right",
+        centered: centered,
+      };
+      handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!drag || e.pointerId !== drag.id || !selectedImg) return;
+      var r = drag.rect;
+      var px;
+      if (drag.right) px = r.right - e.clientX;
+      else if (drag.centered) px = 2 * (e.clientX - (r.left + r.width / 2));
+      else px = e.clientX - r.left;
+      var cw = contentWidth();
+      if (cw > 0) setWidth((px / cw) * 100, { silent: true });
+    });
+    var endDrag = function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      sync();
+    };
+    handle.addEventListener("pointerup", endDrag);
+    handle.addEventListener("pointercancel", endDrag);
   }
 
   // ---- cover image ------------------------------------------------------
@@ -231,7 +539,7 @@
   }
 
   function sanitizeThenPush() {
-    var raw = editor.innerHTML;
+    var raw = serialize();
     if (!cfg.sanitizeUrl) { sanitizedBody = raw; setUpdating(false); sendContent(); return; }
     fetch(cfg.sanitizeUrl, {
       method: "POST",
