@@ -1432,6 +1432,12 @@
     { label: "16px (default)", value: "16px" }, { label: "17px", value: "17px" },
     { label: "18px", value: "18px" }, { label: "20px", value: "20px" },
   ];
+  var CMS_HEADING_SIZES = [
+    { label: "28px", value: "28px" }, { label: "32px", value: "32px" },
+    { label: "36px", value: "36px" }, { label: "40px", value: "40px" },
+    { label: "48px", value: "48px" }, { label: "56px", value: "56px" },
+    { label: "64px", value: "64px" }, { label: "72px", value: "72px" },
+  ];
   var CMS_COLORS = [
     "#000000", "#1f2937", "#374151", "#6b7280", "#9ca3af", "#ffffff",
     "#b91c1c", "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16",
@@ -4302,7 +4308,9 @@
     });
     document.querySelectorAll("[data-global-sizeselect]").forEach(function (sel) {
       var key = sel.getAttribute("data-global-bind");
-      buildSizeSelect(sel, CMS_BASE_SIZES, content._global[key]);
+      var list = sel.getAttribute("data-global-sizeselect") === "heading"
+        ? CMS_HEADING_SIZES : CMS_BASE_SIZES;
+      buildSizeSelect(sel, list, content._global[key]);
       sel.addEventListener("change", function () { commitGlobal(key, sel.value); });
     });
     document.querySelectorAll("[data-global-swatches]").forEach(function (container) {

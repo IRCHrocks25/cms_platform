@@ -6,6 +6,7 @@ JavaScript can wire click-to-edit and live updates via postMessage.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -14,6 +15,7 @@ from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
 from core.parser import build_schema, effective_field_type, parse_select_options
+from core.typography import detect_typography_tokens, preview_role_map, typography_css
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -212,6 +214,19 @@ PREVIEW_BRIDGE_SCRIPT = """
   function cmsSafeCssValue(value) { var v = String(value == null ? '' : value).trim(); return CMS_SAFE_CSS.test(v) ? v : ''; }
   function cmsSafeToken(value) { var v = String(value == null ? '' : value).trim(); return CMS_SAFE_TOKEN.test(v) ? v : ''; }
   function cmsSafeFont(value) { return String(value == null ? '' : value).replace(/[^A-Za-z0-9 \\-]/g, '').trim(); }
+  var CMS_SAFE_LENGTH = /^[0-9]{1,3}([.][0-9]{1,3})?(px|rem|em)$/;
+  var CMS_TYPO_KEYS = { 'body-font': 'fontFamily', 'heading-font': 'headingFamily',
+    'body-size': 'baseSize', 'heading-size': 'headingSize' };
+  var CMS_TYPO_CONTRACT = { 'body-font': 'font-body', 'heading-font': 'font-heading',
+    'body-size': 'text-body', 'heading-size': 'text-heading' };
+  var cmsTypographyMap = null;
+  function cmsTypography() {
+    if (cmsTypographyMap) return cmsTypographyMap;
+    cmsTypographyMap = {};
+    var tag = document.getElementById('cms-typography');
+    try { if (tag) cmsTypographyMap = JSON.parse(tag.textContent) || {}; } catch (e) {}
+    return cmsTypographyMap;
+  }
   // Phrasing hosts (<p>, <h2>, <cite>, ...) can't legally contain a block
   // element. A contenteditable often wraps a typed line in <p>, so setting
   // pHost.innerHTML = "<p>text</p>" makes the browser split the node into an
@@ -733,6 +748,30 @@ PREVIEW_BRIDGE_SCRIPT = """
       var gFam = cmsSafeFont(g.fontFamily), gSize = cmsSafeToken(g.baseSize),
           gText = cmsSafeCssValue(g.textColor), gBg = cmsSafeCssValue(g.pageBg),
           gHead = cmsSafeFont(g.headingFamily);
+      // Same rules as core/typography.py: a role the template carries in a
+      // token is overridden there instead of through body / h1-h6.
+      var typo = cmsTypography(), rootDecls = '';
+      Object.keys(typo).forEach(function (role) {
+        var t = typo[role], raw = g[CMS_TYPO_KEYS[role]], val = '';
+        if (t.generic) {
+          var fam = cmsSafeFont(raw);
+          if (fam) { val = "'" + fam + "', " + t.generic; cmsEnsureFont(fam); }
+        } else if (CMS_SAFE_LENGTH.test(String(raw == null ? '' : raw).trim())) {
+          val = String(raw).trim();
+        }
+        if (val) rootDecls += '--' + t.name + ': ' + val + ';';
+      });
+      Object.keys(typo).forEach(function (role) {
+        var contract = CMS_TYPO_CONTRACT[role];
+        if (typo[role].name !== contract) rootDecls += '--' + contract + ': var(--' + typo[role].name + ');';
+      });
+      if (typo['body-font']) gFam = '';
+      if (typo['body-size']) gSize = '';
+      if (typo['heading-font']) gHead = '';
+      if (rootDecls) css += ':root{' + rootDecls + '}';
+      document.querySelectorAll('style[data-cms-global], style[data-cms-typography]').forEach(function (s) {
+        s.parentNode.removeChild(s);
+      });
       if (gFam) { bodyDecls += 'font-family:' + gFam + ';'; cmsEnsureFont(gFam); }
       if (gSize) bodyDecls += 'font-size:' + gSize + ';';
       if (gText) bodyDecls += 'color:' + gText + ';';
@@ -1953,10 +1992,15 @@ def _apply_styles(soup: BeautifulSoup, styles: dict) -> None:
         (soup.find("head") or soup.find("body") or soup).append(tag)
 
 
-def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
+def _apply_global_styles(
+    soup: BeautifulSoup, global_styles: dict, skip_roles=frozenset()
+) -> None:
     """Write site-wide typography defaults as a low-specificity <style> block.
     Per-element inline styles always win over these; the template's own
-    element-specific CSS may still override the body-level defaults."""
+    element-specific CSS may still override the body-level defaults.
+
+    ``skip_roles`` are typography roles a template token already carries
+    (see ``_apply_typography``); their element-level rule is left out."""
     if not isinstance(global_styles, dict):
         return
     # These decls are interpolated into a stylesheet, so each value is validated
@@ -1968,6 +2012,12 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     text_color = _safe_css_value(global_styles.get("textColor") or "")
     heading_family = _sanitize_font_family(global_styles.get("headingFamily") or "")
     page_bg = _safe_css_value(global_styles.get("pageBg") or "")
+    if "body-font" in skip_roles:
+        font_family = ""
+    if "body-size" in skip_roles:
+        base_size = None
+    if "heading-font" in skip_roles:
+        heading_family = ""
     if font_family:
         body_decls.append(f"font-family: {font_family};")
     if base_size and _SAFE_STYLE_TOKEN_RE.match(str(base_size)):
@@ -1989,6 +2039,25 @@ def _apply_global_styles(soup: BeautifulSoup, global_styles: dict) -> None:
     style["data-cms-global"] = "true"
     style.string = "".join(rules)
     (soup.find("head") or soup.find("body") or soup).append(style)
+
+
+def _apply_typography(
+    soup: BeautifulSoup, typography: list, global_styles: dict, *, preview: bool
+) -> set[str]:
+    """Drive the template's typography tokens from the Design controls and
+    publish contract aliases. Returns the roles a token carries."""
+    head = soup.find("head") or soup.find("body") or soup
+    css = typography_css(typography, global_styles)
+    if css:
+        tag = soup.new_tag("style")
+        tag["data-cms-typography"] = "true"
+        tag.string = css
+        head.append(tag)
+    if preview and typography:
+        data = soup.new_tag("script", type="application/json", id="cms-typography")
+        data.string = json.dumps(preview_role_map(typography))
+        head.append(data)
+    return {t["role"] for t in typography}
 
 
 def _apply_tokens(soup: BeautifulSoup, tokens: dict) -> None:
@@ -2260,6 +2329,7 @@ def render_site(
 
     soup = BeautifulSoup(template_html, "lxml")
     _auto_annotate(soup)
+    typography = detect_typography_tokens(soup)
 
     if "brand" in content:
         _apply_brand_tokens(soup, content["brand"] or {})
@@ -2308,8 +2378,12 @@ def render_site(
 
     if isinstance(content, dict) and isinstance(content.get("_styles"), dict):
         _apply_styles(soup, content["_styles"])
-    if isinstance(content, dict) and isinstance(content.get("_global"), dict):
-        _apply_global_styles(soup, content["_global"])
+    global_styles = content.get("_global") if isinstance(content, dict) else None
+    if not isinstance(global_styles, dict):
+        global_styles = {}
+    typography_roles = _apply_typography(soup, typography, global_styles, preview=preview)
+    if global_styles:
+        _apply_global_styles(soup, global_styles, skip_roles=typography_roles)
     if isinstance(content, dict) and isinstance(content.get("_tokens"), dict):
         _apply_tokens(soup, content["_tokens"])
     _inject_font_links(soup, _collect_font_families(content if isinstance(content, dict) else {}))
