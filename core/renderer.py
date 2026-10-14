@@ -2800,6 +2800,11 @@ def _is_blank_field_value(value: Any) -> bool:
     return not text.strip()
 
 
+def _is_explicit_empty_alt(key: Any, value: Any) -> bool:
+    """An empty image alt is authored content, unlike a blank text placeholder."""
+    return isinstance(key, str) and key.endswith("_alt") and value == ""
+
+
 def drop_blank_instance_fields(content: dict[str, Any] | None) -> None:
     """Remove empty / ``<br>`` instance fields so they cannot override defaults."""
     if not isinstance(content, dict):
@@ -2817,7 +2822,8 @@ def drop_blank_instance_fields(content: dict[str, Any] | None) -> None:
                 inst["fields"] = {
                     key: value
                     for key, value in fields.items()
-                    if not _is_blank_field_value(value)
+                    if _is_explicit_empty_alt(key, value)
+                    or not _is_blank_field_value(value)
                 }
             children = inst.get("children")
             if isinstance(children, dict):
@@ -2844,7 +2850,7 @@ def merge_block_defaults(
         if field.get("type") == "ghl-embed":
             merged[str(field.get("id"))] = ""
     for key, value in (instance_fields or {}).items():
-        if _is_blank_field_value(value):
+        if _is_blank_field_value(value) and not _is_explicit_empty_alt(key, value):
             continue
         merged[str(key)] = value
     return merged

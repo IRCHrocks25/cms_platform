@@ -16,6 +16,7 @@ from core.parser import build_block_schema, build_schema, clean_image_alt
 from core.renderer import (
     bound_image_display_width,
     bound_image_style_widths,
+    drop_blank_instance_fields,
     image_display_style_ids,
     render_page_from_blocks,
     render_site,
@@ -111,6 +112,11 @@ class ImageAltParserTests(SimpleTestCase):
 
 
 class ImageAltRenderTests(SimpleTestCase):
+    def test_classic_image_alt_can_be_cleared_for_decoration(self):
+        out = render_site(PHOTO_HTML, {"hero": {"photo_alt": ""}})
+        img = BeautifulSoup(out, "lxml").find(attrs={"data-edit": "hero.photo"})
+        self.assertEqual(img.get("alt"), "")
+
     def test_alt_is_applied_and_original_dimensions_stay(self):
         out = render_site(PHOTO_HTML, {"hero": {"photo_alt": "Dining room"}})
         img = BeautifulSoup(out, "lxml").find(attrs={"data-edit": "hero.photo"})
@@ -270,6 +276,27 @@ class ImageWidthSaveTests(SimpleTestCase):
 
 
 class ImageAltBlockSaveTests(TestCase):
+    def test_explicit_empty_alt_survives_block_save_and_render(self):
+        block = BlockType.objects.create(
+            key="feature", html_source=FEATURE_BLOCK, label="Feature",
+        )
+        template = Template.objects.create(name="Shell", html_source=SHELL_HTML)
+        template.allowed_block_types.add(block)
+        content = {"regions": {"main": [{
+            "id": "blk_abcd1234", "type": "feature",
+            "fields": {"photo_alt": ""},
+        }]}}
+        _normalize_regions(content, template)
+        drop_blank_instance_fields(content)
+        self.assertEqual(content["regions"]["main"][0]["fields"]["photo_alt"], "")
+        out = render_page_from_blocks(
+            SHELL_HTML, content,
+            {"feature": {"schema": build_block_schema(FEATURE_BLOCK),
+                         "html": FEATURE_BLOCK, "label": "Feature"}},
+        )
+        photo = BeautifulSoup(out, "lxml").find(attrs={"data-edit": "blk_abcd1234.photo"})
+        self.assertEqual(photo.get("alt"), "")
+
     def test_block_instance_alt_is_cleaned_and_unknown_keys_drop(self):
         block = BlockType.objects.create(
             key="feature", html_source=FEATURE_BLOCK, label="Feature",

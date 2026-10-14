@@ -662,7 +662,10 @@
         // Empty / <br>-only contenteditable leftovers mean "use the designed
         // default". The properties panel hydrates from CMS.blockDefaults so
         // unedited fields show the designed copy instead of a blank box.
-        if (stored !== undefined && stored !== null && !cmsIsBlankHtml(stored)) {
+        // An explicitly empty alt is meaningful for a decorative image; do
+        // not replace it with the template's nonempty default on reload.
+        if (stored !== undefined && stored !== null &&
+            (fld.slice(-4) === "_alt" || !cmsIsBlankHtml(stored))) {
           return stored;
         }
         return (BLOCK_DEFAULTS[inst.type] || {})[fld];
@@ -677,7 +680,7 @@
       var inst = findInstance(sec);
       if (inst) {
         if (!inst.fields) inst.fields = {};
-        if (cmsIsBlankHtml(value)) {
+        if (fld.slice(-4) !== "_alt" && cmsIsBlankHtml(value)) {
           delete inst.fields[fld];
           return;
         }
