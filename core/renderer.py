@@ -2577,6 +2577,20 @@ def _visible_label(el) -> str:
     return " ".join(el.get_text(" ", strip=True).split())
 
 
+def _in_navigation_context(el) -> bool:
+    """Limit inferred copies to navigation chrome, not unrelated body links."""
+    for node in (el, *el.parents):
+        if node.name in ("nav", "header"):
+            return True
+        if not hasattr(node, "get"):
+            continue
+        names = [node.get("id") or "", node.get("data-section") or ""]
+        names.extend(node.get("class") or [])
+        if any("nav" in name.lower() or "menu" in name.lower() for name in names):
+            return True
+    return False
+
+
 def _bind_repeated_labels(soup) -> None:
     """Point a second, unmarked copy of a label at the field that owns it.
 
@@ -2587,6 +2601,8 @@ def _bind_repeated_labels(soup) -> None:
     """
     sources = []
     for el in soup.find_all(attrs={"data-edit": True}):
+        if not _in_navigation_context(el):
+            continue
         if el.find(attrs={"data-edit": True}) is not None:
             continue
         text = _visible_label(el)
@@ -2594,6 +2610,8 @@ def _bind_repeated_labels(soup) -> None:
             continue
         sources.append(el)
     for anchor in soup.find_all("a"):
+        if not _in_navigation_context(anchor):
+            continue
         if anchor.has_attr("data-edit") or anchor.has_attr("data-header-link"):
             continue
         if anchor.find(attrs={"data-edit": True}) is not None:
@@ -2601,8 +2619,12 @@ def _bind_repeated_labels(soup) -> None:
         text = _visible_label(anchor)
         if not text or len(text) > 80:
             continue
-        same_text = [el for el in sources if _visible_label(el) == text]
         href = (anchor.get("href") or "").strip()
+        same_text = [
+            el for el in sources
+            if _visible_label(el) == text
+            and (el.name != "a" or (el.get("href") or "").strip() == href)
+        ]
         chosen = None
         if href:
             same_href = [

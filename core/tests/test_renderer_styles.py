@@ -562,6 +562,37 @@ class UrlFieldSanitizeTests(SimpleTestCase):
         body = soup.select_one('[data-edit="cta.path_2_action"]')
         self.assertEqual(body.get_text(strip=True), "Find your growth opportunities")
 
+    def test_same_words_at_a_different_destination_keep_their_own_link(self):
+        soup = self._render(
+            '<nav data-section="navigation">'
+            '<a data-edit="navigation.services" data-type="link" '
+            'href="/services">Services</a></nav>'
+            '<footer><a href="/support">Services</a></footer>',
+            {"navigation": {
+                "services": "/new-services",
+                "services_label": "What I Do",
+            }},
+        )
+        self.assertEqual(soup.select_one("nav a").get("href"), "/new-services")
+        self.assertEqual(soup.select_one("nav a").get_text(strip=True), "What I Do")
+        footer = soup.select_one("footer a")
+        self.assertEqual(footer.get("href"), "/support")
+        self.assertEqual(footer.get_text(strip=True), "Services")
+        self.assertNotEqual(footer.get("data-edit"), "navigation.services")
+
+    def test_same_words_and_destination_outside_menu_stay_independent(self):
+        soup = self._render(
+            '<nav data-section="navigation">'
+            '<a data-edit="navigation.services" data-type="link" '
+            'href="/services">Services</a></nav>'
+            '<footer><a href="/services">Services</a></footer>',
+            {"navigation": {"services_label": "What I Do"}},
+        )
+        self.assertEqual(soup.select_one("nav a").get_text(strip=True), "What I Do")
+        footer = soup.select_one("footer a")
+        self.assertEqual(footer.get_text(strip=True), "Services")
+        self.assertNotEqual(footer.get("data-edit"), "navigation.services")
+
     def test_https_link_applied(self):
         soup = self._render(
             '<a data-edit="hero.cta" data-type="link" href="/ok" rel="nofollow">Go</a>',
