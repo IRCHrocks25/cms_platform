@@ -840,6 +840,10 @@ body.compare-open { overflow: hidden; }
 .login-form-head { margin-bottom: 34px; }
 .login-form-head h2 { margin-bottom: 9px; font-size: 30px; }
 .login-form-head p { color: var(--color-text-muted); }
+.login-katek-action { margin-bottom: 20px; }
+.login-divider { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; color: var(--color-text-muted); font-size: 12px; }
+.login-divider::before, .login-divider::after { content: ""; height: 1px; flex: 1; background: var(--color-border); }
+.login-divider span { white-space: nowrap; }
 .login-mobile-brand { display: none; margin-bottom: 42px; color: var(--color-text); }
 .login-form .field { margin-bottom: 22px; }
 .field-label-row { display: flex; justify-content: space-between; gap: 16px; }

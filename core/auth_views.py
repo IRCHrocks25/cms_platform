@@ -8,10 +8,18 @@ from django.contrib.auth.views import (
     PasswordResetView,
 )
 from django.core.cache import cache
-from django.http import HttpResponseRedirect
+from django.http import Http404, HttpResponseForbidden, HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlparse
+
+import time
+
+from mozilla_django_oidc.views import (
+    OIDCAuthenticationCallbackView,
+    OIDCAuthenticationRequestView,
+)
 
 from core.urls_helpers import tenant_editor_url, tenant_login_url
 
@@ -38,6 +46,18 @@ class TenantAwareLoginView(LoginView):
 
     template_name = "auth/login.html"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["katek_oidc_enabled"] = bool(
+            getattr(settings, "KATEK_OIDC_ENABLED", False)
+        )
+        return context
+
+    @staticmethod
+    def _mark_legacy_login(request, user):
+        request.session["legacy_authenticated_at"] = time.time()
+        request.session["legacy_authenticated_user_id"] = str(user.pk)
+
     def form_valid(self, form):
         user = form.get_user()
         request = self.request
@@ -48,10 +68,12 @@ class TenantAwareLoginView(LoginView):
                 messages.error(request, "This account has no access to this site.")
                 return HttpResponseRedirect(reverse("login"))
             auth_login(request, user)
+            self._mark_legacy_login(request, user)
             return HttpResponseRedirect(self._safe_next() or reverse("dashboard:root"))
 
         if user.is_staff or user.is_superuser:
             auth_login(request, user)
+            self._mark_legacy_login(request, user)
             return HttpResponseRedirect(self._safe_next() or reverse("dashboard:root"))
 
         # Non-staff client logging in on the main/agency host: send them to
@@ -68,6 +90,7 @@ class TenantAwareLoginView(LoginView):
                 # consent parameters survive login instead of being discarded
                 # by the normal home-tenant redirect.
                 auth_login(request, user)
+                self._mark_legacy_login(request, user)
                 return HttpResponseRedirect(safe_next)
             editor_url = tenant_editor_url(request, home_tenant)
             if _cookie_reaches(editor_url):
@@ -75,6 +98,7 @@ class TenantAwareLoginView(LoginView):
                 # (COOKIE_PARENT_DOMAIN), so logging in here carries straight
                 # over to the subdomain editor: one login, no second prompt.
                 auth_login(request, user)
+                self._mark_legacy_login(request, user)
                 return HttpResponseRedirect(editor_url)
             login_url = tenant_login_url(request, home_tenant)
             if getattr(settings, "SESSION_COOKIE_DOMAIN", None):
@@ -122,6 +146,97 @@ class TenantAwareLoginView(LoginView):
         ):
             return next_url
         return None
+
+
+class KatekOIDCStartView(OIDCAuthenticationRequestView):
+    mode = "signin"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(settings, "KATEK_OIDC_ENABLED", False):
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_extra_params(self, request):
+        return {}
+
+    def get(self, request):
+        response = super().get(request)
+        state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        live_states = set(request.session.get("oidc_states", {}))
+        transactions = {
+            key: value
+            for key, value in request.session.get(
+                "katek_oidc_transactions", {}
+            ).items()
+            if key in live_states
+        }
+        transactions[state] = self._transaction(request)
+        request.session["katek_oidc_transactions"] = transactions
+        request.session.modified = True
+        return response
+
+    def _transaction(self, request):
+        return {
+            "mode": self.mode,
+            "host": request.get_host().lower(),
+            "created_at": time.time(),
+        }
+
+
+class KatekOIDCLinkView(KatekOIDCStartView):
+    mode = "link"
+
+    def get_extra_params(self, request):
+        return {"prompt": "login", "max_age": "0"}
+
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return HttpResponseForbidden("A local sign-in is required.")
+        legacy_at = request.session.get("legacy_authenticated_at")
+        legacy_user_id = request.session.get("legacy_authenticated_user_id")
+        if (
+            str(legacy_user_id) != str(request.user.pk)
+            or not isinstance(legacy_at, (int, float))
+            or time.time() - legacy_at > 15 * 60
+        ):
+            return HttpResponseForbidden("A recent local sign-in is required.")
+        from core.models import VerifiedUserEmail
+
+        expected_email = (request.user.email or "").strip().casefold()
+        if not VerifiedUserEmail.objects.filter(
+            user=request.user,
+            normalized_email=expected_email,
+        ).exists():
+            return HttpResponseForbidden("A verified local email is required.")
+        return super().get(request)
+
+    def _transaction(self, request):
+        transaction_data = super()._transaction(request)
+        transaction_data.update(
+            {
+                "user_id": str(request.user.pk),
+                "email": (request.user.email or "").strip().casefold(),
+            }
+        )
+        return transaction_data
+
+
+class KatekOIDCCallbackView(OIDCAuthenticationCallbackView):
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(settings, "KATEK_OIDC_ENABLED", False):
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        state = request.GET.get("state", "")
+        try:
+            return super().get(request)
+        finally:
+            transactions = request.session.get("katek_oidc_transactions", {})
+            if state in transactions:
+                transactions.pop(state, None)
+                request.session["katek_oidc_transactions"] = transactions
+                request.session.modified = True
 
 
 # --------------------------------------------------------------------------- #

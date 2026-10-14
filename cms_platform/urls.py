@@ -26,6 +26,9 @@ from core import seo_views
 from core import views as core_views
 from core import ghl_views
 from core.auth_views import (
+    KatekOIDCCallbackView,
+    KatekOIDCLinkView,
+    KatekOIDCStartView,
     TenantAwareLoginView,
     TenantPasswordResetConfirmView,
     TenantPasswordResetView,
@@ -41,6 +44,21 @@ urlpatterns = [
 
     path("login/", TenantAwareLoginView.as_view(), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path(
+        "auth/katek/start/",
+        KatekOIDCStartView.as_view(),
+        name="katek_oidc_start",
+    ),
+    path(
+        "auth/katek/link/",
+        KatekOIDCLinkView.as_view(),
+        name="katek_oidc_link",
+    ),
+    path(
+        "auth/katek/callback/",
+        KatekOIDCCallbackView.as_view(),
+        name="katek_oidc_callback",
+    ),
 
     # Self-service password reset (tenant-aware; email sent via Resend).
     path("password-reset/", TenantPasswordResetView.as_view(), name="password_reset"),

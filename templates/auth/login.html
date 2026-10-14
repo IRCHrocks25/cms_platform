@@ -33,6 +33,14 @@
         <div class="flash flash-error" role="alert">{{ form.non_field_errors }}</div>
       {% endif %}
 
+      {% if katek_oidc_enabled %}
+        <a class="btn btn-secondary btn-block login-katek-action"
+           href="{% url 'katek_oidc_start' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
+          Continue with Katek
+        </a>
+        <div class="login-divider"><span>or use your site account</span></div>
+      {% endif %}
+
       <form method="post" class="login-form" data-submit-state data-submit-label="Signing in…">
         {% csrf_token %}
         <div class="field">
