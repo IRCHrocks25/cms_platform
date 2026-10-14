@@ -3170,6 +3170,7 @@ def _render_editor(request, tenant, *, scope, page=None):
         schema = (tpl.schema if tpl else None) or {"sections": []}
     content = merge_with_defaults(schema, editable.content)
     theme_tokens = schema.get("theme_tokens", [])
+    typography_roles = {t["role"] for t in schema.get("typography_tokens", [])}
 
     sections = schema.get("sections", [])
     # Brand tokens (global colors) and the header navigation are conceptually
@@ -3407,6 +3408,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             "footer_sections": footer_sections,
             "brand_section": brand_section,
             "theme_tokens": theme_tokens,
+            "typography_roles": typography_roles,
             "link_targets": link_targets,
             "grouped_sections": grouped,
             # Passed as Python objects and emitted via Django's ``json_script``
@@ -3467,7 +3469,9 @@ _ALLOWED_STYLE_KEYS = {
     "bgMode", "bgImage", "bgGradient", "bgSize", "bgPosition", "bgOverlay",
     "bgOpacity", "bgBlur",
 }
-_ALLOWED_GLOBAL_KEYS = {"fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"}
+_ALLOWED_GLOBAL_KEYS = {
+    "fontFamily", "baseSize", "headingFamily", "headingSize", "textColor", "pageBg",
+}
 
 
 def _clean_style_value(value):
@@ -3516,6 +3520,10 @@ def _safe_style_key_value(key, value):
         return _safe_css_value(raw)
     if key in ("fontFamily", "headingFamily"):
         return _sanitize_font_family(raw) or None
+    if key == "headingSize":
+        from core.typography import LENGTH_RE
+
+        return raw if LENGTH_RE.match(raw) else None
     # fontSize / fontWeight / align / baseSize / lineHeight / letterSpacing /
     # textTransform / layout lengths: numbers and keywords only.
     return raw if _SAFE_STYLE_TOKEN_RE.match(raw) else None

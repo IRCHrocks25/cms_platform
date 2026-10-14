@@ -66,7 +66,7 @@
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M7 6h.01"/><path d="M11 6h.01"/></svg>
         </button>
       {% endif %}
-      {% if block_mode and theme_tokens or block_mode and brand_section %}
+      {% if block_mode and theme_tokens or block_mode and brand_section or block_mode and typography_roles %}
         <button type="button" class="ui-btn ui-btn--ghost" data-chrome-drawer="{% if brand_section %}{{ brand_section.id }}{% else %}_tokens{% endif %}" title="Design" aria-label="Design">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
         </button>
@@ -238,7 +238,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg>
         </button>
       </div>
-      {% if nav_sections or theme_tokens or brand_section %}
+      {% if nav_sections or theme_tokens or brand_section or typography_roles %}
         <div class="editor-tabs" role="tablist" aria-label="Editor sections">
           <button type="button" class="editor-tab active" data-tab="content" role="tab" aria-selected="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -250,7 +250,7 @@
               Navigation
             </button>
           {% endif %}
-          {% if theme_tokens or brand_section %}
+          {% if theme_tokens or brand_section or typography_roles %}
             <button type="button" class="editor-tab editor-tab-icon" data-tab="brand" role="tab" aria-selected="false" aria-label="Design" title="Design: colors & fonts">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
             </button>
@@ -367,7 +367,7 @@
         </div>
       {% endif %}
 
-      {% if theme_tokens or brand_section %}
+      {% if theme_tokens or brand_section or typography_roles %}
       <div class="editor-tab-panel" data-panel="brand" hidden>
         <div class="brand-intro">
           <h2>Design</h2>
@@ -382,6 +382,13 @@
               <select class="select" data-global-bind="headingFamily" data-global-fontselect></select></label>
             <label class="field"><span class="field-label">Base text size</span>
               <select class="select" data-global-bind="baseSize" data-global-sizeselect></select></label>
+            {% if "heading-size" in typography_roles %}
+            <label class="field"><span class="field-label">Heading size</span>
+              <select class="select" data-global-bind="headingSize" data-global-sizeselect="heading"></select></label>
+            {% endif %}
+            {% if typography_roles %}
+            <p class="field-hint">Your template's fonts are linked, so these change every heading, button and link that uses them, including your blog.</p>
+            {% endif %}
             <div class="field"><span class="field-label">Page background color</span>
               <div class="cms-swatches" data-global-swatches="pageBg"></div></div>
             <div class="field"><span class="field-label">Default text color</span>

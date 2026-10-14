@@ -108,6 +108,28 @@ part of the default OAuth scopes, so older installs must reconnect/re-consent.
 MCP exposes `list_embed_slots`, `list_ghl_forms`, and `set_embed_slot`; generic
 `patch_content` intentionally refuses embed fields.
 
+### Typography tokens
+
+Declare these in any `:root` block and use them everywhere the role applies
+(`font-family: var(--font-heading)` on every heading-like class):
+
+| token | role | value | Design control (`_global` key) |
+|------------------|-----------------|------------|--------------------------------|
+| `--font-body` | body font | font stack | Body font (`fontFamily`) |
+| `--font-heading` | heading font | font stack | Heading font (`headingFamily`) |
+| `--text-body` | body text size | length | Base text size (`baseSize`) |
+| `--text-heading` | main heading size | length | Heading size (`headingSize`) |
+
+Older templates are covered by deterministic inference in
+`core/typography.py`: the font variable an `html`/`body` rule uses is the body
+font, and the font variable whose rules style the most `h1`–`h6` elements is
+the heading font. When a role has a token, the Design control overrides the
+token instead of writing `body` / `h1-h6` rules, and the renderer publishes
+contract aliases (`--font-body: var(--body)`). The blog reads `--font-body` /
+`--font-heading` with its own fonts as fallback. Typography tokens never appear
+as Brand fields. Spec:
+`docs/superpowers/specs/2026-10-14-cms-74-typography-tokens-design.md`.
+
 The parser is in `core/parser.py`. The renderer is in `core/renderer.py`.
 **These two files are the heart of the system — read them before changing
 anything that touches schema or rendering.**
