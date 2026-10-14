@@ -14,7 +14,7 @@ from django.test import Client, override_settings
 
 from core.models import Template, Tenant
 from core.services.blocks import upgrade_shell_chrome_slots
-from core.tests.test_typography_tokens import IAM_TPL
+from core.tests.test_typography_tokens import CONTRACT_TPL, IAM_TPL
 
 try:
     from playwright.sync_api import sync_playwright
@@ -175,6 +175,47 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
         self.preview_font(".ft-h", "Oswald")
         self.preview_font(".ft-p", "Poppins")
         self.saved_global({"headingFamily": "Oswald", "fontFamily": "Poppins"})
+
+    def test_contract_sizes_change_in_preview_and_public_site(self):
+        self.tenant.template.html_source = CONTRACT_TPL
+        self.tenant.template.save()
+        self.open_design_tab()
+        self.page.wait_for_selector('[data-global-bind="headingSize"]', state="visible")
+
+        self.page.select_option('[data-global-bind="baseSize"]', "20px")
+        self.page.select_option('[data-global-bind="headingSize"]', "64px")
+        frame = self.page.frame_locator("#preview-frame")
+        deadline = time.monotonic() + 10
+        while True:
+            sizes = frame.locator("body").evaluate(
+                "() => [getComputedStyle(document.body).fontSize,"
+                " getComputedStyle(document.querySelector('.title')).fontSize]"
+            )
+            if sizes == ["20px", "64px"]:
+                break
+            if time.monotonic() > deadline:
+                self.fail(f"preview sizes are {sizes}")
+            time.sleep(0.2)
+        self.saved_global({"baseSize": "20px", "headingSize": "64px"})
+
+        self.open_design_tab()
+        self.assertEqual(self.page.input_value('[data-global-bind="headingSize"]'), "64px")
+        for width in (1280, 390):
+            with self.subTest(width=width):
+                page = self.browser.new_page(viewport={"width": width, "height": 900})
+                try:
+                    page.goto(f"{self.live_server_url}/site/iam/")
+                    self.assertEqual(
+                        page.evaluate("() => getComputedStyle(document.body).fontSize"), "20px",
+                    )
+                    self.assertEqual(
+                        page.evaluate(
+                            "() => getComputedStyle(document.querySelector('.title')).fontSize"
+                        ),
+                        "64px",
+                    )
+                finally:
+                    page.close()
 
     def test_resetting_to_default_restores_template_font_live(self):
         self.tenant.content = {"_global": {"headingFamily": "Oswald"}}
