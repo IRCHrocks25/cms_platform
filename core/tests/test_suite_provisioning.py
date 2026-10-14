@@ -9,7 +9,8 @@ from django.db import close_old_connections
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 
-from core.models import SuiteFormBinding, SuiteTenantBinding, Template, Tenant
+from core.models import SuiteFormBinding, SuiteTenantBinding, Template, Tenant, TenantMembership
+from core.services.accounts import OwnerTransferError, transfer_and_remove_owner
 from core.services.suite_bindings import SuiteBindingConflict, create_suite_site, link_suite_site
 
 
@@ -90,6 +91,58 @@ class SuiteProvisioningTests(TestCase):
         binding.tenant.save(update_fields=["owner"])
         with self.assertRaises(SuiteBindingConflict):
             self.create()
+
+    def test_created_binding_blocks_owner_transfer_without_changing_replay(self):
+        binding = self.create()
+        original = binding.tenant.memberships.get(user=self.owner)
+        successor = TenantMembership.objects.create(
+            tenant=binding.tenant, user=self.other_owner,
+            role=TenantMembership.ROLE_OWNER,
+        )
+
+        with self.assertRaises(OwnerTransferError):
+            transfer_and_remove_owner(
+                binding.tenant_id, original.pk, successor.pk,
+                actor_id=self.operator.pk,
+            )
+
+        binding.tenant.refresh_from_db()
+        self.assertEqual(binding.tenant.owner_id, self.owner.pk)
+        self.assertTrue(TenantMembership.objects.filter(pk=original.pk).exists())
+        self.assertTrue(TenantMembership.objects.filter(pk=successor.pk).exists())
+        self.assertEqual(self.create().pk, binding.pk)
+        self.assertFalse(binding.form_binding.is_active)
+
+    def test_linked_binding_blocks_owner_transfer_without_changing_replay(self):
+        template = Template.objects.create(name="Existing", html_source=HTML)
+        tenant = Tenant.objects.create(
+            name="Katek", subdomain="katek", template=template, owner=self.owner,
+        )
+        original = TenantMembership.objects.create(
+            tenant=tenant, user=self.owner, role=TenantMembership.ROLE_OWNER,
+        )
+        successor = TenantMembership.objects.create(
+            tenant=tenant, user=self.other_owner, role=TenantMembership.ROLE_OWNER,
+        )
+        args = dict(
+            business_id=self.business_id, operation_key=self.operation_key,
+            tenant_id=tenant.pk, expected_owner_id=self.owner.pk,
+            operator=self.operator,
+        )
+        binding = link_suite_site(**args)
+
+        with self.assertRaises(OwnerTransferError):
+            transfer_and_remove_owner(
+                tenant.pk, original.pk, successor.pk,
+                actor_id=self.operator.pk,
+            )
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.owner_id, self.owner.pk)
+        self.assertTrue(TenantMembership.objects.filter(pk=original.pk).exists())
+        self.assertTrue(TenantMembership.objects.filter(pk=successor.pk).exists())
+        self.assertEqual(link_suite_site(**args).pk, binding.pk)
+        self.assertFalse(binding.form_binding.is_active)
 
     def test_bound_tenant_cannot_be_deleted_and_recreated_under_same_business(self):
         binding = self.create()

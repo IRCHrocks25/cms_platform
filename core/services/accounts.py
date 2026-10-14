@@ -10,6 +10,7 @@ from core.models import (
     TemplateVersion,
     Tenant,
     TenantMembership,
+    SuiteTenantBinding,
     validate_tenant_subdomain,
 )
 from core.services import custom_domains
@@ -122,6 +123,13 @@ def transfer_and_remove_owner(
         )
     if successor is None or successor.pk == target.pk or successor not in owners:
         raise OwnerTransferError("The chosen successor is no longer an Owner member.")
+
+    # A Suite binding records an immutable owner. Keep the tenant lock held so
+    # linking and transfer cannot race, and refuse drift before either write.
+    if SuiteTenantBinding.objects.filter(tenant_id=tenant.pk).exists():
+        raise OwnerTransferError(
+            "This site is linked to a suite business; ownership transfer requires a reviewed rebinding flow."
+        )
 
     tenant.owner = successor.user
     tenant.save(update_fields=["owner"])
