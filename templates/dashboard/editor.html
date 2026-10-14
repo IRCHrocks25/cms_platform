@@ -66,9 +66,14 @@
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M7 6h.01"/><path d="M11 6h.01"/></svg>
         </button>
       {% endif %}
-      {% if block_mode and theme_tokens or block_mode and brand_section or block_mode and typography_roles %}
+      {% if block_mode and theme_tokens or block_mode and brand_section %}
         <button type="button" class="ui-btn ui-btn--ghost" data-chrome-drawer="{% if brand_section %}{{ brand_section.id }}{% else %}_tokens{% endif %}" title="Design" aria-label="Design">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h1a3 3 0 0 0 3-3 10 10 0 0 0-8-9.7"/></svg>
+        </button>
+      {% endif %}
+      {% if block_mode and typography_roles %}
+        <button type="button" class="ui-btn ui-btn--ghost" data-chrome-drawer="_global" title="Fonts" aria-label="Fonts">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
         </button>
       {% endif %}
       <div class="editor-tools action-menu" data-menu>
@@ -360,7 +365,7 @@
           <h2>Design</h2>
           <p>Site-wide colors and fonts. These apply across every section; individual headings and text can still be styled on their own from the Content tab.</p>
         </div>
-        <div class="editor-form-section" data-section-id="_global">
+        <div class="editor-form-section" id="section-_global" data-section-id="_global">
           <div class="editor-form-section-head"><h2>Colors &amp; fonts</h2></div>
           <div class="stack-5">
             <label class="field"><span class="field-label">Body font</span>
