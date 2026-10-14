@@ -662,7 +662,10 @@
         // Empty / <br>-only contenteditable leftovers mean "use the designed
         // default". The properties panel hydrates from CMS.blockDefaults so
         // unedited fields show the designed copy instead of a blank box.
-        if (stored !== undefined && stored !== null && !cmsIsBlankHtml(stored)) {
+        // An explicitly empty alt is meaningful for a decorative image; do
+        // not replace it with the template's nonempty default on reload.
+        if (stored !== undefined && stored !== null &&
+            (fld.slice(-4) === "_alt" || !cmsIsBlankHtml(stored))) {
           return stored;
         }
         return (BLOCK_DEFAULTS[inst.type] || {})[fld];
@@ -677,7 +680,7 @@
       var inst = findInstance(sec);
       if (inst) {
         if (!inst.fields) inst.fields = {};
-        if (cmsIsBlankHtml(value)) {
+        if (fld.slice(-4) !== "_alt" && cmsIsBlankHtml(value)) {
           delete inst.fields[fld];
           return;
         }
@@ -1053,6 +1056,26 @@
     setStyleProp(fieldId, prop, value);
     pushStyleToPreview(fieldId);
     scheduleSave();
+  }
+  // null = clear, undefined = ignore (partial keystroke), number = 10–100.
+  function imageWidthPercent(raw) {
+    var text = String(raw == null ? "" : raw).trim().replace(/%$/, "");
+    if (!text) return null;
+    if (!/^\d{1,3}$/.test(text)) return undefined;
+    var n = parseInt(text, 10);
+    if (n < 10 || n > 100) return undefined;
+    return n;
+  }
+  function setImageWidthInput(fieldId, pct) {
+    var input = document.querySelector('[data-bind-image-width="' + fieldId + '"]');
+    if (!input) return;
+    input.value = pct ? String(pct) : "";
+  }
+  function commitImageWidth(fieldId, raw, fromInput) {
+    var pct = imageWidthPercent(raw);
+    if (pct === undefined) return;
+    commitStyle(fieldId, "width", pct ? (pct + "%") : "");
+    if (!fromInput) setImageWidthInput(fieldId, pct);
   }
   function fieldBgMode(style) {
     if (style.bgMode === "image" || style.bgImage) return "image";
@@ -1687,6 +1710,9 @@
     } else if (data.type === "replace-image") {
       focusFieldInForm(data.payload.id);
       if (openContentGallery) openContentGallery(data.payload.id);
+    } else if (data.type === "image-width") {
+      var sized = data.payload || {};
+      if (sized.id && sized.width) commitImageWidth(sized.id, sized.width, false);
     } else if (data.type === "select-block") {
       selectBlockInForm(data.payload.id);
     } else if (data.type === "block-action") {
@@ -4072,6 +4098,26 @@
         fileInput.addEventListener("change", function () {
           uploadImageFile(fileInput.files[0]);
         });
+
+        var widthInput = node.querySelector("[data-bind-image-width]");
+        if (widthInput) {
+          var existingWidth = imageWidthPercent(getStyle(fieldId).width || "");
+          if (existingWidth) widthInput.value = String(existingWidth);
+          widthInput.addEventListener("input", function () {
+            commitImageWidth(fieldId, widthInput.value, true);
+          });
+          widthInput.addEventListener("blur", function () {
+            var raw = widthInput.value.trim();
+            if (!raw) {
+              commitImageWidth(fieldId, "", true);
+              return;
+            }
+            var n = parseInt(raw, 10);
+            if (!(n >= 10 && n <= 100)) n = Math.max(10, Math.min(100, isNaN(n) ? 10 : n));
+            widthInput.value = String(n);
+            commitImageWidth(fieldId, String(n), true);
+          });
+        }
 
         // Drag-and-drop a file onto the field. Only react to OS file drags
         // (dataTransfer.types includes "Files"); internal block/palette drags

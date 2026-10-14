@@ -3627,6 +3627,7 @@ def _save_content(request, editable):
     _normalize_styles(content)
 
     template = editable.template
+    _bound_image_widths_for_save(content, template)
 
     # Block-instance regions: validate the ordered instance lists against the
     # template's allowlisted palette, enforce the per-page cap, and mint fresh
@@ -3694,12 +3695,34 @@ class _BlockValidationError(Exception):
 _INSTANCE_ID_RE = re.compile(r"^(?:blk_[a-f0-9]{8,}|[a-z][a-z0-9_-]{0,79})$")
 
 
+def _bound_image_widths_for_save(content: dict, template) -> None:
+    """Drop image display widths outside 10%–100%. Block and text widths stay.
+
+    Called before the schema is rebuilt so a payload can't persist ``400px`` or
+    ``150%`` on an annotated image. Classic ids come from the template HTML;
+    block-shell ids come from the instance list plus the block catalog.
+    """
+    from core.parser import build_schema
+    from core.renderer import bound_image_style_widths, image_display_style_ids
+
+    html = getattr(template, "html_source", "") if template is not None else ""
+    schema = build_schema(html) if html else {"sections": []}
+    catalog = None
+    if template is not None and getattr(template, "is_block_shell", False):
+        from core.services import blocks as _blocks
+
+        catalog = _blocks.catalog_for_template(template)
+    bound_image_style_widths(content, image_display_style_ids(schema, content, catalog))
+
+
 def _sanitize_content_field_values(content: dict, schema: dict) -> None:
     """Validate URL and color field values in ``content`` against the schema so
     a scriptable ``javascript:`` href or CSS-breakout color never persists.
 
     Unsafe values are replaced with an empty string (the field falls back to its
-    template default on render). Mirrors the renderer's per-type allowlists."""
+    template default on render). Mirrors the renderer's per-type allowlists.
+    Image alt companions are plain text with tags and control characters removed."""
+    from core.parser import clean_image_alt
     from core.renderer import _safe_css_value, _safe_url_value
 
     if not isinstance(content, dict) or not isinstance(schema, dict):
@@ -3715,6 +3738,9 @@ def _sanitize_content_field_values(content: dict, schema: dict) -> None:
             if field_name not in section_data:
                 continue
             value = section_data[field_name]
+            if field.get("applies_to") and str(field.get("id") or "").endswith("_alt"):
+                section_data[field_name] = clean_image_alt(value)
+                continue
             if not isinstance(value, str) or not value:
                 continue
             if ftype == "link":
@@ -3768,15 +3794,23 @@ def _normalize_regions(content: dict, template) -> None:
             iid = blocks.new_instance_id()
         seen_ids.add(iid)
 
-        known_fields = {
-            f["id"] for f in (catalog[itype]["schema"].get("fields") or [])
-        }
+        schema_fields = catalog[itype]["schema"].get("fields") or []
+        known_fields = {f["id"] for f in schema_fields}
+        field_by_id = {f.get("id"): f for f in schema_fields}
         raw_fields = inst.get("fields")
         clean_fields = {}
         if isinstance(raw_fields, dict):
+            from core.parser import clean_image_alt
+
             for key, value in raw_fields.items():
-                if key in known_fields and isinstance(key, str):
-                    clean_fields[key] = value
+                if key not in known_fields or not isinstance(key, str):
+                    continue
+                meta = field_by_id.get(key) or {}
+                if meta.get("applies_to") and key.endswith("_alt"):
+                    if not isinstance(value, str):
+                        continue
+                    value = clean_image_alt(value)
+                clean_fields[key] = value
         counter["total"] += 1
         out = {"id": iid, "type": itype, "fields": clean_fields}
 

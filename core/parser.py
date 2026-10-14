@@ -184,6 +184,48 @@ def parse_select_options(el) -> list[dict[str, str]]:
     return options
 
 
+_ALT_SCRIPT_RE = re.compile(r"(?is)<script[^>]*>.*?</script>")
+_ALT_TAG_RE = re.compile(r"<[^>]*>")
+_ALT_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def clean_image_alt(value) -> str:
+    """Alt text safe to store and write into an attribute.
+
+    Drops script blocks, leftover tags, and control characters. The parser
+    keeps the template's raw ``alt`` as the default so an unedited image is
+    not rewritten; save and render run this on values the client actually set.
+    """
+    text = "" if value is None else str(value)
+    text = _ALT_SCRIPT_RE.sub(" ", text)
+    text = _ALT_TAG_RE.sub(" ", text)
+    text = _ALT_CTRL_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:300]
+
+
+def _image_alt_companion(field_el, field_id: str, label: str) -> dict[str, Any] | None:
+    """Expose an image's alt text beside its src.
+
+    ``data-type="image"`` stores the URL. The companion is the accessible
+    description. It has no marker of its own (``applies_to``), matching the
+    link href/label companions.
+    """
+    if getattr(field_el, "name", None) != "img":
+        return None
+    ftype = (field_el.get("data-type") or "text").strip() or "text"
+    if ftype != "image":
+        return None
+    return {
+        "id": f"{field_id}_alt",
+        "label": f"{label} alt text"[:120],
+        "type": "text",
+        "default": field_el.get("alt") or "",
+        "style_editable": False,
+        "applies_to": field_id,
+    }
+
+
 def _anchor_href_companion(field_el, field_id: str, label: str) -> dict[str, Any] | None:
     """If a text/richtext edit sits on an ``<a>``, also expose its href.
 
@@ -341,6 +383,13 @@ def build_schema(html: str) -> dict[str, Any]:
                 seen_field_ids.add(href_field["id"])
                 section_entry["fields"].append(href_field)
                 section_defaults[href_field["id"].split(".", 1)[1]] = href_field["default"]
+            alt_field = _image_alt_companion(
+                field_el, full_id, field_entry["label"]
+            )
+            if alt_field and alt_field["id"] not in seen_field_ids:
+                seen_field_ids.add(alt_field["id"])
+                section_entry["fields"].append(alt_field)
+                section_defaults[alt_field["id"].split(".", 1)[1]] = alt_field["default"]
 
         if section_entry["fields"]:
             sections.append(section_entry)
@@ -475,6 +524,10 @@ def build_block_schema(html: str) -> dict[str, Any]:
         if href_field and href_field["id"] not in defaults:
             fields.append(href_field)
             defaults[href_field["id"]] = href_field["default"]
+        alt_field = _image_alt_companion(field_el, field_part, entry["label"])
+        if alt_field and alt_field["id"] not in defaults:
+            fields.append(alt_field)
+            defaults[alt_field["id"]] = alt_field["default"]
 
     return {
         "key": key,

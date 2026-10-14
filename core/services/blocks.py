@@ -826,17 +826,25 @@ def block_region_names(html: str | None) -> list[str]:
 
 
 def build_catalog(block_types: Iterable) -> dict[str, dict]:
-    """Map a block key to the data the renderer needs (schema + html)."""
+    """Map a block key to the data the renderer needs (schema + html).
+
+    Schema is parsed from the fragment on each read so a parser change (image
+    alt companions, for example) shows up without re-saving every block row.
+    """
+    from core.parser import build_block_schema
+
     catalog: dict[str, dict] = {}
     for bt in block_types:
+        html = bt.html_source or ""
+        schema = build_block_schema(html) if html.strip() else (bt.schema or {})
         catalog[bt.key] = {
             "key": bt.key,
             "label": bt.label,
             "icon": bt.icon,
             "category": bt.category,
-            "schema": bt.schema or {},
-            "html": bt.html_source or "",
-            "regions": block_region_names(bt.html_source),
+            "schema": schema,
+            "html": html,
+            "regions": block_region_names(html),
         }
     return catalog
 
