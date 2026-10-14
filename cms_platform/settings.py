@@ -426,6 +426,10 @@ GHL_SHARED_SECRET = os.environ.get("GHL_SHARED_SECRET", "")
 GHL_WEBHOOK_PUBLIC_KEY = os.environ.get("GHL_WEBHOOK_PUBLIC_KEY", "")
 # Fernet key (urlsafe base64, 32 bytes) for encrypting GHL tokens at rest.
 GHL_TOKEN_ENCRYPTION_KEY = os.environ.get("GHL_TOKEN_ENCRYPTION_KEY", "")
+# Default-off suite key handoff. Provisioning must fail closed until a separate
+# Fernet key is configured; encrypted plaintext is retryable only briefly.
+SUITE_CREDENTIAL_HANDOFF_FERNET_KEY = os.environ.get("SUITE_CREDENTIAL_HANDOFF_FERNET_KEY", "")
+SUITE_CREDENTIAL_HANDOFF_TTL_SECONDS = int(os.environ.get("SUITE_CREDENTIAL_HANDOFF_TTL_SECONDS", "900"))
 # Optional explicit app version id; falls back to GHL_CLIENT_ID prefix.
 GHL_APP_VERSION_ID = os.environ.get("GHL_APP_VERSION_ID", "")
 # GHL's install/consent (chooselocation) endpoint — whitelabel variant

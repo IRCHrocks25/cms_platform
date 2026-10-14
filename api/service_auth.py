@@ -55,7 +55,7 @@ def _checked_scopes(scopes) -> list[str]:
 
 
 def issue_service_credential(
-    tenant: Tenant, *, scopes, expires_at=None
+    tenant: Tenant, *, scopes, expires_at=None, is_pending=False
 ) -> tuple[ServiceCredential, str]:
     """Mint once for a verified tenant; plaintext is returned once, never saved."""
     selected = _checked_scopes(scopes)
@@ -67,7 +67,12 @@ def issue_service_credential(
         ServiceCredential.objects.filter(
             tenant_id=tenant.pk, revoked_at__isnull=True, expires_at__lte=now
         ).update(revoked_at=now)
-        if ServiceCredential.objects.filter(tenant_id=tenant.pk, revoked_at__isnull=True).exists():
+        outstanding = ServiceCredential.objects.filter(
+            tenant_id=tenant.pk, revoked_at__isnull=True
+        )
+        if outstanding.filter(is_pending=True).exists():
+            raise ValueError("tenant already has a pending service credential")
+        if not is_pending and outstanding.filter(is_pending=False).exists():
             raise ValueError("tenant already has an active service credential; rotate it")
         expires_at = expires_at or now + DEFAULT_LIFETIME
         key_id = uuid.uuid4()
@@ -77,6 +82,7 @@ def issue_service_credential(
             key_id=key_id,
             token_hash=hashlib.sha256(token.encode("ascii")).hexdigest(),
             scopes=selected,
+            is_pending=is_pending,
             expires_at=expires_at,
         )
         return credential, token
@@ -96,7 +102,7 @@ def resolve_service_token(token: str) -> ServicePrincipal | None:
     digest = hashlib.sha256(token.encode("ascii")).hexdigest()
     if not hmac.compare_digest(credential.token_hash, digest):
         return None
-    if credential.revoked_at is not None or credential.expires_at <= timezone.now():
+    if credential.is_pending or credential.revoked_at is not None or credential.expires_at <= timezone.now():
         return None
     scopes = frozenset(credential.scopes)
     if not scopes or not scopes <= SERVICE_SCOPES:
@@ -120,6 +126,10 @@ def rotate_service_credential(
     current = ServiceCredential.objects.select_for_update().get(pk=credential.pk)
     if current.revoked_at is not None or current.expires_at <= timezone.now():
         raise ValueError("cannot rotate inactive credential")
+    if ServiceCredential.objects.filter(
+        tenant_id=current.tenant_id, is_pending=True, revoked_at__isnull=True
+    ).exists():
+        raise ValueError("cannot rotate while a suite handoff is pending")
     current.revoked_at = timezone.now()
     current.save(update_fields=["revoked_at"])
     replacement, token = issue_service_credential(

@@ -56,6 +56,7 @@ class ServiceCredential(models.Model):
     )
     token_hash = models.CharField(max_length=64, unique=True)
     scopes = models.JSONField(default=list)
+    is_pending = models.BooleanField(default=False)
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -64,7 +65,35 @@ class ServiceCredential(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["tenant"],
-                condition=models.Q(revoked_at__isnull=True),
+                condition=models.Q(revoked_at__isnull=True, is_pending=False),
                 name="one_active_service_key_per_tenant",
             ),
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(revoked_at__isnull=True, is_pending=True),
+                name="one_pending_service_key_per_tenant",
+            ),
         ]
+
+
+class SuiteCredentialHandoff(models.Model):
+    """Operation receipt; ciphertext is erased after acknowledgment or expiry."""
+
+    operation_key = models.UUIDField(unique=True)
+    binding = models.ForeignKey(
+        "core.SuiteTenantBinding", on_delete=models.PROTECT,
+        related_name="credential_handoffs",
+    )
+    credential = models.OneToOneField(
+        ServiceCredential, on_delete=models.PROTECT, related_name="suite_handoff",
+    )
+    previous_credential = models.ForeignKey(
+        ServiceCredential, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="replacement_handoffs",
+    )
+    scopes = models.JSONField(default=list)
+    rotate = models.BooleanField(default=False)
+    ciphertext = models.TextField(blank=True, default="")
+    expires_at = models.DateTimeField()
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
