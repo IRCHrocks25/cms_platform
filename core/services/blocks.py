@@ -352,7 +352,7 @@ def _set_anchor_label(el, label: str) -> None:
 
 
 def _header_structure_customized(meta: dict | None) -> bool:
-    """True when the client changed logo, layout, or the CTA — not just labels."""
+    """True when the client changed logo, layout, or the CTA, not just labels."""
     if not meta:
         return False
     if meta.get("logo"):

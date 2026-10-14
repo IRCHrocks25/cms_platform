@@ -67,13 +67,37 @@ class NestedSectionOwnershipTests(SimpleTestCase):
         self.assertEqual(fields[1]["applies_to"], "nav.link1")
         self.assertEqual(schema["defaults"]["nav"]["link1_href"], "#about")
 
-    def test_typed_link_does_not_get_href_companion(self):
+    def test_typed_link_exposes_its_visible_label(self):
         schema = build_schema(
-            "<footer data-section='footer'>"
-            "<a data-edit='footer.go' data-type='link' href='https://x.com'>X</a>"
-            "</footer>"
+            "<nav data-section='navigation'>"
+            "<a data-edit='navigation.what_i_do_link' data-type='link' "
+            "data-label='What I Do link' href='#what-we-do'>What I Do</a>"
+            "</nav>"
+        )
+        fields = schema["sections"][0]["fields"]
+        self.assertEqual(
+            [f["id"] for f in fields],
+            ["navigation.what_i_do_link", "navigation.what_i_do_link_label"],
+        )
+        self.assertEqual(fields[0]["type"], "link")
+        self.assertEqual(fields[0]["default"], "#what-we-do")
+        self.assertEqual(fields[1]["type"], "text")
+        self.assertEqual(fields[1]["label"], "What I Do")
+        self.assertEqual(fields[1]["default"], "What I Do")
+        self.assertEqual(fields[1]["applies_to"], "navigation.what_i_do_link")
+        self.assertEqual(
+            schema["defaults"]["navigation"]["what_i_do_link_label"],
+            "What I Do",
+        )
+
+    def test_link_without_visible_text_has_no_label_field(self):
+        schema = build_schema(
+            "<section data-section='nav'>"
+            "<a data-edit='nav.icon' data-type='link' href='#'>"
+            "<img src='logo.png' alt=''></a>"
+            "</section>"
         )
         self.assertEqual(
             [f["id"] for f in schema["sections"][0]["fields"]],
-            ["footer.go"],
+            ["nav.icon"],
         )

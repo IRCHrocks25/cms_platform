@@ -515,6 +515,53 @@ class UrlFieldSanitizeTests(SimpleTestCase):
         )
         self.assertEqual(soup.find("a").get("href"), "/ok")
 
+    def test_link_label_renames_the_visible_words(self):
+        soup = self._render(
+            '<nav data-section="navigation">'
+            '<a data-edit="navigation.what_i_do_link" data-type="link" '
+            'href="#what-we-do">What I Do</a></nav>',
+            {"navigation": {
+                "what_i_do_link": "#what-we-do",
+                "what_i_do_link_label": "Services",
+            }},
+        )
+        link = soup.find("a")
+        self.assertEqual(link.get_text(strip=True), "Services")
+        self.assertEqual(link.get("href"), "#what-we-do")
+
+    def test_repeated_menu_copy_uses_the_same_label(self):
+        soup = self._render(
+            '<nav data-section="navigation">'
+            '<div class="n-links">'
+            '<a data-edit="navigation.what_i_do_link" data-type="link" '
+            'href="#what-we-do">What I Do</a>'
+            "</div>"
+            '<span data-edit="navigation.cta" data-type="text">'
+            "Find your growth opportunities</span>"
+            "</nav>"
+            '<div data-instance-id="blk_cta">'
+            '<span data-edit="cta.path_2_action" data-type="text">'
+            "Find your growth opportunities</span>"
+            "</div>"
+            '<div id="mmenu">'
+            '<a href="#what-we-do">What I Do</a>'
+            '<a href="#book">Find your growth opportunities</a>'
+            "</div>",
+            {"navigation": {
+                "what_i_do_link": "#what-we-do",
+                "what_i_do_link_label": "Services",
+                "cta": "Book a call",
+            }},
+        )
+        copies = soup.select("#mmenu a")
+        self.assertEqual(copies[0].get_text(strip=True), "Services")
+        self.assertEqual(copies[0].get("href"), "#what-we-do")
+        self.assertEqual(copies[1].get_text(strip=True), "Book a call")
+        self.assertEqual(copies[1].get("href"), "#book")
+        self.assertEqual(copies[1].get("data-edit"), "navigation.cta")
+        body = soup.select_one('[data-edit="cta.path_2_action"]')
+        self.assertEqual(body.get_text(strip=True), "Find your growth opportunities")
+
     def test_https_link_applied(self):
         soup = self._render(
             '<a data-edit="hero.cta" data-type="link" href="/ok" rel="nofollow">Go</a>',

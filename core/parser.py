@@ -226,6 +226,34 @@ def _image_alt_companion(field_el, field_id: str, label: str) -> dict[str, Any] 
     }
 
 
+def _anchor_label_companion(field_el, field_id: str, _label: str) -> dict[str, Any] | None:
+    """If a link edit sits on an ``<a>`` with visible words, also expose that text.
+
+    ``data-type="link"`` stores the href. Nav items such as "What I Do" are
+    annotated that way, so the client can retarget the click but cannot rename
+    the word. The companion is the visible label; the link field stays the URL.
+    """
+    if getattr(field_el, "name", None) != "a":
+        return None
+    ftype = (field_el.get("data-type") or "text").strip() or "text"
+    if ftype != "link":
+        return None
+    # A nested text field already owns the visible words (scorecard titles).
+    if field_el.find(attrs={"data-edit": True}) is not None:
+        return None
+    text = field_el.get_text().strip()
+    if not text:
+        return None
+    return {
+        "id": f"{field_id}_label",
+        "label": text[:80],
+        "type": "text",
+        "default": text,
+        "style_editable": False,
+        "applies_to": field_id,
+    }
+
+
 def _anchor_href_companion(field_el, field_id: str, label: str) -> dict[str, Any] | None:
     """If a text/richtext edit sits on an ``<a>``, also expose its href.
 
@@ -390,6 +418,13 @@ def build_schema(html: str) -> dict[str, Any]:
                 seen_field_ids.add(alt_field["id"])
                 section_entry["fields"].append(alt_field)
                 section_defaults[alt_field["id"].split(".", 1)[1]] = alt_field["default"]
+            label_field = _anchor_label_companion(
+                field_el, full_id, field_entry["label"]
+            )
+            if label_field and label_field["id"] not in seen_field_ids:
+                seen_field_ids.add(label_field["id"])
+                section_entry["fields"].append(label_field)
+                section_defaults[label_field["id"].split(".", 1)[1]] = label_field["default"]
 
         if section_entry["fields"]:
             sections.append(section_entry)
@@ -528,6 +563,10 @@ def build_block_schema(html: str) -> dict[str, Any]:
         if alt_field and alt_field["id"] not in defaults:
             fields.append(alt_field)
             defaults[alt_field["id"]] = alt_field["default"]
+        label_field = _anchor_label_companion(field_el, field_part, entry["label"])
+        if label_field and label_field["id"] not in defaults:
+            fields.append(label_field)
+            defaults[label_field["id"]] = label_field["default"]
 
     return {
         "key": key,
