@@ -424,7 +424,8 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         schema = build_schema(result.html)
         sections = [s for s in schema["sections"] if s["id"] != "brand"]
         self.assertEqual(len(sections), 1)
-        self.assertEqual(len(sections[0]["fields"]), 3)
+        # Title, body, image, plus the parser-synthesized image alt companion.
+        self.assertEqual(len(sections[0]["fields"]), 4)
         self.assertEqual(result.promoted_sections, 1)
         self.assertEqual(result.salvaged_fields, 3)
         self.assertEqual(result.dropped_fields, 0)
@@ -477,9 +478,10 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
             if section["id"] != "brand"
             for field in section["fields"]
         ]
-        # The text CTA <a> also gets a parser-synthesized ``*_href`` companion.
+        # Companions have no marker of their own: the CTA link's ``*_href``
+        # and the image's ``*_alt``.
         self.assertEqual(_parity_field_count(schema), 4)
-        self.assertEqual(len(fields), 5)
+        self.assertEqual(len(fields), 6)
         self.assertTrue(any(field.get("applies_to") for field in fields))
         self.assertEqual(sum(field["type"] == "image" for field in fields), 1)
         self.assertEqual(result.promoted_sections, 1)
@@ -584,7 +586,8 @@ class AnnotateHtmlParallelIntegrationTests(TestCase):
         self.assertEqual(result.backfilled_fields, 1)
         self.assertEqual(image.get("data-edit"), "hero.image_1")
         self.assertEqual(image.get("data-type"), "image")
-        self.assertEqual(len(non_brand_fields), 2)
+        # Title, backfilled image, and the image alt companion.
+        self.assertEqual(len(non_brand_fields), 3)
 
     @override_settings(
         OPENAI_API_KEY="sk-test",

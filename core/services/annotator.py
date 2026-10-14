@@ -1489,8 +1489,9 @@ def _merge_chunk_usage(results) -> dict:
 def _parity_field_count(schema: dict) -> int:
     """Count schema fields that correspond to a ``data-edit`` marker.
 
-    Brand tokens and parser-synthesized ``*_href`` companions (``applies_to``)
-    have no marker of their own and must not fail the post-restore parity gate.
+    Brand tokens and parser-synthesized companions (``applies_to``: ``*_href``,
+    ``*_label``, ``*_alt``) have no marker of their own and must not fail the
+    post-restore parity gate.
     """
     return sum(
         1
@@ -1636,9 +1637,9 @@ def annotate_html_result(raw_html: str) -> AnnotationResult:
     sections = [s for s in schema.get("sections", []) if s.get("id") != "brand"]
     annotated_soup = BeautifulSoup(annotated, "lxml")
     marker_count = len(annotated_soup.find_all(attrs={"data-edit": True}))
-    # ``*_href`` companions are parser-synthesized (a text/richtext <a> gets a
-    # URL field with no extra data-edit). Counting them as schema fields made
-    # real nav-heavy pages fail parity (e.g. 309 markers vs 314 fields).
+    # ``*_href`` / ``*_label`` / ``*_alt`` companions are parser-synthesized
+    # (no extra data-edit). Counting them as schema fields made real nav-heavy
+    # pages fail parity (e.g. 309 markers vs 314 fields).
     schema_field_count = _parity_field_count(schema)
     if marker_count != schema_field_count:
         logger.error(

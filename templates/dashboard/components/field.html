@@ -29,6 +29,16 @@
     </label>
     <button type="button" class="btn btn-ghost btn-sm cms-gallery-pick"
             data-gallery-pick="{{ field.id }}">Choose from gallery</button>
+    <div class="cms-image-size">
+      <label class="cms-image-size-label" for="w-{{ field.id }}">Display width</label>
+      <input class="input cms-image-width" type="number" inputmode="numeric"
+             id="w-{{ field.id }}"
+             min="10" max="100" step="1"
+             data-bind-image-width="{{ field.id }}"
+             aria-describedby="w-{{ field.id }}-hint">
+      <span class="cms-image-size-unit" aria-hidden="true">%</span>
+      <span class="field-hint" id="w-{{ field.id }}-hint">Percent of the container. Blank keeps the original size. Arrow keys change the width.</span>
+    </div>
 
   {% elif field.type == 'color' %}
     <div class="cms-field-color">

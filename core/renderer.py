@@ -13,7 +13,12 @@ from bs4 import BeautifulSoup, Tag
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
-from core.parser import build_schema, effective_field_type, parse_select_options
+from core.parser import (
+    build_schema,
+    clean_image_alt,
+    effective_field_type,
+    parse_select_options,
+)
 from core.services.template_sanitizer import (
     canonicalize_fragment,
     sanitize_template_html,
@@ -39,6 +44,26 @@ PREVIEW_BRIDGE_SCRIPT = """
     lineHeight: 'lineHeight', letterSpacing: 'letterSpacing', textTransform: 'textTransform',
     padding: 'padding', margin: 'margin', width: 'width', maxWidth: 'maxWidth',
     minHeight: 'minHeight', borderRadius: 'borderRadius' };
+  // Display width for annotated content images: a percent of the container,
+  // 10–100. Height stays auto so the picture keeps its aspect ratio, and
+  // max-width: 100% keeps it inside the column on a phone. Header logos use
+  // the separate logo-size control and are not part of this drag.
+  function cmsBoundImageWidth(value) {
+    var m = String(value == null ? '' : value).trim().match(/^(\\d{1,3})%$/);
+    if (!m) return '';
+    var n = parseInt(m[1], 10);
+    if (n < 10 || n > 100) return '';
+    return n + '%';
+  }
+  function cmsIsHeaderLogo(el) {
+    return !!(el && el.classList && el.classList.contains('site-header-logo'));
+  }
+  function cmsIsContentImage(el) {
+    if (!el || !el.tagName || el.tagName.toLowerCase() !== 'img') return false;
+    if ((el.getAttribute('data-type') || '') !== 'image') return false;
+    if (cmsIsHeaderLogo(el)) return false;
+    return true;
+  }
   function cmsEnsureFont(family) {
     if (!family) return;
     var safe = String(family).replace(/[^A-Za-z0-9 \\-]/g, '').trim();
@@ -129,6 +154,19 @@ PREVIEW_BRIDGE_SCRIPT = """
       if (!style.minHeight) el.style.minHeight = '220px';
       if (!style.padding) { el.style.padding = '32px 20px'; el.style.boxSizing = 'border-box'; }
       el.style.width = '100%';
+    }
+    if (cmsIsHeaderLogo(el) && style.width) el.style.width = '';
+    if (cmsIsContentImage(el)) {
+      var boundedWidth = cmsBoundImageWidth(style.width);
+      if (boundedWidth) {
+        el.style.width = boundedWidth;
+        el.style.height = 'auto';
+        el.style.maxWidth = '100%';
+      } else {
+        el.style.width = '';
+        el.style.height = '';
+        el.style.maxWidth = '';
+      }
     }
     if (style.fontFamily) cmsEnsureFont(style.fontFamily);
     // Text color must also override styled descendants (<em>/<span>/<strong>/
@@ -290,6 +328,142 @@ PREVIEW_BRIDGE_SCRIPT = """
       });
     }
   });
+
+  // Annotated content images: a visible right-edge handle resizes display
+  // width as a percent of the container. Arrow keys step by 5 (1 with Shift).
+  // Header logos and images that are not data-type=image never get a handle.
+  var cmsResizeImg = null;
+  var cmsResizeDrag = false;
+  var cmsResizeHandle = document.createElement('button');
+  cmsResizeHandle.type = 'button';
+  cmsResizeHandle.className = 'cms-image-resize';
+  cmsResizeHandle.hidden = true;
+  cmsResizeHandle.setAttribute('aria-label', 'Image display width');
+  cmsResizeHandle.setAttribute('role', 'slider');
+  cmsResizeHandle.setAttribute('aria-valuemin', '10');
+  cmsResizeHandle.setAttribute('aria-valuemax', '100');
+  cmsResizeHandle.setAttribute('aria-orientation', 'horizontal');
+  document.body.appendChild(cmsResizeHandle);
+  function cmsImageLimit(img) {
+    var node = img.parentElement;
+    if (node && node.tagName && node.tagName.toLowerCase() === 'picture') {
+      node = node.parentElement;
+    }
+    var max = node ? node.getBoundingClientRect().width : 0;
+    if (!(max > 8)) max = img.getBoundingClientRect().width || 1;
+    return max;
+  }
+  function cmsCurrentImagePct(img) {
+    var bounded = cmsBoundImageWidth(img.style.width);
+    if (bounded) return parseInt(bounded, 10);
+    var max = cmsImageLimit(img);
+    var pct = Math.round(img.getBoundingClientRect().width / max * 100);
+    if (pct < 10) pct = 10;
+    if (pct > 100) pct = 100;
+    return pct;
+  }
+  function cmsPaintImageWidth(img, pct) {
+    img.style.width = pct + '%';
+    img.style.height = 'auto';
+    img.style.maxWidth = '100%';
+    cmsResizeHandle.setAttribute('aria-valuenow', String(pct));
+    cmsResizeHandle.setAttribute('aria-valuetext', pct + ' percent');
+  }
+  function cmsPlaceImageHandle() {
+    if (!cmsResizeImg || cmsResizeHandle.hidden || !document.body.contains(cmsResizeImg)) return;
+    var r = cmsResizeImg.getBoundingClientRect();
+    var top = r.top + (window.scrollY || window.pageYOffset || 0) + (r.height / 2) - 16;
+    var left = r.left + (window.scrollX || window.pageXOffset || 0) + r.width - 8;
+    cmsResizeHandle.style.transform = 'translate(' + left + 'px,' + top + 'px)';
+  }
+  function cmsShowImageHandle(img) {
+    if (!cmsIsContentImage(img)) return;
+    cmsResizeImg = img;
+    var pct = cmsCurrentImagePct(img);
+    cmsResizeHandle.setAttribute('aria-valuenow', String(pct));
+    cmsResizeHandle.setAttribute('aria-valuetext', pct + ' percent');
+    cmsResizeHandle.hidden = false;
+    cmsPlaceImageHandle();
+  }
+  function cmsCommitImageWidth(img, pct) {
+    if (pct < 10) pct = 10;
+    if (pct > 100) pct = 100;
+    cmsPaintImageWidth(img, pct);
+    cmsPlaceImageHandle();
+    send('image-width', { id: img.getAttribute('data-edit'), width: pct + '%' });
+  }
+  cmsResizeHandle.addEventListener('pointerdown', function (e) {
+    if (!cmsResizeImg || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // preventDefault keeps the button from taking focus on its own, so arrow
+    // keys would miss this handle. Focus it explicitly.
+    cmsResizeHandle.focus();
+    var img = cmsResizeImg;
+    var max = cmsImageLimit(img);
+    var startX = e.clientX;
+    var startPx = img.getBoundingClientRect().width;
+    cmsResizeDrag = true;
+    var moved = false;
+    try { cmsResizeHandle.setPointerCapture(e.pointerId); } catch (err) {}
+    function move(ev) {
+      moved = true;
+      var px = startPx + (ev.clientX - startX);
+      if (px < max * 0.1) px = max * 0.1;
+      if (px > max) px = max;
+      var pct = Math.round(px / max * 100);
+      cmsPaintImageWidth(img, pct);
+      cmsPlaceImageHandle();
+    }
+    function up() {
+      cmsResizeHandle.removeEventListener('pointermove', move);
+      cmsResizeHandle.removeEventListener('pointerup', up);
+      cmsResizeHandle.removeEventListener('pointercancel', up);
+      cmsResizeDrag = false;
+      if (moved) cmsCommitImageWidth(img, cmsCurrentImagePct(img));
+    }
+    cmsResizeHandle.addEventListener('pointermove', move);
+    cmsResizeHandle.addEventListener('pointerup', up);
+    cmsResizeHandle.addEventListener('pointercancel', up);
+  });
+  cmsResizeHandle.addEventListener('keydown', function (e) {
+    if (!cmsResizeImg) return;
+    var step = e.shiftKey ? 1 : 5;
+    var next = cmsCurrentImagePct(cmsResizeImg);
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next += step;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next -= step;
+    else if (e.key === 'Home') next = 10;
+    else if (e.key === 'End') next = 100;
+    else return;
+    e.preventDefault();
+    cmsCommitImageWidth(cmsResizeImg, next);
+  });
+  cmsResizeHandle.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  document.addEventListener('mouseover', function (e) {
+    var img = e.target && e.target.closest ? e.target.closest('img') : null;
+    if (img && cmsIsContentImage(img)) cmsShowImageHandle(img);
+  });
+  document.addEventListener('click', function (e) {
+    if (e.target === cmsResizeHandle) return;
+    var img = e.target && e.target.closest ? e.target.closest('img') : null;
+    if (img && cmsIsContentImage(img)) cmsShowImageHandle(img);
+    else if (!cmsResizeDrag && document.activeElement !== cmsResizeHandle) {
+      cmsResizeHandle.hidden = true;
+    }
+  }, true);
+  document.addEventListener('mouseout', function (e) {
+    if (cmsResizeDrag || document.activeElement === cmsResizeHandle) return;
+    var next = e.relatedTarget;
+    if (next === cmsResizeHandle) return;
+    if (cmsResizeImg && next && (next === cmsResizeImg || (cmsResizeImg.contains && cmsResizeImg.contains(next)))) return;
+    var leaving = e.target && e.target.closest ? e.target.closest('img') : null;
+    if (leaving && leaving === cmsResizeImg) cmsResizeHandle.hidden = true;
+  });
+  window.addEventListener('scroll', cmsPlaceImageHandle, true);
+  window.addEventListener('resize', cmsPlaceImageHandle);
 
   // ---- inline (in-canvas) text editing ---------------------------------
   // Double-click makes a text/richtext element contentEditable; blur or Enter
@@ -631,6 +805,20 @@ PREVIEW_BRIDGE_SCRIPT = """
             cmsApplyLinkTarget(host, lurlH);
           });
           return;
+        }
+        if (fid.slice(-4) === '_alt') {
+          var altHost = fid.slice(0, -4);
+          var altText = String(value == null ? '' : value).replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');
+          altText = altText.replace(/<[^>]*>/g, ' ').replace(/[\\u0000-\\u001f\\u007f]/g, ' ');
+          altText = altText.replace(/\\s+/g, ' ').trim().slice(0, 300);
+          var altApplied = false;
+          document.querySelectorAll('[data-edit="' + altHost + '"]').forEach(function (host) {
+            if ((host.getAttribute('data-type') || '') !== 'image') return;
+            if (!altText && !host.hasAttribute('alt')) return;
+            host.setAttribute('alt', altText);
+            altApplied = true;
+          });
+          if (altApplied) return;
         }
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
@@ -1113,6 +1301,13 @@ PREVIEW_BRIDGE_SCRIPT = """
   .cms-editable:hover { outline-color: #2457d6; background: rgba(36, 87, 214, 0.06); }
   .cms-image-editable { cursor: pointer; }
   .cms-image-editable:hover { outline: 2px solid #2457d6; outline-offset: 3px; }
+  .cms-image-resize {
+    position: absolute; top: 0; left: 0; z-index: 2147483001;
+    width: 14px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 7px;
+    background: #2457d6; box-shadow: 0 0 0 2px #fff; cursor: ew-resize; touch-action: none;
+  }
+  .cms-image-resize[hidden] { display: none !important; }
+  .cms-image-resize:focus-visible { outline: 2px solid #7aa2ff; outline-offset: 2px; }
   .cms-inline-editable:hover { cursor: text; }
   .cms-inline-editing, .cms-inline-editing:hover {
     outline: 2px solid #2457d6 !important; outline-offset: 3px;
@@ -1365,6 +1560,22 @@ def _apply_select(el, value) -> None:
         el["class"] = classes
     elif el.has_attr("class"):
         del el["class"]
+
+
+def _apply_image_alt(el, value) -> None:
+    """Write a client-set alt onto an image. A value equal to the template alt
+    is a no-op, so unedited images keep their original attribute bytes."""
+    if getattr(el, "name", None) != "img" or not isinstance(value, str):
+        return
+    current = el.get("alt") if el.has_attr("alt") else None
+    if current == value:
+        return
+    text = clean_image_alt(value)
+    if current == text:
+        return
+    if current is None and not text:
+        return
+    el["alt"] = text
 
 
 def _apply_field(el, value: str, ftype: str, *, preview: bool = False) -> None:
@@ -1815,9 +2026,92 @@ def _apply_background(el, style: dict) -> None:
     _grow_bg_image_box(el, style)
 
 
+_IMAGE_WIDTH_RE = re.compile(r"^(\d{1,3})%$")
+
+
+def bound_image_display_width(value) -> str | None:
+    """Display width for an annotated content image: 10%–100% of its container.
+
+    Pixel lengths and anything outside that range are rejected so a saved
+    width cannot overflow the column or break the phone layout. Block and
+    text widths are a different control and do not come through here.
+    """
+    match = _IMAGE_WIDTH_RE.fullmatch(str(value or "").strip())
+    if not match:
+        return None
+    amount = int(match.group(1))
+    if amount < 10 or amount > 100:
+        return None
+    return f"{amount}%"
+
+
+def _is_header_logo(el) -> bool:
+    return "site-header-logo" in (el.get("class") or [])
+
+
+def _is_resizable_content_image(el) -> bool:
+    return (
+        getattr(el, "name", None) == "img"
+        and (el.get("data-type") or "") == "image"
+        and not _is_header_logo(el)
+    )
+
+
+def image_display_style_ids(schema, content, catalog=None) -> set[str]:
+    """Style keys that target an annotated image field, classic or block-shell."""
+    ids: set[str] = set()
+    for section in (schema or {}).get("sections") or []:
+        for field in section.get("fields") or []:
+            if field.get("type") == "image" and field.get("id"):
+                ids.add(str(field["id"]))
+    regions = content.get("regions") if isinstance(content, dict) else None
+    if isinstance(regions, dict) and isinstance(catalog, dict):
+
+        def walk(instances):
+            for inst in instances or []:
+                if not isinstance(inst, dict):
+                    continue
+                entry = catalog.get(inst.get("type")) or {}
+                inst_id = str(inst.get("id") or "")
+                for field in (entry.get("schema") or {}).get("fields") or []:
+                    if field.get("type") == "image" and inst_id and field.get("id"):
+                        ids.add(f"{inst_id}.{field['id']}")
+                children = inst.get("children") or {}
+                if isinstance(children, dict):
+                    for kids in children.values():
+                        if isinstance(kids, list):
+                            walk(kids)
+
+        for slot in regions.values():
+            if isinstance(slot, list):
+                walk(slot)
+    return ids
+
+
+def bound_image_style_widths(content: dict, image_ids: set[str]) -> None:
+    """Clamp ``_styles`` widths that target annotated images. Other widths stay."""
+    styles = content.get("_styles") if isinstance(content, dict) else None
+    if not isinstance(styles, dict):
+        return
+    for element_id in list(styles):
+        if element_id not in image_ids:
+            continue
+        style = styles.get(element_id)
+        if not isinstance(style, dict) or "width" not in style:
+            continue
+        bounded = bound_image_display_width(style.get("width"))
+        if bounded:
+            style["width"] = bounded
+        else:
+            style.pop("width", None)
+            if not style:
+                styles.pop(element_id, None)
+
+
 def _apply_element_styles(el, style: dict) -> None:
     if not isinstance(style, dict):
         return
+    applied_image_width = False
     for key, css_prop in _STYLE_PROPERTIES.items():
         value = style.get(key)
         if value is None or value == "":
@@ -1832,12 +2126,26 @@ def _apply_element_styles(el, style: dict) -> None:
             value = _sanitize_font_family(value)
             if not value:
                 continue
+        elif key == "width" and _is_header_logo(el):
+            # Logo size is the header control (height in px). A display-width
+            # percent would fight that and stretch the bar.
+            continue
+        elif key == "width" and _is_resizable_content_image(el):
+            value = bound_image_display_width(value)
+            if not value:
+                continue
+            applied_image_width = True
         else:
             # fontSize / fontWeight / align / lineHeight / letterSpacing /
             # textTransform / layout lengths: numbers and keywords only.
             if not _SAFE_STYLE_TOKEN_RE.match(str(value)):
                 continue
         _set_css_prop(el, css_prop, str(value))
+    if applied_image_width:
+        # Keep the file's aspect ratio and never paint wider than the column,
+        # including after the layout stacks on a phone.
+        _set_css_prop(el, "height", "auto")
+        _set_css_prop(el, "max-width", "100%")
     if style.get("italic"):
         _set_css_prop(el, "font-style", "italic")
     if style.get("padding"):
@@ -2291,6 +2599,9 @@ def render_site(
             href_only = f"{field}_href"
             if el.name == "a" and href_only in section_data:
                 _apply_field(el, section_data[href_only], "link", preview=preview)
+            alt_only = f"{field}_alt"
+            if ftype == "image" and alt_only in section_data:
+                _apply_image_alt(el, section_data.get(alt_only))
             continue
         # Same resolution the parser used to extract the default, so a
         # child-bearing "text" field is never written through el.string.
@@ -2302,6 +2613,9 @@ def render_site(
         href_key = f"{field}_href"
         if el.name == "a" and href_key in section_data:
             _apply_field(el, section_data[href_key], "link", preview=preview)
+        alt_key = f"{field}_alt"
+        if ftype == "image" and alt_key in section_data:
+            _apply_image_alt(el, section_data.get(alt_key))
 
     if needs_ghl_form_script:
         _inject_ghl_form_script(soup)

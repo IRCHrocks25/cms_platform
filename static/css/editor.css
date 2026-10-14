@@ -483,6 +483,28 @@
 }
 .cms-field-image-info { flex: 1; font-size: 13px; color: var(--color-text-muted); }
 .cms-field-image input[type="file"] { display: none; }
+.cms-image-size {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.cms-image-size-label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.cms-image-width {
+  width: 88px;
+}
+.cms-image-size-unit {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.cms-image-size .field-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
 
 .cms-field-video {
   display: flex;
