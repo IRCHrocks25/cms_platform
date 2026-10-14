@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Template, Tenant
+from core.models import Page, Template, Tenant
 from core.services import blocks
 from core.services.annotator import (
     AnnotatorError, _apply_annotations, _assert_existing_markers_preserved,
@@ -14,7 +14,7 @@ from core.services.annotator import (
 )
 from core.renderer import merge_with_defaults, render_site
 from core.parser import build_schema
-from core.services.templates import AnnotationMismatchError, save_template_version
+from core.services.templates import AnnotationMismatchError, _annotation_snapshot, save_template_version
 
 
 OLD = (
@@ -193,3 +193,139 @@ class ConversionGateTests(TestCase):
         self.assertEqual(tenant.content, original)
         self.assertEqual(template.html_source, OLD)
         self.assertFalse(template.own_block_types.exists())
+
+
+class AutoOverrideAnnotationMigrationTests(TestCase):
+    """CMS-84: AI markers must not move edits made through auto.n slots."""
+
+    RAW = (
+        '<html><body><section><h1>Default title</h1>'
+        '<p>Default body</p><p>Second body</p></section></body></html>'
+    )
+    ANNOTATED = RAW.replace('<section>', '<section data-section="hero">').replace(
+        '<h1>', '<h1 data-edit="hero.title" data-type="text">'
+    )
+
+    def setUp(self):
+        self.user = User.objects.create_user('cms84', password='pw', is_staff=True)
+        self.template = Template.objects.create(name='Synthetic auto slots', html_source=self.RAW)
+        self.tenant = Tenant.objects.create(
+            name='Synthetic', subdomain='cms84-synthetic', template=self.template,
+            owner=self.user, content={'auto': {'n0': 'Edited title', 'n1': 'Edited body'}},
+            is_published=True,
+        )
+
+    def test_migrates_edited_auto_fields_to_same_elements_and_keeps_render(self):
+        before = _annotation_snapshot(self.RAW, self.tenant.content)
+        save_template_version(
+            self.template, self.ANNOTATED, user=self.user, preserve_rendered=True,
+        )
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content['hero']['title'], 'Edited title')
+        self.assertEqual(self.tenant.content['auto']['n0'], 'Edited body')
+        self.assertEqual(_annotation_snapshot(self.ANNOTATED, self.tenant.content), before)
+        self.assertEqual(self.tenant.versions.count(), 1)
+        self.assertEqual(self.tenant.versions.get(page__isnull=True).snapshot['auto']['n0'], 'Edited title')
+
+    def test_migrates_page_override_and_keeps_page_snapshot(self):
+        page = Page.objects.create(
+            tenant=self.tenant, template=self.template, title='Synthetic page',
+            slug='synthetic-page', content={'auto': {'n1': 'Edited page body'}},
+            is_published=True,
+        )
+        before = _annotation_snapshot(self.RAW, page.content)
+        save_template_version(
+            self.template, self.ANNOTATED, user=self.user, preserve_rendered=True,
+        )
+        page.refresh_from_db()
+        self.assertEqual(page.content['auto']['n0'], 'Edited page body')
+        self.assertEqual(_annotation_snapshot(self.ANNOTATED, page.content), before)
+        self.assertEqual(self.tenant.versions.filter(page=page).count(), 1)
+        self.assertEqual(self.tenant.versions.get(page=page).snapshot['auto']['n1'], 'Edited page body')
+
+    def test_unmapped_auto_override_rejects_with_field_name_and_rolls_back(self):
+        self.tenant.content = {'auto': {'n1': 'Edited body'}}
+        self.tenant.save(update_fields=['content'])
+        candidate = self.ANNOTATED.replace('<p>Default body</p>', '')
+        with self.assertRaisesRegex(AnnotationMismatchError, r'auto\.n1'):
+            save_template_version(
+                self.template, candidate, user=self.user, preserve_rendered=True,
+            )
+        self.tenant.refresh_from_db()
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.html_source, self.RAW)
+        self.assertEqual(self.tenant.content['auto']['n1'], 'Edited body')
+        self.assertEqual(self.tenant.versions.count(), 0)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_template_form_saves_migrated_annotation_and_keeps_editor_reload(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse('dashboard:template_detail', args=[self.template.pk]),
+            {
+                'name': self.template.name,
+                'description': '',
+                'editing_mode': self.template.editing_mode,
+                'html_source': self.ANNOTATED,
+                'preserve_annotated_render': '1',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.template.refresh_from_db()
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.template.html_source, self.ANNOTATED)
+        self.assertEqual(self.tenant.content['hero']['title'], 'Edited title')
+        self.assertContains(
+            self.client.get(reverse('dashboard:template_detail', args=[self.template.pk])),
+            'hero.title',
+        )
+
+    def test_default_render_change_still_rejects_despite_migration(self):
+        self.tenant.content = {}
+        self.tenant.save(update_fields=['content'])
+        candidate = self.ANNOTATED.replace('Default title', 'Different title')
+        with self.assertRaisesRegex(AnnotationMismatchError, 'template defaults'):
+            save_template_version(
+                self.template, candidate, user=self.user, preserve_rendered=True,
+            )
+        self.template.refresh_from_db()
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.template.html_source, self.RAW)
+        self.assertEqual(self.tenant.content, {})
+
+    def test_conflicting_stable_override_rejects_without_losing_either(self):
+        self.tenant.content['hero'] = {'title': 'Existing different edit'}
+        self.tenant.save(update_fields=['content'])
+        with self.assertRaisesRegex(AnnotationMismatchError, r'auto\.n0'):
+            save_template_version(
+                self.template, self.ANNOTATED, user=self.user, preserve_rendered=True,
+            )
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content['hero']['title'], 'Existing different edit')
+        self.assertEqual(self.tenant.content['auto']['n0'], 'Edited title')
+
+    def test_second_site_conflict_leaves_first_site_and_template_untouched(self):
+        other = Tenant.objects.create(
+            name='Second synthetic', subdomain='cms84-second', template=self.template,
+            owner=self.user,
+            content={
+                'auto': {'n0': 'Second title'},
+                'hero': {'title': 'Conflicting stable title'},
+            },
+            is_published=True,
+        )
+        first_before = self.tenant.content.copy()
+        with self.assertRaisesRegex(AnnotationMismatchError, r'auto\.n0'):
+            save_template_version(
+                self.template, self.ANNOTATED, user=self.user, preserve_rendered=True,
+            )
+        self.template.refresh_from_db()
+        self.tenant.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.template.html_source, self.RAW)
+        self.assertEqual(self.tenant.content, first_before)
+        self.assertEqual(other.content['auto']['n0'], 'Second title')
+        self.assertEqual(self.tenant.versions.count(), 0)

@@ -10,6 +10,7 @@ import hashlib
 import logging
 import re
 from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
 
@@ -239,16 +240,21 @@ def _target_tenant(target: EditableTarget) -> Tenant:
     return target.tenant
 
 
-def _sites_using_template(template: Template) -> Iterable[tuple[str, Any, dict, bool]]:
+def _sites_using_template(template: Template, *, for_update: bool = False) -> Iterable[tuple[str, Any, dict, bool]]:
     """Yield (label, row, content, is_published) for tenants/pages on template."""
-    for tenant in Tenant.objects.filter(template_id=template.pk):
+    tenants = Tenant.objects.filter(template_id=template.pk)
+    pages = Page.objects.filter(template_id=template.pk).select_related("tenant")
+    if for_update:
+        tenants = tenants.select_for_update()
+        pages = pages.select_for_update(of=("self",))
+    for tenant in tenants:
         yield (
             f"site:{tenant.subdomain}",
             tenant,
             tenant.content or {},
             bool(tenant.is_published),
         )
-    for page in Page.objects.filter(template_id=template.pk).select_related("tenant"):
+    for page in pages:
         yield (
             f"page:{page.tenant.subdomain}/{page.slug}",
             page,
@@ -405,6 +411,107 @@ def _field_owners(html: str) -> dict[str, tuple[tuple[int, ...], str]]:
     return owners
 
 
+def _element_path(tag) -> tuple[int, ...]:
+    path = []
+    node = tag
+    while getattr(node.parent, "name", None):
+        path.append(list(node.parent.find_all(True, recursive=False)).index(node))
+        node = node.parent
+    return tuple(reversed(path))
+
+
+def _automatic_field_mapping(old_html: str, new_html: str) -> dict[str, str | None]:
+    """Map renderer-generated auto slots to the same candidate elements.
+
+    Element paths are used only for the annotation workflow. The rendered-DOM
+    comparison below still rejects structural changes, and missing/duplicate
+    destinations reject before any content is written.
+    """
+    from core.renderer import _auto_annotate
+
+    old = BeautifulSoup(old_html or "", "lxml")
+    candidate = BeautifulSoup(new_html or "", "lxml")
+    old_explicit = {id(tag) for tag in old.find_all(attrs={"data-edit": True})}
+    new_explicit = {id(tag) for tag in candidate.find_all(attrs={"data-edit": True})}
+    _auto_annotate(old)
+    _auto_annotate(candidate)
+    new_by_path = {_element_path(tag): tag for tag in candidate.find_all(True)}
+    new_ids = Counter(
+        (tag.get("data-edit") or "").strip()
+        for tag in candidate.find_all(attrs={"data-edit": True})
+    )
+    schema_ids = _dotted_field_ids(build_schema(new_html))
+    same_shape = len(old.find_all(True)) == len(candidate.find_all(True))
+    mapping: dict[str, str | None] = {}
+    for tag in old.find_all(attrs={"data-edit": True}):
+        if id(tag) in old_explicit:
+            continue
+        old_id = (tag.get("data-edit") or "").strip()
+        if not re.fullmatch(r"auto\.n\d+", old_id):
+            continue
+        target = new_by_path.get(_element_path(tag))
+        target_id = ((target.get("data-edit") or "").strip() if target else "")
+        if (
+            not same_shape or target is None or target.name != tag.name or not target_id
+            or target.get_text() != tag.get_text()
+            or new_ids[target_id] != 1
+            or (
+                not (re.fullmatch(r"auto\.n\d+", target_id) and id(target) not in new_explicit)
+                and target_id not in schema_ids
+            )
+            or (target.get("data-type") or "text").strip() not in {"text", "richtext"}
+        ):
+            mapping[old_id] = None
+        else:
+            mapping[old_id] = target_id
+    return mapping
+
+
+def _migrate_auto_content(content: dict, mapping: dict[str, str | None]) -> dict:
+    auto = content.get("auto") if isinstance(content, dict) else None
+    if not isinstance(auto, dict):
+        return content
+    moves = {}
+    unmapped = []
+    for field, value in auto.items():
+        source = f"auto.{field}"
+        if source not in mapping:
+            continue
+        destination = mapping[source]
+        if destination is None:
+            unmapped.append(source)
+        elif destination != source:
+            moves[source] = (destination, value)
+    if unmapped:
+        raise AnnotationMismatchError(
+            "Cannot map saved fields " + ", ".join(sorted(unmapped)[:10])
+            + " to unique annotated elements. No changes were saved."
+        )
+    if not moves:
+        return content
+
+    migrated = deepcopy(content)
+    for source in moves:
+        migrated["auto"].pop(source.split(".", 1)[1])
+    destinations = set()
+    for source, (destination, value) in moves.items():
+        if destination in destinations:
+            raise AnnotationMismatchError(
+                f"Saved field {source} has an ambiguous annotation destination {destination}. No changes were saved."
+            )
+        destinations.add(destination)
+        section, field = destination.split(".", 1)
+        fields = migrated.setdefault(section, {})
+        if not isinstance(fields, dict) or (field in fields and fields[field] != value):
+            raise AnnotationMismatchError(
+                f"Saved field {source} conflicts with {destination}. No changes were saved."
+            )
+        fields[field] = value
+    if not migrated.get("auto"):
+        migrated.pop("auto", None)
+    return migrated
+
+
 def _annotation_snapshot(html: str, content: dict) -> str:
     from core.renderer import render_site
 
@@ -416,7 +523,7 @@ def _annotation_snapshot(html: str, content: dict) -> str:
 
 
 def assert_annotation_preserves_rendered(
-    old_html: str, new_html: str, targets: Iterable[tuple[str, dict]]
+    old_html: str, new_html: str, targets: Iterable[tuple[str, dict, dict]]
 ) -> None:
     """Refuse a candidate before save if annotation changes a page's DOM."""
     old_owners = _field_owners(old_html)
@@ -438,8 +545,8 @@ def assert_annotation_preserves_rendered(
             raise AnnotationMismatchError(
                 f"Invalid {ftype} field on <{tag.name}>: {tag['data-edit']}"
             )
-    for label, content in targets:
-        if _annotation_snapshot(old_html, content) != _annotation_snapshot(new_html, content):
+    for label, old_content, new_content in targets:
+        if _annotation_snapshot(old_html, old_content) != _annotation_snapshot(new_html, new_content):
             raise AnnotationMismatchError(
                 f"Annotation would change rendered text, links, or attributes on {label}. "
                 "No changes were saved. Review the before/after HTML and stored overrides."
@@ -477,6 +584,7 @@ def save_template_version(
     """
     with transaction.atomic():
         locked = Template.objects.select_for_update().get(pk=template.pk)
+        migrated_rows = []
 
         if expect_html_etag is not None and _html_etag(locked.html_source) != expect_html_etag:
             raise ConcurrentWriteError(
@@ -485,9 +593,13 @@ def save_template_version(
             )
 
         if preserve_rendered:
-            targets = [("template defaults", {})]
-            targets.extend((label, content) for label, _row, content, _published
-                           in _sites_using_template(locked))
+            targets = [("template defaults", {}, {})]
+            auto_mapping = _automatic_field_mapping(locked.html_source, html_source)
+            for target_label, row, content, _published in _sites_using_template(locked, for_update=True):
+                migrated = _migrate_auto_content(content, auto_mapping)
+                targets.append((target_label, content, migrated))
+                if migrated != content:
+                    migrated_rows.append((row, migrated))
             assert_annotation_preserves_rendered(
                 locked.html_source, html_source, targets
             )
@@ -560,6 +672,13 @@ def save_template_version(
             label=label or "",
             saved_by=user if getattr(user, "pk", None) else None,
         )
+        if migrated_rows:
+            from core.services import content_versions
+
+            for row, migrated in migrated_rows:
+                content_versions.save_editable_content(
+                    row, migrated, user=user, source=content_versions.SOURCE_DASHBOARD,
+                )
         _sync(template, locked)
 
     return SaveTemplateResult(
