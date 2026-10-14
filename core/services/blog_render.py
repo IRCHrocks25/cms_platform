@@ -26,7 +26,6 @@ from core.models import (
     DEFAULT_BLOG_INDEX_LAYOUT,
     BlogPost,
 )
-from core.renderer import render_site, merge_with_defaults, apply_head_settings
 from .sanitizer import sanitize_html
 
 
@@ -444,15 +443,12 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     """
     shell_html = ""
     if tenant.template_id and tenant.template.html_source:
-        content = merge_with_defaults(tenant.template.schema, tenant.content)
-        shell_html = render_site(
-            tenant.template.html_source,
-            content,
-            preview=False,
-            site_settings={
-                "show_footer_credit": (tenant.site_settings or {}).get("show_footer_credit") is not False,
-            },
-        )
+        # Resolve block instances before typography discovery. On an installed
+        # block shell the hero/heading elements live in blocks, not html_source;
+        # rendering only the shell loses the site's semantic heading aliases.
+        from .blocks import render_content
+        shell_html = render_content(tenant.template, tenant.content,
+                                    preview=False, site_settings=None)
 
     soup = BeautifulSoup(shell_html, "lxml") if shell_html else None
     body = soup.find("body") if soup else None
@@ -722,6 +718,38 @@ def render_strip_doc(
                 },
                 request=request,
             )
+    # Use the same rendered font aliases, overrides, stylesheet links and body
+    # attributes as public output. A standalone fixed-font head hides site CSS
+    # from the preview even when the fragment correctly consumes site tokens.
+    if tenant.template_id and tenant.template.html_source:
+        from .blocks import render_content
+        shell = render_content(tenant.template, tenant.content, preview=False, site_settings=None)
+        soup = BeautifulSoup(shell, "lxml")
+        if soup.body is not None and soup.head is not None:
+            # Retain an explicit mount's ancestor selectors and spacing. Block
+            # templates can carry their CSS in the body, outside the shell head.
+            marker = soup.find(attrs={"data-blog-strip": True})
+            wrappers = []
+            if marker is not None:
+                node = marker
+                while node is not None and node is not soup.body:
+                    wrappers.append((node.name, dict(node.attrs)))
+                    node = node.parent
+            for asset in list(soup.body.find_all(["style", "link"])):
+                soup.head.append(asset.extract())
+            soup.body.clear()
+            for script in soup.find_all("script"):
+                script.decompose()
+            target = soup.body
+            for name, attrs in reversed(wrappers):
+                wrapper = soup.new_tag(name, attrs=attrs)
+                target.append(wrapper)
+                target = wrapper
+            for node in list(BeautifulSoup(inner, "html.parser").children):
+                target.append(node)
+            for node in list(BeautifulSoup(_BLOG_FONTS_LINK, "html.parser").children):
+                soup.head.append(node)
+            return str(soup)
     return _STRIP_DOC_HEAD + inner + _STRIP_DOC_TAIL
 
 
@@ -737,6 +765,13 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
         return html
 
     soup = BeautifulSoup(html, "lxml")
+    # Re-rendering an already composed document must replace the generated
+    # strip rather than append another one. Never remove authored blog blocks.
+    for previous in soup.select("[data-cms-blog-strip]"):
+        previous.decompose()
+    if soup.head is not None and "family=Fraunces" not in html:
+        for node in list(BeautifulSoup(_BLOG_FONTS_LINK, "html.parser").children):
+            soup.head.append(node)
     frag_soup = BeautifulSoup(fragment, "lxml")
     nodes = list(
         frag_soup.body.children if frag_soup.body else frag_soup.children
