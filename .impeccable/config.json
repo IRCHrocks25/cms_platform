@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "templates/dashboard/editor.html"
+        ],
+        "createdAt": "2026-10-14T10:33:54.018Z",
+        "reason": "Existing hidden editor preview images receive their src from editor.js when opened; this CMS-81 change only adds a static section marker."
+      }
+    ]
+  }
+}

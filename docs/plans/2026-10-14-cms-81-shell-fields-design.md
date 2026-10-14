@@ -13,10 +13,11 @@ footer fields.
 
 Keep template-level Content sections in Kate's Content tab when the page uses
 blocks. List block instances first, followed by the shell sections. The shell
-sections retain their existing field IDs and use the normal field controls;
-they have no block instance ID, so block add/reorder controls do not act on
-them. Header, footer, and brand sections keep their existing tabs. No template
-markup or stored content changes are needed.
+sections retain their existing field IDs and use the normal field controls.
+Mark their sidebar entries as static so the block drag handler never offers to
+move them. They have no block instance ID. Header, footer, and brand sections
+keep their existing tabs. No template markup or stored content changes are
+needed.
 
 ## Verification
 
