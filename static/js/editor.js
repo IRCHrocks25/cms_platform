@@ -336,6 +336,38 @@
     ensureHeader().layout = layout;
     saveAndRefreshHeader();
   }
+  function writeHeaderLinkLabel(id, label) {
+    if (!previewFrame || !previewFrame.contentDocument) return;
+    var el = previewFrame.contentDocument.querySelector(
+      '[data-header-link="' + id + '"]'
+    );
+    if (!el) return;
+    var textNode = null;
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var node = el.childNodes[i];
+      if (node.nodeType === 3 && (node.textContent || "").trim()) {
+        textNode = node;
+        break;
+      }
+    }
+    if (textNode) textNode.textContent = label;
+    else if (!el.querySelector("*")) el.textContent = label;
+  }
+  function importDesignedHeaderLinks() {
+    var h = ensureHeader();
+    if (h.menu.length || !previewFrame || !previewFrame.contentDocument) return;
+    previewFrame.contentDocument.querySelectorAll("[data-header-link]").forEach(function (el) {
+      var id = el.getAttribute("data-header-link") || "";
+      if (!/^nav_[a-f0-9]{8}$/.test(id)) return;
+      h.menu.push({
+        id: id,
+        label: (el.textContent || "").trim().slice(0, 80) || "Link",
+        href: el.getAttribute("href") || "/",
+        page_id: null,
+      });
+    });
+    if (h.menu.length) renderHeaderPanel();
+  }
   function setHeaderMenuLabel(id, html) {
     var h = ensureHeader();
     var item = h.menu.filter(function (row) { return row.id === id; })[0];
@@ -343,6 +375,7 @@
     var tmp = document.createElement("div");
     tmp.innerHTML = html || "";
     item.label = (tmp.textContent || "").trim().slice(0, 80) || "Link";
+    writeHeaderLinkLabel(id, item.label);
     renderHeaderPanel();
     scheduleSave();
   }
@@ -474,7 +507,10 @@
       if (!row) return;
       var item = h.menu.filter(function (rowItem) { return rowItem.id === row.getAttribute("data-header-row"); })[0];
       if (!item) return;
-      if (t.hasAttribute("data-header-label")) item.label = t.value.slice(0, 80) || "Link";
+      if (t.hasAttribute("data-header-label")) {
+        item.label = t.value.slice(0, 80) || "Link";
+        writeHeaderLinkLabel(item.id, item.label);
+      }
       if (t.hasAttribute("data-header-href")) item.href = t.value.slice(0, 500) || "/";
       scheduleSave();
     });
@@ -1678,6 +1714,7 @@
     if (data.type === "ready") {
       previewReady = true;
       setPreviewState("ready");
+      importDesignedHeaderLinks();
       // The iframe already has the server-rendered designed HTML. Re-applying
       // every field on first load wrote empty form values over body copy.
       // Only push when the client has unsaved edits that the iframe lacks.

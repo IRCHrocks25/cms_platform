@@ -295,17 +295,22 @@ PREVIEW_BRIDGE_SCRIPT = """
       e.stopPropagation();
       var blk = el.closest ? el.closest('[data-instance-id]') : null;
       if (blk) cmsSelectBlock(blk);
-      send('focus-field', { id: el.getAttribute('data-edit') });
-      var inNav = !!(el.closest && el.closest(
-        'header, [data-region^="header"], .site-nav, .site-header-actions, .site-brand'
-      ));
       var kind = el.getAttribute('data-type') || 'text';
+      var focusId = el.getAttribute('data-edit');
+      // A link annotation stores the URL. Clicking the visible word renames
+      // that word (the *_label field) instead of opening the destination.
+      if (kind === 'link' && (el.textContent || '').trim()) focusId = focusId + '_label';
+      send('focus-field', { id: focusId });
+      var inNav = !!(el.closest && el.closest(
+        'header, nav, [data-region^="header"], .site-nav, .site-header-actions, .site-brand'
+      ));
       if (el.querySelector && el.querySelector('.site-header-logo')) {
         var chrome = el.closest('[data-section]');
         send('select-block', { id: chrome ? chrome.getAttribute('data-section') : 'header' });
         return;
       }
       if (inNav && (kind === 'text' || kind === 'richtext')) cmsBeginEdit(el);
+      else if (inNav && kind === 'link' && (el.textContent || '').trim()) cmsBeginEdit(el);
     });
     // Double-click a text/richtext element to edit it right on the canvas.
     var dt = el.getAttribute('data-type') || 'text';
@@ -319,7 +324,7 @@ PREVIEW_BRIDGE_SCRIPT = """
         send('replace-image', { id: el.getAttribute('data-edit') });
       });
     }
-    if (dt === 'text' || dt === 'richtext') {
+    if (dt === 'text' || dt === 'richtext' || (dt === 'link' && (el.textContent || '').trim())) {
       el.classList.add('cms-inline-editable');
       el.addEventListener('dblclick', function (e) {
         e.preventDefault();
@@ -475,6 +480,10 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (cmsEditingEl === el) return;
     if (cmsEditingEl) cmsCommitEdit();
     var dt = el.getAttribute('data-type') || (el.hasAttribute('data-header-link') ? 'text' : '');
+    // Designed nav words are often data-type=link (the URL). The bar still
+    // renames the visible word; the href stays on the link field.
+    if (el.hasAttribute('data-header-link')) dt = 'text';
+    if (dt === 'link' && (el.textContent || '').trim()) dt = 'text';
     if (dt !== 'text' && dt !== 'richtext') return;
     cmsEditingEl = el;
     cmsEditOrig = el.innerHTML;
@@ -514,6 +523,9 @@ PREVIEW_BRIDGE_SCRIPT = """
     cmsEndEdit(el);
     var hid = el.getAttribute('data-header-link');
     if (hid) send('header-menu-label', { id: hid, html: val });
+    else if ((el.getAttribute('data-type') || '') === 'link') {
+      send('text-update', { id: el.getAttribute('data-edit') + '_label', html: val });
+    }
     else send('text-update', { id: el.getAttribute('data-edit'), html: val });
   }
   function cmsCancelEdit() {
@@ -536,7 +548,9 @@ PREVIEW_BRIDGE_SCRIPT = """
     if (e.key === 'Escape') { e.preventDefault(); cmsCancelEdit(); return; }
     if (e.key === 'Enter' && !e.shiftKey) {
       var dt = cmsEditingEl.getAttribute('data-type') || 'text';
-      if (dt === 'text') { e.preventDefault(); cmsCommitEdit(); }
+      if (dt === 'text' || dt === 'link' || cmsEditingEl.hasAttribute('data-header-link')) {
+        e.preventDefault(); cmsCommitEdit();
+      }
     }
   });
 
@@ -820,6 +834,24 @@ PREVIEW_BRIDGE_SCRIPT = """
           });
           if (altApplied) return;
         }
+        if (fid.slice(-6) === '_label') {
+          var labelHost = fid.slice(0, -6);
+          var labelText = (value == null ? '' : String(value)).trim();
+          if (!labelText) return;
+          document.querySelectorAll('[data-edit="' + labelHost + '"]').forEach(function (host) {
+            if ((host.getAttribute('data-type') || '') !== 'link') return;
+            if (host.querySelector('*')) {
+              var textNode = null;
+              for (var i = 0; i < host.childNodes.length; i++) {
+                var node = host.childNodes[i];
+                if (node.nodeType === 3 && (node.textContent || '').trim()) { textNode = node; break; }
+              }
+              if (textNode) { textNode.textContent = labelText; return; }
+            }
+            host.textContent = labelText;
+          });
+          return;
+        }
         document.querySelectorAll('[data-edit="' + fid + '"]').forEach(function (el) {
           var t = el.getAttribute('data-type') || 'text';
           if (t === 'ghl-embed') { return; }
@@ -947,7 +979,9 @@ PREVIEW_BRIDGE_SCRIPT = """
       document.querySelectorAll('.cms-highlight').forEach(function (el) {
         el.classList.remove('cms-highlight');
       });
-      document.querySelectorAll('[data-edit="' + data.payload.id + '"]').forEach(function (el) {
+      var highlightId = (data.payload && data.payload.id) || '';
+      if (highlightId.slice(-6) === '_label') highlightId = highlightId.slice(0, -6);
+      document.querySelectorAll('[data-edit="' + highlightId + '"]').forEach(function (el) {
         el.classList.add('cms-highlight');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
@@ -1576,6 +1610,30 @@ def _apply_image_alt(el, value) -> None:
     if current is None and not text:
         return
     el["alt"] = text
+
+
+def _apply_link_label(el, value) -> None:
+    """Rename the visible words on a ``data-type="link"`` anchor.
+
+    The link field itself is the href. A blank value leaves the designed
+    words in place. Child elements (icons) stay; only the text is replaced.
+    Designed header items are renamed through ``_header.menu`` instead, so
+    this companion must not paint the template default back over that label.
+    """
+    if el.has_attr("data-header-link"):
+        return
+    if not isinstance(value, str):
+        return
+    text = value.strip()
+    if not text or el.get_text().strip() == text:
+        return
+    texts = [node for node in el.find_all(string=True) if str(node).strip()]
+    if el.find(True) and texts:
+        texts[0].replace_with(text)
+        for extra in texts[1:]:
+            extra.extract()
+        return
+    el.string = text
 
 
 def _apply_field(el, value: str, ftype: str, *, preview: bool = False) -> None:
@@ -2515,6 +2573,103 @@ _AUTO_BLOCK_CHILD = ("div", "ul", "ol", "li", "table", "thead", "tbody", "tfoot"
                      "h5", "h6", "p", "blockquote")
 
 
+def _visible_label(el) -> str:
+    return " ".join(el.get_text(" ", strip=True).split())
+
+
+def _in_navigation_context(el) -> bool:
+    """Only infer copies in primary navigation or its mobile menu."""
+    ancestry = (el, *el.parents)
+    # A footer can contain its own <nav>; those words still belong to the
+    # footer even when they happen to match the primary menu and destination.
+    if any(node.name in ("footer", "main", "article") for node in ancestry):
+        return False
+    if any(node.name == "header" for node in ancestry):
+        return True
+    field_id = el.get("data-edit") or ""
+    if field_id.split(".", 1)[0] in ("header", "nav", "navigation"):
+        return True
+    mobile_names = {
+        "mmenu", "mobile-menu", "mobile-nav", "site-nav", "nav-links",
+        "site-navigation",
+    }
+    for node in ancestry:
+        if not hasattr(node, "get"):
+            continue
+        section = (node.get("data-section") or "").strip().lower()
+        region = (node.get("data-region") or "").strip().lower()
+        if section in ("header", "nav", "navigation") or region.startswith("header"):
+            return True
+        names = [node.get("id") or "", *(node.get("class") or [])]
+        if any(name.lower() in mobile_names for name in names):
+            return True
+    return False
+
+
+def _bind_repeated_labels(soup) -> None:
+    """Point a second, unmarked copy of a label at the field that owns it.
+
+    Some pages repeat the navigation words in a hamburger menu that was never
+    annotated. Renaming "What I Do" then updates the bar and leaves the menu
+    visitors see on a phone unchanged. When that copy is the same words (and
+    the same address, if both are links), it becomes the same field.
+    """
+    sources = []
+    for el in soup.find_all(attrs={"data-edit": True}):
+        if not _in_navigation_context(el):
+            continue
+        if el.find(attrs={"data-edit": True}) is not None:
+            continue
+        text = _visible_label(el)
+        if not text or len(text) > 80:
+            continue
+        sources.append(el)
+    for anchor in soup.find_all("a"):
+        if not _in_navigation_context(anchor):
+            continue
+        if anchor.has_attr("data-edit") or anchor.has_attr("data-header-link"):
+            continue
+        if anchor.find(attrs={"data-edit": True}) is not None:
+            continue
+        text = _visible_label(anchor)
+        if not text or len(text) > 80:
+            continue
+        href = (anchor.get("href") or "").strip()
+        same_text = [
+            el for el in sources
+            if _visible_label(el) == text
+            and (el.name != "a" or (el.get("href") or "").strip() == href)
+        ]
+        chosen = None
+        if href:
+            same_href = [
+                el for el in same_text
+                if el.name == "a" and (el.get("href") or "").strip() == href
+            ]
+            if len(same_href) == 1:
+                chosen = same_href[0]
+        if chosen is None and len(same_text) > 1:
+            # The same words can also appear in a body block. A menu copy
+            # belongs to the bar, which sits outside those blocks.
+            anchor_in_block = anchor.find_parent(attrs={"data-instance-id": True}) is not None
+            scoped = [
+                el for el in same_text
+                if (el.find_parent(attrs={"data-instance-id": True}) is not None)
+                == anchor_in_block
+            ]
+            if len(scoped) == 1:
+                chosen = scoped[0]
+                same_text = scoped
+        if chosen is None and len(same_text) == 1:
+            chosen = same_text[0]
+        if chosen is None:
+            continue
+        anchor["data-edit"] = chosen["data-edit"]
+        anchor["data-type"] = chosen.get("data-type") or "text"
+        if chosen.get("data-label"):
+            anchor["data-label"] = chosen["data-label"]
+
+
 def _auto_annotate(soup) -> None:
     body = soup.find("body") or soup
     n = 0
@@ -2567,6 +2722,7 @@ def render_site(
         return ""
 
     soup = BeautifulSoup(template_html, "lxml")
+    _bind_repeated_labels(soup)
     _auto_annotate(soup)
 
     if "brand" in content:
@@ -2602,6 +2758,8 @@ def render_site(
             alt_only = f"{field}_alt"
             if ftype == "image" and alt_only in section_data:
                 _apply_image_alt(el, section_data.get(alt_only))
+            if el.name == "a" and ftype == "link":
+                _apply_link_label(el, section_data.get(f"{field}_label"))
             continue
         # Same resolution the parser used to extract the default, so a
         # child-bearing "text" field is never written through el.string.
@@ -2616,6 +2774,8 @@ def render_site(
         alt_key = f"{field}_alt"
         if ftype == "image" and alt_key in section_data:
             _apply_image_alt(el, section_data.get(alt_key))
+        if el.name == "a" and ftype == "link":
+            _apply_link_label(el, section_data.get(f"{field}_label"))
 
     if needs_ghl_form_script:
         _inject_ghl_form_script(soup)
@@ -3039,6 +3199,7 @@ def render_page_from_blocks(
         MAX_BLOCK_DEPTH,
         _HEADER_SLOTS,
         alias_chrome_regions,
+        apply_designed_header_labels,
         apply_header_chrome,
         _apply_header_name,
         normalize_header,
@@ -3096,6 +3257,8 @@ def render_page_from_blocks(
 
     if paint_header:
         apply_header_chrome(soup, header_meta, preview=preview)
+    else:
+        apply_designed_header_labels(soup, header_meta)
 
     # Opt-in menus outside the header still get published pages. The header
     # navbar is painted from ``_header`` above; don't refill those markers.

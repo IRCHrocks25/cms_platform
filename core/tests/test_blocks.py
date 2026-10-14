@@ -280,6 +280,72 @@ class RenderPageFromBlocksTests(TestCase):
         self.assertIn('href="/about/"', with_pages)
         self.assertIn("About", with_pages)
 
+    def test_designed_nav_label_renames_in_place(self):
+        """A designed header's menu words stay on those anchors.
+
+        Click-to-rename stores the new words on ``_header.menu``. That menu
+        must not swap the agency navbar for generic chrome, and the published
+        page must show the saved label.
+        """
+        from bs4 import BeautifulSoup
+
+        shell = (
+            "<!doctype html><html><body>"
+            '<header class="nav" data-section="header" data-group="Header">'
+            '<a class="brand" href="#top">IAM</a>'
+            '<nav class="nav-links">'
+            '<a href="#home">Home</a>'
+            '<a data-edit="header.what" data-type="link" href="#what">What I Do</a>'
+            '<a href="#work">Work</a>'
+            "</nav>"
+            '<a class="btn nav-cta" href="#start">Start</a>'
+            '<button class="burger" type="button"></button>'
+            "</header>"
+            '<main data-region="main"></main>'
+            "</body></html>"
+        )
+        catalog = self._catalog()
+        preview = render_page_from_blocks(
+            shell, {"regions": {"main": []}}, catalog, preview=True,
+        )
+        soup = BeautifulSoup(preview, "lxml")
+        words = [
+            a for a in soup.select("nav.nav-links a")
+            if a.get("data-header-link")
+        ]
+        self.assertEqual(
+            [a.get_text(strip=True) for a in words],
+            ["Home", "What I Do", "Work"],
+        )
+        self.assertTrue(all(a["data-header-link"].startswith("nav_") for a in words))
+        self.assertIsNone(soup.select_one("a.brand").get("data-header-link"))
+        self.assertIsNone(soup.select_one("a.nav-cta").get("data-header-link"))
+        self.assertIn("burger", preview)
+        self.assertNotIn("site-header-inner", preview)
+
+        content = {
+            "regions": {"main": []},
+            "_header": {"menu": [
+                {"id": words[0]["data-header-link"], "label": "Home",
+                 "href": "#home", "page_id": None},
+                {"id": words[1]["data-header-link"], "label": "My Work",
+                 "href": "#what", "page_id": None},
+                {"id": words[2]["data-header-link"], "label": "Work",
+                 "href": "#work", "page_id": None},
+            ]},
+        }
+        blocks.ensure_header(content)
+        published = render_page_from_blocks(shell, content, catalog, preview=False)
+        published_soup = BeautifulSoup(published, "lxml")
+        renamed = published_soup.select_one('a[href="#what"]')
+        self.assertIsNotNone(renamed)
+        self.assertEqual(renamed.get_text(strip=True), "My Work")
+        self.assertEqual(renamed.get("data-header-link"), words[1]["data-header-link"])
+        self.assertNotIn("What I Do", published)
+        self.assertIn("burger", published)
+        self.assertIn("Start", published)
+        self.assertNotIn("site-header-inner", published)
+
     def test_logo_image_renders_in_brand(self):
         from core.services.blocks import upgrade_shell_chrome_slots
         from bs4 import BeautifulSoup
