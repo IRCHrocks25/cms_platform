@@ -18,7 +18,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from api.auth import TenantScope
-from api.models import ServiceCredential
+from api.models import ServiceCredential, SuiteCredentialHandoff
 from core.models import Tenant
 
 SERVICE_SCOPES = frozenset({"read", "draft", "publish", "domain"})
@@ -116,6 +116,10 @@ def revoke_service_credential(credential: ServiceCredential) -> None:
         ServiceCredential.objects.filter(
             tenant_id=credential.tenant_id, revoked_at__isnull=True
         ).update(revoked_at=timezone.now())
+        # A tenant-wide revoke also destroys any still-retryable handoff secret.
+        SuiteCredentialHandoff.objects.filter(
+            binding__tenant_id=credential.tenant_id, acknowledged_at__isnull=True
+        ).exclude(ciphertext="").update(ciphertext="")
 
 
 @transaction.atomic

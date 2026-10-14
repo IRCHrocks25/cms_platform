@@ -175,6 +175,8 @@ class SuiteCredentialHandoffTests(TestCase):
     def test_revoked_pending_credential_cannot_be_acked(self):
         receipt = self.begin()
         revoke_service_credential(ServiceCredential.objects.get(pk=receipt.credential_id))
+        self.assertEqual(SuiteCredentialHandoff.objects.get(
+            operation_key=self.operation_key).ciphertext, "")
         with self.assertRaises(SuiteCredentialHandoffError):
             self.ack()
         self.assertIsNone(resolve_service_token(receipt.token))

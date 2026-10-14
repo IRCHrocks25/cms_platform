@@ -33,7 +33,7 @@ The pre-implementation plan is on KPILOT-379. Failing-first tests cover create a
 2. Add `SuiteCredentialHandoff`: immutable operation UUID, FK to the suite binding and pending credential, encrypted token, expiry, acknowledgment timestamp, and optional previous credential FK. Keep the metadata for replay denial after ciphertext erasure.
 3. Use a separate `SUITE_CREDENTIAL_HANDOFF_FERNET_KEY` setting, empty by default. Validate it before writes; missing/invalid key fails closed. A 15-minute retrieval TTL is a conservative operational default, overridable in settings for tests and deployment review.
 4. Under binding and tenant row locks, begin/retry the operation, clean expired ciphertext and pending credentials, and refuse conflicting operations. Acknowledge under the same locks, revoke old active token before activating replacement, erase ciphertext, and allow idempotent ack without returning the token.
-5. Add a callable purge for expired ciphertext/pending credentials; no scheduler is wired in this default-off PR.
+5. Add a callable purge for expired ciphertext/pending credentials and erase ciphertext immediately on explicit tenant-wide revocation. A purge scheduler remains UNRUN and must be wired before activation.
 
 ## Task 3: Verify and hand off
 
