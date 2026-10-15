@@ -16,6 +16,7 @@ This module is the seam between the data model (``BlockType`` +
 from __future__ import annotations
 
 import hashlib
+from html import unescape
 import logging
 import re
 import secrets
@@ -99,9 +100,21 @@ def _safe_header_href(value: str) -> str:
     raw = str(value or "").strip()[:500]
     if not raw:
         return "/"
-    low = raw.lower().replace(" ", "")
-    if low.startswith(("javascript:", "vbscript:", "data:")):
+    # Validate a copy, preserving legitimate stored URLs. Browsers discard
+    # tabs/newlines during URL parsing; conservatively remove every ASCII
+    # control and space so none can conceal an executable scheme.
+    candidate = re.sub(r"[\x00-\x20\x7f]", "", raw)
+    decoded = re.sub(r"[\x00-\x20\x7f]", "", unescape(candidate))
+    prefix = re.split(r"[/#?]", candidate, maxsplit=1)[0]
+    decoded_prefix = re.split(r"[/#?]", decoded, maxsplit=1)[0]
+    # Entities are not an alternate spelling for an allowed scheme. Decode
+    # only to detect them; never turn encoded input into a navigable URL.
+    if ":" in decoded_prefix and decoded_prefix != prefix:
         return "/"
+    if ":" in prefix:
+        scheme = prefix.split(":", 1)[0].lower()
+        if scheme not in {"http", "https", "mailto", "tel"}:
+            return "/"
     return raw
 
 
