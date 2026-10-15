@@ -11,8 +11,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.db import OperationalError
 from django.test import Client, override_settings
+from django.utils import timezone
 
-from core.models import Template, Tenant
+from core.models import BlogPost, Template, Tenant
 from core.services.blocks import upgrade_shell_chrome_slots
 from core.tests.test_typography_groups import SITE_TPL
 from core.tests.test_typography_tokens import CONTRACT_TPL, IAM_TPL
@@ -139,6 +140,36 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
             }
         finally:
             page.close()
+
+    def test_public_blog_defaults_to_existing_fonts_until_saved_typography(self):
+        post = BlogPost.objects.create(
+            tenant=self.tenant, title="Typography regression",
+            body="<h2>Heading</h2><p>Body text</p>",
+            status=BlogPost.STATUS_PUBLISHED, publish_date=timezone.now(),
+        )
+        for width in (1280, 390):
+            with self.subTest(width=width):
+                page = self.browser.new_page(viewport={"width": width, "height": 900})
+                try:
+                    response = page.goto(
+                        f"{self.live_server_url}/site/iam/blog/{post.slug}/"
+                    )
+                    self.assertEqual(response.status, 200)
+                    # These are the computed defaults on main for blog pages.
+                    self.assertIn("Roboto", page.evaluate(FONT_OF, ".blog-prose p"))
+                    self.assertIn("Fraunces", page.evaluate(FONT_OF, ".blog-prose h2"))
+
+                    self.tenant.content = {"_global": {
+                        "fontFamily": "Poppins", "headingFamily": "Oswald",
+                    }}
+                    self.tenant.save(update_fields=["content"])
+                    page.reload()
+                    self.assertIn("Poppins", page.evaluate(FONT_OF, ".blog-prose p"))
+                    self.assertIn("Oswald", page.evaluate(FONT_OF, ".blog-prose h2"))
+                    self.tenant.content = {}
+                    self.tenant.save(update_fields=["content"])
+                finally:
+                    page.close()
 
     def test_design_fonts_reach_every_token_use_in_preview_and_public_site(self):
         self.open_design_tab()

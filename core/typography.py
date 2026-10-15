@@ -456,8 +456,14 @@ def typography_css(typography: dict, global_styles: dict) -> str:
     contract_names = {role: contract for role, contract, *_ in ROLES}
     for token in tokens:
         contract = contract_names[token["role"]]
-        if token["name"] != contract:
-            decls.append(f"--{contract}: var(--{token['name']});")
+        # A discovered template font is only a candidate for the editor. Do
+        # not make it the blog font until the tenant saves that choice.
+        if compose_value(token, global_styles.get(token["key"])):
+            if token["name"] != contract:
+                decls.append(f"--{contract}: var(--{token['name']});")
+            if token["role"] in ("body-font", "heading-font"):
+                blog_role = token["role"].removesuffix("-font")
+                decls.append(f"--cms-font-{blog_role}: var(--{token['name']});")
     title_token = next((t for t in tokens if t["role"] == "title-font"), None)
     heading_token = next((t for t in tokens if t["role"] == "heading-font"), None)
     title_value = compose_value(title_token or {"kind": "font", "generic": (heading_token or {}).get("generic", "sans-serif")}, global_styles.get("titleFamily"))

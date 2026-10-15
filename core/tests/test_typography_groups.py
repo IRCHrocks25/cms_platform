@@ -100,9 +100,9 @@ class TextGroupTests(SimpleTestCase):
 
 
 class RenderTests(SimpleTestCase):
-    def test_no_saved_values_changes_nothing_but_aliases(self):
+    def test_no_saved_values_leave_template_fonts_alone(self):
         css = style_text(render_site(SITE_TPL, {}), "data-cms-typography")
-        self.assertEqual(css, ":root{--font-body: var(--body);--font-heading: var(--disp);}")
+        self.assertIsNone(css)
 
     def test_extra_font_slot_is_overridden_and_loaded(self):
         html = render_site(SITE_TPL, {"_global": {"font:mono": "Roboto Mono"}})
@@ -143,8 +143,7 @@ class RenderTests(SimpleTestCase):
         }})
         css = style_text(html, "data-cms-typography")
         self.assertNotIn("display:none", html)
-        self.assertNotIn("--missing", css)
-        self.assertNotIn("font-family:var", css)
+        self.assertIsNone(css)
 
     def test_preview_map_lists_slots_and_groups(self):
         html = render_site(SITE_TPL, {}, preview=True)

@@ -149,7 +149,7 @@ class RenderTests(SimpleTestCase):
 
     def test_aliases_without_saved_values(self):
         css = style_text(render_site(IAM_TPL, {}), "data-cms-typography")
-        self.assertEqual(css, ":root{--font-body: var(--body);--font-heading: var(--disp);}")
+        self.assertIsNone(css)
 
     def test_contract_sizes_override_tokens(self):
         html = render_site(CONTRACT_TPL, {
@@ -198,8 +198,8 @@ class BlogTemplateTests(SimpleTestCase):
         from django.conf import settings
 
         css = (Path(settings.BASE_DIR) / "templates" / "blog" / "_content.html").read_text("utf-8")
-        self.assertIn("--blog-sans:var(--cms-font-body,var(--font-body, 'Roboto',", css)
-        self.assertIn("--blog-serif:var(--cms-font-heading,var(--font-heading, 'Fraunces',", css)
+        self.assertIn("--blog-sans:var(--cms-font-body,'Roboto',", css)
+        self.assertIn("--blog-serif:var(--cms-font-heading,'Fraunces',", css)
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost", STORAGES=STORAGES)
@@ -247,7 +247,8 @@ class SaveAndPublicRenderTests(TestCase):
         html = Client(HTTP_HOST="iam.localhost").get(f"/blog/{post.slug}/").content.decode()
         self.assertIn("--disp: 'Oswald', sans-serif;", html)
         self.assertIn("--font-heading: var(--disp);", html)
-        self.assertIn("var(--font-heading, 'Fraunces',", html)
+        self.assertIn("--cms-font-heading: var(--disp);", html)
+        self.assertIn("var(--cms-font-heading,'Fraunces',", html)
 
     def test_editor_shows_heading_size_only_when_template_has_it(self):
         editor = self.client.get("/dashboard/").content.decode()
