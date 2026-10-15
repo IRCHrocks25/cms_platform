@@ -521,11 +521,12 @@ def _annotation_snapshot(html: str, content: dict) -> str:
             tag.attrs.pop(attr, None)
     # The annotator may drop a newline after </html>. It has no rendered
     # content, but string comparison would reject an otherwise identical page.
-    # Only trim whitespace outside the document root; whitespace inside the
-    # document and every rendered text/attribute value remain guarded.
-    while soup.contents and isinstance(soup.contents[0], NavigableString) and not str(soup.contents[0]).strip():
+    # Only plain text whitespace outside the document root is ignorable.
+    # Comment, Doctype, CData and other NavigableString subclasses are markup
+    # whose addition or removal must still fail the preservation guard.
+    while soup.contents and type(soup.contents[0]) is NavigableString and not str(soup.contents[0]).strip():
         soup.contents[0].extract()
-    while soup.contents and isinstance(soup.contents[-1], NavigableString) and not str(soup.contents[-1]).strip():
+    while soup.contents and type(soup.contents[-1]) is NavigableString and not str(soup.contents[-1]).strip():
         soup.contents[-1].extract()
     return str(soup)
 

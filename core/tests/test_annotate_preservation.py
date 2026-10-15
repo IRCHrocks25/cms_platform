@@ -1,6 +1,6 @@
 """CMS-72: annotation and conversion must not silently change live content."""
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, CData, Comment, Declaration, Doctype, ProcessingInstruction
 from unittest import mock
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
@@ -140,6 +140,31 @@ class PreSaveComparisonTests(TestCase):
         template.refresh_from_db()
         self.assertEqual(template.html_source, annotated)
         self.assertEqual(_annotation_snapshot(raw, {}), _annotation_snapshot(annotated, {}))
+
+    def test_annotation_rejects_whitespace_only_comment_after_document_root(self):
+        raw = '<html><body><p>Safe copy</p></body></html>'
+        template = Template.objects.create(name="Synthetic comment", html_source=raw)
+
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(template, raw + '<!-- -->', user=self.user, preserve_rendered=True)
+
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, raw)
+
+    def test_document_edge_trim_preserves_special_string_nodes(self):
+        raw = '<html><body><p>Safe copy</p></body></html>'
+        baseline = _annotation_snapshot(raw, {})
+        for node_type in (Comment, Declaration, Doctype, CData, ProcessingInstruction):
+            for edge in ("before", "after"):
+                with self.subTest(node=node_type.__name__, edge=edge):
+                    soup = BeautifulSoup(raw, "lxml")
+                    node = node_type(" ")
+                    if edge == "before":
+                        soup.insert(0, node)
+                    else:
+                        soup.append(node)
+                    with mock.patch("core.services.templates.BeautifulSoup", return_value=soup):
+                        self.assertNotEqual(_annotation_snapshot(raw, {}), baseline)
 
     def test_attribute_only_annotation_preserves_content_and_repeat_save(self):
         candidate = OLD.replace('<p data-edit="mission.eyebrow"',
