@@ -49,6 +49,11 @@ class LayoutAwareConversionTests(TestCase):
                                            block_layout=layout)
         self.assertEqual(blocks.normalize_v2_for_diff(render_site(self.INTERLEAVED, {})),
                          blocks.normalize_v2_for_diff(rendered))
+        self.assertNotIn('data-region="body-001"', rendered)
+        preview = render_page_from_blocks(shell, content,
+                                          blocks._catalog_from_fragments(fragments),
+                                          block_layout=layout, preview=True)
+        self.assertIn('data-region="body-001"', preview)
         with self.assertRaises(ValueError):
             render_page_from_blocks(shell.replace('<!--cms-slot:body-001:start-->', ''),
                                     content, blocks._catalog_from_fragments(fragments),

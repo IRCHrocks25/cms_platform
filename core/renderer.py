@@ -1277,7 +1277,7 @@ PREVIEW_BRIDGE_SCRIPT = """
     var d = 0, el = region;
     while (el) {
       var name = el.getAttribute && el.getAttribute('data-region');
-      if (name != null && name !== 'main') d++;
+      if (name != null && name !== 'main' && !/^body-\d{3}$/.test(name)) d++;
       el = el.parentElement ? el.parentElement.closest('[data-region]') : null;
     }
     return d;
@@ -3522,6 +3522,7 @@ def render_page_from_blocks(
                     else:
                         end.insert_before(wrapper)
             if preview_slot is not None and not preview_slot.contents:
+                preview_slot["style"] = _EMPTY_COLUMN_STYLE
                 preview_slot.append(BeautifulSoup(_empty_slot_button(name), "html.parser"))
 
     if paint_header:
