@@ -172,6 +172,75 @@ class LayoutAwareConversionTests(TestCase):
         self.assertEqual(blocks.preview_classic_upgrade(self.WRAPPED, {}), (True, ""))
         self.assertEqual(blocks.preview_classic_upgrade(self.INTERLEAVED, {}), (True, ""))
 
+    def test_primitive_key_collision_preview_and_apply_preserve_classic_markup(self):
+        from django.contrib.auth.models import User
+        from core.renderer import merge_with_defaults
+
+        classic = (
+            '<html><body><main><div class="band">'
+            '<section data-section="faq" id="faq"><h2 data-edit="faq.heading" '
+            'data-type="text">Questions</h2></section></div>'
+            '<div class="fixed"><a href="#faq">Read FAQ</a></div>'
+            '<div class="band"><section data-section="proof">Proof</section></div>'
+            '</main></body></html>'
+        )
+        content = {"faq": {"heading": "Answers"}}
+        template = Template.objects.create(name="FAQ collision", html_source=classic)
+        owner = User.objects.create_user("faq-owner", password="x")
+        tenant = Tenant.objects.create(name="FAQ", subdomain="faq-collision", owner=owner,
+                                       template=template, content=content)
+        original = render_site(classic, merge_with_defaults(template.schema, content))
+
+        self.assertEqual(blocks.preview_classic_upgrade(classic, content), (True, ""))
+        blocks.apply_classic_upgrade(template)
+        template.refresh_from_db()
+        tenant.refresh_from_db()
+        faq_instance = tenant.content["regions"]["body-001"][0]
+        self.assertEqual(faq_instance["id"], "faq")
+        self.assertEqual(faq_instance["type"], "faq_section")
+        rendered = blocks.render_content(template, tenant.content)
+        self.assertEqual(blocks.normalize_v2_for_diff(rendered),
+                         blocks.normalize_v2_for_diff(original))
+        from bs4 import BeautifulSoup
+        rendered_soup = BeautifulSoup(rendered, "lxml")
+        self.assertEqual(rendered_soup.find(attrs={"data-section": "faq"}).get("id"), "faq")
+        self.assertIsNotNone(rendered_soup.find("a", href="#faq"))
+        self.assertTrue(BlockType.objects.filter(template__isnull=True, key="faq").exists())
+
+        # This deliberately reintroduces the old mutation: the internal key
+        # becomes the rendered section id, so the strict render gate must fail.
+        mutated = dict(tenant.content)
+        mutated["regions"] = {**tenant.content["regions"], "body-001": [
+            {**faq_instance, "id": "faq_section"},
+        ]}
+        self.assertNotEqual(
+            blocks.normalize_v2_for_diff(blocks.render_content(template, mutated)),
+            blocks.normalize_v2_for_diff(original),
+        )
+
+    def test_primitive_key_collision_keeps_legacy_slot_section_id(self):
+        from django.contrib.auth.models import User
+        from core.renderer import merge_with_defaults
+
+        classic = ('<html><body><main><section id="faq" data-section="faq">'
+                   '<h2 data-edit="faq.heading" data-type="text">Questions</h2>'
+                   '</section></main></body></html>')
+        content = {"faq": {"heading": "Answers"}}
+        template = Template.objects.create(name="Legacy FAQ", html_source=classic)
+        owner = User.objects.create_user("legacy-faq-owner", password="x")
+        tenant = Tenant.objects.create(name="Legacy FAQ", subdomain="legacy-faq", owner=owner,
+                                       template=template, content=content)
+        original = render_site(classic, merge_with_defaults(template.schema, content))
+
+        self.assertEqual(blocks.preview_classic_upgrade(classic, content), (True, ""))
+        blocks.apply_classic_upgrade(template)
+        template.refresh_from_db()
+        tenant.refresh_from_db()
+        instance = tenant.content["regions"]["main"][0]
+        self.assertEqual((instance["id"], instance["type"]), ("faq", "faq_section"))
+        self.assertEqual(blocks.normalize_for_diff(blocks.render_content(template, tenant.content)),
+                         blocks.normalize_for_diff(original))
+
     def test_v2_mutation_of_fixed_markup_fails_strict_gate(self):
         shell, fragments, layout = blocks.split_classic_candidate(self.INTERLEAVED)
         content = blocks.convert_content_to_layout_regions({}, fragments, layout)
