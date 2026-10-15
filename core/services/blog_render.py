@@ -726,7 +726,7 @@ def blog_strip_markers(tenant) -> list[dict]:
     return rows
 
 
-def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", layout: str = "", site_styled: bool = False) -> str:
+def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", layout: str = "", site_styled: bool = False, show_header: bool = True) -> str:
     """HTML fragment for the homepage strip, or '' if nothing to show."""
     settings = get_blog_settings(tenant)
     if not settings["strip_enabled"]:
@@ -751,6 +751,7 @@ def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", la
             "eyebrow": settings["strip_eyebrow"],
             "subtitle": settings["strip_subtitle"],
             "front_line_cards": front_line_cards(posts) if style == "front_line" else [],
+            "show_header": show_header,
         },
         request=request,
     )
@@ -837,6 +838,7 @@ def render_strip_doc(
                     "eyebrow": eyebrow,
                     "subtitle": subtitle,
                     "front_line_cards": front_line_cards(posts) if strip_style == "front_line" else [],
+                    "show_header": True,
                 },
                 request=request,
             )
@@ -913,21 +915,27 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
         saved = (tenant.blog_settings or {}).get("strip_layouts") or {}
         if not isinstance(saved, dict):
             saved = {}
-        fragments = {"": nodes}
+        fragments = {("", True): nodes}
+        global_style = get_blog_settings(tenant)["strip_style"]
         for index, marker in enumerate(markers):
             choice = saved.get(f"{marker_namespace}_{index}", "")
             layout = choice if isinstance(choice, str) and choice in PER_BLOCK_STRIP_LAYOUTS else ""
-            if layout not in fragments:
+            selected_style = layout or global_style
+            section = marker.find_parent(attrs={"data-section": True})
+            has_authored_heading = bool(section and section.find(["h1", "h2", "h3"]))
+            show_header = selected_style != "front_line" or not has_authored_heading
+            cache_key = (layout, show_header)
+            if cache_key not in fragments:
                 selected_html = render_strip_fragment(
                     tenant, request=request, blog_base=blog_base, layout=layout,
-                    site_styled=site_styled,
+                    site_styled=site_styled, show_header=show_header,
                 )
                 selected_soup = BeautifulSoup(selected_html, "lxml")
-                fragments[layout] = list(
+                fragments[cache_key] = list(
                     selected_soup.body.children if selected_soup.body else selected_soup.children
                 )
             marker.clear()
-            for node in fragments[layout]:
+            for node in fragments[cache_key]:
                 marker.append(BeautifulSoup(str(node), "html.parser"))
         return str(soup)
 

@@ -1,6 +1,7 @@
-<section class="cms-blog-strip cms-strip cms-strip--front-line" data-cms-blog-strip>
+<section class="cms-blog-strip cms-strip cms-strip--front-line{% if not show_header %} cms-strip--embedded{% endif %}" data-cms-blog-strip>
   <style>
     .cms-strip--front-line{--fl-accent:{% if site_styled %}var(--primary,{{ accent|default:"#2563eb" }}){% else %}{{ accent|default:"#2563eb" }}{% endif %};box-sizing:border-box;padding:clamp(64px,8.75vw,112px) clamp(20px,3.125vw,40px);background:#fff;color:#0a0a0a;font-family:{% if site_styled %}var(--cms-font-body,var(--font-body,var(--body,'Inter',sans-serif))){% else %}'Inter',sans-serif{% endif %};}
+    .cms-strip--front-line.cms-strip--embedded{padding:0;background:transparent;}
     .cms-strip--front-line *{box-sizing:border-box;}
     .cms-strip--front-line .fl-wrap{max-width:1200px;margin-inline:auto;}
     .cms-strip--front-line .fl-eyebrow{font-size:12.5px;letter-spacing:.28em;text-transform:uppercase;color:#777;margin:0 0 24px;}
@@ -26,9 +27,11 @@
     @media(max-width:600px){.cms-strip--front-line .fl-grid{grid-template-columns:1fr;gap:16px;margin-top:36px;}.cms-strip--front-line .fl-body{padding:22px 28px 26px;}.cms-strip--front-line .fl-number,.cms-strip--front-line .fl-arrow{top:22px;}.cms-strip--front-line .fl-number{left:22px;}.cms-strip--front-line .fl-arrow{right:22px;}}
   </style>
   <div class="fl-wrap">
-    <p class="fl-eyebrow">{{ eyebrow }}</p>
-    <h2 class="fl-heading">{{ heading }}</h2>
-    {% if subtitle %}<p class="fl-subtitle">{{ subtitle }}</p>{% endif %}
+    {% if show_header %}
+      <p class="fl-eyebrow">{{ eyebrow }}</p>
+      <h2 class="fl-heading">{{ heading }}</h2>
+      {% if subtitle %}<p class="fl-subtitle">{{ subtitle }}</p>{% endif %}
+    {% endif %}
     <div class="fl-grid">
       {% for card in front_line_cards %}
         <a class="fl-card" href="{{ blog_base }}{{ card.post.slug }}/">

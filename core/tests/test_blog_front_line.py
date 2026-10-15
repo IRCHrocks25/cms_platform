@@ -91,6 +91,37 @@ class FrontLineStripTests(TestCase):
         self.assertIn("cms-strip--front-line", strip.get("class", []))
         self.assertIn("Fresh thinking", strip.get_text())
 
+    def test_mount_inside_existing_blog_header_has_one_header(self):
+        template = Template.objects.create(
+            name="Header-owned mount",
+            html_source=(
+                "<html><body><section id='blog' data-section='blog'>"
+                "<p class='tag'>Existing eyebrow</p><h2>Existing heading</h2>"
+                "<p class='shift-support'>Existing subtitle</p>"
+                "<div data-blog-strip></div></section><footer>End</footer></body></html>"
+            ),
+        )
+        tenant = Tenant.objects.create(
+            name="Header mount", subdomain="header-front-line", template=template,
+            owner=self.owner, is_published=True,
+            blog_settings={"strip_style": "cards", "strip_count": 1,
+                           "strip_layouts": {"home_0": "front_line"}},
+        )
+        BlogPost.objects.create(
+            tenant=tenant, title="Example", slug="example", body="One word",
+            status="published", publish_date=timezone.now(), featured=True,
+        )
+        response = Client(HTTP_HOST="header-front-line.localhost").get("/")
+        self.assertEqual(response.status_code, 200)
+        section = BeautifulSoup(response.content, "html.parser").select_one("#blog")
+        self.assertEqual(len(section.select("h2")), 1)
+        self.assertEqual(len(section.select(".tag")), 1)
+        self.assertEqual(len(section.select(".shift-support")), 1)
+        self.assertEqual(len(section.select("[data-cms-blog-strip]")), 1)
+        self.assertEqual(len(section.select(".fl-heading, .fl-eyebrow, .fl-subtitle")), 0)
+        self.assertEqual(len(section.select(".fl-card")), 1)
+        self.assertIn("cms-strip--embedded", section.select_one("[data-cms-blog-strip]").get("class", []))
+
     def test_unselected_global_and_marker_output_stays_identical(self):
         before = str(self._home().select_one("#blog [data-cms-blog-strip]"))
         self.tenant.blog_settings = {
