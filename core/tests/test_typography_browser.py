@@ -72,13 +72,26 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
             "url": self.live_server_url,
         }])
         self.page = self.context.new_page()
+        self.write_responses = []
+        self.page.on("response", lambda response: self.write_responses.append(
+            (response.status, response.request.method, response.url.split("?", 1)[0])
+        ) if response.request.method in ("POST", "PUT", "PATCH") else None)
 
     def tearDown(self):
         self.context.close()
 
-    def open_design_tab(self):
-        self.page.goto(f"{self.live_server_url}/dashboard/sites/{self.tenant.pk}/edit/")
+    def load_editor(self):
+        response = self.page.goto(f"{self.live_server_url}/dashboard/sites/{self.tenant.pk}/edit/")
         self.page.wait_for_selector("#preview-loading", state="hidden")
+        self.assertTrue(
+            self.page.locator('[data-chrome-drawer="_global"], [data-tab="brand"]').count(),
+            f"editor controls missing: status={response.status if response else None}; "
+            f"url={self.page.url}; title={self.page.title()!r}; "
+            f"body={self.page.locator('body').inner_text()[:240]!r}",
+        )
+
+    def open_design_tab(self):
+        self.load_editor()
         fonts = self.page.locator('[data-chrome-drawer="_global"]')
         if fonts.count() and fonts.is_visible():
             fonts.click()
@@ -110,7 +123,10 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
                 if current == expected:
                     return
             if time.monotonic() > deadline:
-                self.fail(f"_global never saved as {expected}: {current}")
+                self.fail(
+                    f"_global never saved as {expected}: {current}; "
+                    f"writes={self.write_responses[-8:]}"
+                )
             self.page.wait_for_timeout(200)
 
     def public_fonts(self, width):
@@ -170,8 +186,7 @@ class TypographyTokensBrowserTests(StaticLiveServerTestCase):
         self.tenant.content = {"regions": {"main": []}}
         self.tenant.save()
 
-        self.page.goto(f"{self.live_server_url}/dashboard/sites/{self.tenant.pk}/edit/")
-        self.page.wait_for_selector("#preview-loading", state="hidden")
+        self.load_editor()
         self.page.click('[data-chrome-drawer="_global"]')
         self.page.wait_for_selector('[data-global-bind="headingFamily"]', state="visible")
 
