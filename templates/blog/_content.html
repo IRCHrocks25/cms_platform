@@ -9,7 +9,7 @@ leaks into the page as literal text.
 {% endcomment %}<style>
   /* ---- Base + design tokens (scoped; never touches the site chrome) ---- */
   .cms-blog{
-    --blog-accent: {{ accent|default:"#2563eb" }};
+    --blog-accent: {% if site_styled %}var(--primary,{{ accent|default:"#2563eb" }}){% else %}{{ accent|default:"#2563eb" }}{% endif %};
     --blog-ink:#16161d; --blog-soft:#4b4f5e; --blog-muted:#8a8fa3;
     --blog-line:#e8e9f0; --blog-bg:#ffffff; --blog-surface:#f6f7fb;
     /* Site typography contract (core/typography.py) when the template has it. */
@@ -20,7 +20,7 @@ leaks into the page as literal text.
     --site-cw:1100px; --site-gut:24px;
     --blog-read: 720px;            /* comfortable reading measure */
     font-family:var(--blog-sans); color:var(--blog-ink); line-height:1.7;
-    background:var(--blog-bg); padding:clamp(40px,6vw,80px) 0;
+    background:var(--blog-bg); padding:{% if site_styled %}var(--blog-space,clamp(40px,6vw,80px)){% else %}clamp(40px,6vw,80px){% endif %} 0;
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
     position:relative;
   }
@@ -76,7 +76,7 @@ leaks into the page as literal text.
   .cms-blog .blog-empty h2{font-family:var(--blog-serif);font-size:30px;color:var(--blog-ink);margin:0 0 8px;}
 
   /* ---- Prose (sanitized post body): editorial rhythm, 8px-based -------- */
-  .cms-blog .blog-prose{font-size:18.5px;line-height:1.8;color:#26272f;}
+  .cms-blog .blog-prose{font-size:{% if site_styled %}var(--text-body,18.5px){% else %}18.5px{% endif %};line-height:1.8;color:#26272f;}
   .cms-blog .blog-prose > *:first-child{margin-top:0;}
   .cms-blog .blog-prose > *:last-child{margin-bottom:0;}
   .cms-blog .blog-prose h2{font-family:var(--blog-serif);font-weight:600;font-size:30px;line-height:1.25;letter-spacing:-.01em;margin:48px 0 16px;}

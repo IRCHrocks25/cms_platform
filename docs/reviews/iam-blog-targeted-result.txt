@@ -1,0 +1,20 @@
+Observed tool output, 15 October 2026 (Asia/Singapore)
+Working directory: C:\Users\josea\cms_platform
+Windows PowerShell; Python 3.12.3; Django 5.1.2; Playwright 1.63.0 Chromium
+Local isolated SQLite test database; local socket access enabled.
+
+Command:
+$env:IAM_BLOG_EVIDENCE_DIR='C:\Users\josea\cms_platform\docs\reviews'; .venv/Scripts/python.exe manage.py test core.tests.test_blog --noinput
+
+Found 88 test(s).
+System check identified no issues (0 silenced).
+----------------------------------------------------------------------
+Ran 88 tests in 60.187s
+
+OK
+Destroying test database for alias 'default'...
+
+Note: this is a transcription of the completed tool output, not a raw shell
+redirect. Earlier .iam-blog-targeted-test.log attempts were interrupted or failed.
+The final full-suite run includes the subsequently added strip-preview style
+comparison; see the verification document for its outcome.
