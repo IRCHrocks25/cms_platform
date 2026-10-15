@@ -253,6 +253,9 @@ class SaveAndPublicRenderTests(TestCase):
     def test_editor_shows_heading_size_only_when_template_has_it(self):
         editor = self.client.get("/dashboard/").content.decode()
         self.assertNotIn('data-global-bind="headingSize"', editor)
+        # Opening the editor may clone/convert an owned template. Update the
+        # tenant's current template rather than the stale setup reference.
+        self.tenant.refresh_from_db()
         self.tenant.template.html_source = CONTRACT_TPL
         self.tenant.template.save()
         editor = self.client.get("/dashboard/").content.decode()
