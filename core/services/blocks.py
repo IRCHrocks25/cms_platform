@@ -810,7 +810,8 @@ def _ensure_region_layout_css(html: str) -> str:
     if "[data-region=main]:not([data-empty-region])" in compact:
         return html
     if "</style>" in html:
-        return html.replace("</style>", _REGION_LAYOUT_CSS + "\n</style>", 1)
+        # The parity guard removes this shim; leave no whitespace behind.
+        return html.replace("</style>", _REGION_LAYOUT_CSS + "</style>", 1)
     return html + f"\n<style>{_REGION_LAYOUT_CSS}</style>"
 
 
