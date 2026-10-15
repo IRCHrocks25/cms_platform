@@ -170,11 +170,19 @@ def list_blocks(
     except LookupError:
         return page_access_denied(site, page or "")
     try:
-        shell = BeautifulSoup(editable.template.html_source or "", "html.parser")
-        shell_regions = [
-            (slot.get("data-region") or "main").strip() or "main"
-            for slot in shell.find_all(attrs={"data-region": True})
-        ]
+        blocks.validate_layout_shell(
+            editable.template.html_source, editable.template.block_layout or {}
+        )
+        if (editable.template.block_layout or {}).get("version") == 2:
+            shell_regions = blocks.shell_region_names(
+                editable.template.html_source, editable.template.block_layout
+            )
+        else:
+            shell = BeautifulSoup(editable.template.html_source or "", "html.parser")
+            shell_regions = [
+                (slot.get("data-region") or "main").strip() or "main"
+                for slot in shell.find_all(attrs={"data-region": True})
+            ]
         rows = content_mod.list_block_instances(
             stored, blocks.catalog_for_template(editable.template),
             region_order=shell_regions,
@@ -201,6 +209,9 @@ def get_page(
     except LookupError:
         return page_access_denied(site, page or "")
     try:
+        blocks.validate_layout_shell(
+            editable.template.html_source, editable.template.block_layout or {}
+        )
         fields = content_mod.read_fields(
             _current_schema(editable, schema), stored,
             blocks.catalog_for_template(editable.template) if editable.template.is_block_shell else None,
@@ -930,6 +941,12 @@ def _apply_block_structure(auth: ResolvedAuth, *, site: str, page: Optional[str]
     editable = type(editable).objects.select_for_update().get(pk=editable.pk)
     if not editable.template.is_block_shell:
         return tool_error("Structural block edits require a block-backed page.")
+    try:
+        blocks.validate_layout_shell(
+            editable.template.html_source, editable.template.block_layout or {}
+        )
+    except ValueError as exc:
+        return tool_error(str(exc))
     if not editable.template.is_client_editable and not (
         getattr(auth.user, "is_superuser", False) or getattr(auth.user, "is_staff", False)
     ):

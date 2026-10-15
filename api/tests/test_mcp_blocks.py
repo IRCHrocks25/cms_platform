@@ -59,6 +59,56 @@ class McpBlockTests(TestCase):
             is_published=True)
         self.client = Client()
 
+    def test_v2_slots_support_connector_reads_and_bounded_changes(self):
+        self.tpl.html_source = (
+            '<html><body><main><div data-region="body-001"></div>'
+            '<div class="fixed">Locked</div>'
+            '<!--cms-slot:body-002:start--><!--cms-slot:body-002:end-->'
+            '</main></body></html>'
+        )
+        self.tpl.block_layout = {"version": 2, "segments": [
+            {"kind": "slot", "id": "body-001", "mode": "element"},
+            {"kind": "fixed", "id": "fixed-001"},
+            {"kind": "slot", "id": "body-002", "mode": "range"},
+        ]}
+        self.tpl.save(update_fields=["html_source", "block_layout"])
+        self.tenant.content = {"regions": {
+            "body-001": [{"id": "blk_11111111", "type": "hero", "fields": {"title": "One"}}],
+            "body-002": [{"id": "blk_22222222", "type": "hero", "fields": {"title": "Two"}}],
+        }}
+        self.tenant.save(update_fields=["content"])
+
+        _, read = self.call("get_page", {"site": "alpha"})
+        self.assertFalse(read["isError"], read)
+        self.assertEqual(read["structuredContent"]["fields"]["blk_22222222.title"]["value"], "Two")
+        _, listed = self.call("list_blocks", {"site": "alpha"})
+        self.assertEqual([item["region"] for item in listed["structuredContent"]["blocks"]],
+                         ["body-001", "body-002"])
+        _, added = self.call("add_block", {"site": "alpha", "block_type": "hero",
+            "region": "body-002", "position": 1, "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(added["isError"], added)
+        self.tenant.refresh_from_db()
+        added_id = added["structuredContent"]["instance_id"]
+        _, denied = self.call("move_block", {"site": "alpha", "instance_id": added_id,
+            "region": "body-001", "position": 0, "if_match": content_etag(self.tenant.content)})
+        self.assertTrue(denied["isError"])
+        _, moved = self.call("move_block", {"site": "alpha", "instance_id": added_id,
+            "region": "body-002", "position": 0, "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(moved["isError"], moved)
+        self.tenant.refresh_from_db()
+        _, removed = self.call("remove_block", {"site": "alpha", "instance_id": added_id,
+            "if_match": content_etag(self.tenant.content)})
+        self.assertFalse(removed["isError"], removed)
+        _, push = self.call("push_page", {"site": "alpha", "page": "about",
+            "html": "<h1>Changed</h1>"})
+        self.assertTrue(push["isError"])
+        self.assertIn("block", push["content"][0]["text"].lower())
+
+        self.tpl.html_source = self.tpl.html_source.replace('<!--cms-slot:body-002:end-->', '')
+        Template.objects.filter(pk=self.tpl.pk).update(html_source=self.tpl.html_source)
+        _, broken = self.call("get_page", {"site": "alpha"})
+        self.assertTrue(broken["isError"])
+
     def call(self, name, args, token="block-member"):
         response = self.client.post("/mcp", data=json.dumps({"jsonrpc": "2.0", "id": 1,
             "method": "tools/call", "params": {"name": name, "arguments": args}}),

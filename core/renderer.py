@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from django.utils.html import escape
 
 from core.ghl_embed import parse_ghl_embed_value
@@ -3415,6 +3415,7 @@ def render_page_from_blocks(
     preview: bool = False,
     site_settings: dict[str, Any] | None = None,
     nav_pages: list[dict[str, Any]] | None = None,
+    block_layout: dict | None = None,
 ) -> str:
     """Render a block-shell page: fixed chrome + ordered block instances.
 
@@ -3427,6 +3428,10 @@ def render_page_from_blocks(
     if not shell_html:
         return ""
     content = content or {}
+    if (block_layout or {}).get("version") == 2:
+        from core.services.blocks import validate_layout_shell
+
+        validate_layout_shell(shell_html, block_layout)
     from core.services.blocks import (
         MAX_BLOCK_DEPTH,
         _HEADER_SLOTS,
@@ -3488,6 +3493,36 @@ def render_page_from_blocks(
             region_el.append(BeautifulSoup(_empty_slot_button(dest), "html.parser"))
         elif preview and name.startswith("footer"):
             region_el.append(BeautifulSoup(_empty_slot_button(name), "html.parser"))
+
+    if (block_layout or {}).get("version") == 2:
+        anchors = {}
+        for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
+            match = re.fullmatch(r"cms-slot:(body-\d{3}):(start|end)", str(comment).strip())
+            if match:
+                anchors.setdefault(match[1], {})[match[2]] = comment
+        for segment in block_layout["segments"]:
+            if segment.get("kind") != "slot" or segment.get("mode") != "range":
+                continue
+            name = segment["id"]
+            end = anchors[name]["end"]
+            preview_slot = None
+            if preview:
+                preview_slot = soup.new_tag("div")
+                preview_slot["data-region"] = name
+                preview_slot["style"] = "display:contents"
+                end.insert_before(preview_slot)
+            for instance in regions.get(name) or []:
+                wrapper = _assemble_instance(
+                    instance, catalog, flat_content, depth=0,
+                    max_depth=MAX_BLOCK_DEPTH, preview=preview,
+                )
+                if wrapper is not None:
+                    if preview_slot is not None:
+                        preview_slot.append(wrapper)
+                    else:
+                        end.insert_before(wrapper)
+            if preview_slot is not None and not preview_slot.contents:
+                preview_slot.append(BeautifulSoup(_empty_slot_button(name), "html.parser"))
 
     if paint_header:
         apply_header_chrome(soup, header_meta, preview=preview)

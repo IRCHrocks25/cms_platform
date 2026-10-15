@@ -95,6 +95,7 @@
   }
   function shellRegionLabel(name) {
     if (name === "main") return "Page";
+    if (/^body-\d{3}$/.test(name)) return "Body slot " + Number(name.slice(5));
     if (name === "header-left") return "Header · Logo";
     if (name === "header-center") return "Header · Menu";
     if (name === "header-right") return "Header · Buttons";
@@ -3066,19 +3067,20 @@
   // Add-section lands on the page (or the selected band's shell region), never
   // inside a row column. Nested selection walks up to the top-level band.
   function shellDestForSelection() {
-    if (!currentBlockId) return "main";
-    if (isHeaderSection(currentBlockId)) return "main";
-    if (CHROME_DEST[currentBlockId]) return "main";
+    if (!currentBlockId) return REGION;
+    if (isHeaderSection(currentBlockId)) return REGION;
+    if (CHROME_DEST[currentBlockId]) return REGION;
     if (allShellRegionNames().indexOf(currentBlockId) !== -1) {
-      return currentBlockId === "main" || currentBlockId === REGION ? currentBlockId : "main";
+      return currentBlockId === "main" || currentBlockId === REGION || /^body-\d{3}$/.test(currentBlockId)
+        ? currentBlockId : REGION;
     }
     var loc = findInstanceLoc(currentBlockId);
-    if (!loc) return "main";
+    if (!loc) return REGION;
     var top = loc;
     while (top && top.parentId) top = findInstanceLoc(top.parentId);
-    var region = (top && top.region) || "main";
+    var region = (top && top.region) || REGION;
     if (!region || region.indexOf("header") === 0 || region.indexOf("footer") === 0 || region === "nav") {
-      return "main";
+      return REGION;
     }
     return region;
   }
@@ -3086,8 +3088,8 @@
   // When a section/row (or a block inside one) is selected, new elements go
   // there — not onto the page as another top-level section.
   function defaultInsertDest() {
-    if (!currentBlockId) return "main";
-    if (isHeaderSection(currentBlockId)) return "main";
+    if (!currentBlockId) return REGION;
+    if (isHeaderSection(currentBlockId)) return REGION;
     var chromeDest = CHROME_DEST[currentBlockId];
     if (chromeDest && allShellRegionNames().indexOf(chromeDest) !== -1) return chromeDest;
     if (allShellRegionNames().indexOf(currentBlockId) !== -1) return currentBlockId;
@@ -3099,7 +3101,7 @@
     if (cols.length) return currentBlockId + "/" + cols[0];
     var loc = findInstanceLoc(currentBlockId);
     if (loc && loc.parentId && loc.region) return loc.parentId + "/" + loc.region;
-    return "main";
+    return REGION;
   }
 
   // Preferred category order for the Quick Add rail (GHL-like). Anything not
@@ -3285,7 +3287,7 @@
           pendingBlockStyle = { maxWidth: preset.maxWidth };
           if (preset.maxWidth === "100%") pendingBlockStyle.width = "100%";
           if (window.__cmsCloseDialog) window.__cmsCloseDialog(modal);
-          addBlock(type, dest ? dest.value : "main");
+          addBlock(type, dest ? dest.value : REGION);
         });
         wrap.appendChild(btn);
       });
@@ -3296,7 +3298,7 @@
     function bindPaletteCard(card, item) {
       function place() {
         if (window.__cmsCloseDialog) window.__cmsCloseDialog(modal);
-        addBlock(item.key, dest ? dest.value : "main");
+        addBlock(item.key, dest ? dest.value : REGION);
       }
       card.addEventListener("click", place);
       card.addEventListener("dragstart", function (e) {

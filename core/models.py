@@ -100,6 +100,7 @@ class Template(models.Model):
 
     html_source = models.TextField()
     schema = models.JSONField(default=dict, blank=True)
+    block_layout = models.JSONField(default=dict, blank=True)
 
     tenant = models.ForeignKey(
         "core.Tenant",
@@ -150,6 +151,10 @@ class Template(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        if (self.block_layout or {}).get("version") == 2:
+            from core.services.blocks import validate_layout_shell
+
+            validate_layout_shell(self.html_source, self.block_layout)
         if not self.slug:
             # Auto-unique within the same owner (library or one tenant).
             base = slugify(self.name)[:140] or "template"
@@ -185,7 +190,7 @@ class Template(models.Model):
         ``[data-region=main]`` after a convert; that selector must not flip
         a classic annotated template into an empty block canvas.
         """
-        return bool(
+        return (self.block_layout or {}).get("version") == 2 or bool(
             re.search(r"""\sdata-region\s*=\s*['"]""", self.html_source or "")
         )
 
@@ -210,6 +215,7 @@ class Template(models.Model):
             name=self.name,
             description=self.description,
             html_source=self.html_source,
+            block_layout=self.block_layout,
             editing_mode=self.editing_mode,
             tenant=tenant,
             cloned_from=self,

@@ -43,6 +43,26 @@ class ContentVersionServiceTests(TestCase):
             content={"hero": {"title": "A"}},
         )
 
+    def test_v2_restore_refuses_preconversion_snapshot(self):
+        template = self.tenant.template
+        template.html_source = (
+            '<html><body><main><div data-region="body-001"></div></main></body></html>'
+        )
+        template.block_layout = {"version": 2, "segments": [
+            {"kind": "slot", "id": "body-001", "mode": "element"},
+        ]}
+        template.save(update_fields=["html_source", "block_layout"])
+        self.tenant.content = {"regions": {"body-001": []}}
+        self.tenant.save(update_fields=["content"])
+        old = ContentVersion.objects.create(
+            tenant=self.tenant, snapshot={"hero": {"title": "Old"}},
+            saved_by=self.user, source=cv.SOURCE_DASHBOARD,
+        )
+        with self.assertRaisesRegex(cv.RestoreValidationError, "requires every declared"):
+            cv.restore_tenant_content(self.tenant, old, user=self.user)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.content, {"regions": {"body-001": []}})
+
     def test_dashboard_save_creates_snapshot_of_previous(self):
         before = dict(self.tenant.content)
         cv.save_tenant_content(

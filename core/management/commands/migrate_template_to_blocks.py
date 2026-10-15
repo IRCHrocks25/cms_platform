@@ -3,16 +3,16 @@
 A classic template is one annotated document: fixed chrome (nav/footer) plus a
 run of body sections. The block-instance model splits that into
 
-* a **shell**: the same chrome with a single ``<div data-region="main">`` slot
-  where client-inserted blocks render, and
+* a **shell**: fixed chrome with one legacy ``main`` slot or an ordered v2
+  layout of wrapper slots and comment-delimited sibling runs, and
 * a **block catalog**: one :class:`~core.models.BlockType` per former body
   section, allowlisted on the template.
 
 Every tenant home and inner page that uses the template has its
-``{section: {field}}`` content rewritten into ``regions.main`` instances. The
+``{section: {field}}`` content rewritten into ``regions`` instances. The
 command is **dry-run by default** and gated on a byte-identical render: for each
 affected page it renders the classic output and the new block output and refuses
-to apply if any pair differs (unless ``--force``). The original content is
+to apply if any pair differs. ``--force`` cannot override v2 mismatches. The original content is
 preserved under a ``_classic`` backup key for rollback (dual-write).
 
     python manage.py migrate_template_to_blocks <template>          # preview
@@ -52,7 +52,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--force",
             action="store_true",
-            help="Apply even if a page's block render differs from the classic render.",
+            help="Legacy override; never bypasses layout-aware render equality.",
         )
         parser.add_argument("--region", default="main", help="Region slot name.")
 
@@ -68,7 +68,10 @@ class Command(BaseCommand):
             )
 
         old_html = template.html_source
-        _shell_html, fragments = blocks.split_shell_and_blocks(old_html, region=region)
+        try:
+            _shell_html, fragments, layout = blocks.split_classic_candidate(old_html, region=region)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         if not fragments:
             raise CommandError(
                 "No body sections found to convert; every section is chrome."
@@ -105,10 +108,10 @@ class Command(BaseCommand):
         if not editables:
             self.stdout.write("  (no tenants or pages use this template yet)")
 
-        if failures and not force:
+        if failures and (layout or not force):
             raise CommandError(
                 f"{len(failures)} page(s) render differently after conversion; "
-                "aborting. Re-run with --force to migrate anyway."
+                "aborting. Layout-aware conversion requires exact equality."
             )
 
         if not apply:
