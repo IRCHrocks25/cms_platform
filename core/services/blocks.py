@@ -1334,8 +1334,24 @@ def layout_slot_ids(layout: dict | None) -> list[str]:
             if item.get("kind") == "slot"]
 
 
+def _has_fixed_gap(left, right) -> bool:
+    """Whether non-whitespace shell markup lies between two slot boundaries."""
+    cursor = left
+    while cursor.next_element is not None and left in cursor.next_element.parents:
+        cursor = cursor.next_element
+    cursor = cursor.next_element
+    while cursor is not None and cursor is not right:
+        if cursor in right.parents:
+            cursor = cursor.next_element
+            continue
+        if isinstance(cursor, Tag) or (isinstance(cursor, str) and cursor.strip()):
+            return True
+        cursor = cursor.next_element
+    return False
+
+
 def validate_layout_shell(html: str, layout: dict) -> None:
-    """A missing, duplicated, or moved anchor must never silently lose blocks."""
+    """Validate slot order and fixed gaps before rendering or storing a shell."""
     if layout.get("version") != 2:
         return
     soup = BeautifulSoup(html or "", "lxml")
@@ -1343,9 +1359,14 @@ def validate_layout_shell(html: str, layout: dict) -> None:
     if not expected or len(expected) != len(set(expected)):
         raise ValueError("Invalid v2 block layout: duplicate or absent slots.")
     seen = []
+    boundaries = {}
     for slot in soup.find_all(attrs={"data-region": True}):
         if slot.get("data-region") in expected:
             seen.append((slot["data-region"], "element"))
+            boundaries[slot["data-region"]] = (slot, slot)
+            if any(isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+                   for child in slot.children):
+                raise ValueError(f"Invalid v2 block layout: slot {slot['data-region']} contains fixed markup.")
     comments = soup.find_all(string=lambda value: isinstance(value, Comment))
     for comment in comments:
         match = _SLOT_ANCHOR.fullmatch(str(comment).strip())
@@ -1363,8 +1384,34 @@ def validate_layout_shell(html: str, layout: dict) -> None:
                     if str(comment).strip() in {f"cms-slot:{sid}:start", f"cms-slot:{sid}:end"}]
             if pair[0].parent is not pair[1].parent:
                 raise ValueError(f"Invalid v2 block layout: slot {sid} anchors have different parents.")
+            start, end = pair
+            siblings = list(start.next_siblings)
+            if end not in siblings:
+                raise ValueError(f"Invalid v2 block layout: slot {sid} end precedes start.")
+            if any(isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+                   for child in siblings[:siblings.index(end)]):
+                raise ValueError(f"Invalid v2 block layout: slot {sid} contains fixed markup or nested anchors.")
+            boundaries[sid] = (start, end)
     if any(name not in expected for name, _ in seen):
         raise ValueError("Invalid v2 block layout: undeclared slot anchor.")
+
+    # Every slot must occur in layout order. A fixed descriptor belongs to the
+    # gap between its two neighbouring slots, not inside either slot.
+    document_order = {id(node): index for index, node in enumerate(soup.descendants)}
+    actual = sorted(expected, key=lambda sid: document_order[id(boundaries[sid][0])])
+    if actual != expected:
+        raise ValueError("Invalid v2 block layout: slot order differs from layout.")
+    segments = layout["segments"]
+    for left_id, right_id in zip(expected, expected[1:]):
+        left_pos = next(i for i, item in enumerate(segments)
+                        if item.get("kind") == "slot" and item.get("id") == left_id)
+        right_pos = next(i for i, item in enumerate(segments)
+                         if item.get("kind") == "slot" and item.get("id") == right_id)
+        declared_fixed = any(item.get("kind") == "fixed"
+                             for item in segments[left_pos + 1:right_pos])
+        actual_fixed = _has_fixed_gap(boundaries[left_id][1], boundaries[right_id][0])
+        if actual_fixed != declared_fixed:
+            raise ValueError(f"Invalid v2 block layout: fixed gap between {left_id} and {right_id} differs from layout.")
 
 
 def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], dict]:
@@ -1382,21 +1429,6 @@ def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], di
     segments = []
     previous = None
 
-    def has_fixed_gap(left, right) -> bool:
-        """Whether original non-whitespace markup lies between two slots."""
-        cursor = left
-        while cursor.next_element is not None and left in cursor.next_element.parents:
-            cursor = cursor.next_element
-        cursor = cursor.next_element
-        while cursor is not None and cursor is not right:
-            if cursor in right.parents:
-                cursor = cursor.next_element
-                continue
-            if isinstance(cursor, Tag) or (isinstance(cursor, str) and cursor.strip()):
-                return True
-            cursor = cursor.next_element
-        return False
-
     for index, node in enumerate(roots, 1):
         sid = f"body-{index:03d}"
         parent = node.parent
@@ -1408,7 +1440,7 @@ def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], di
                         and all(child is node or (isinstance(child, str) and not child.strip())
                                 for child in parent.children))
         marker = parent if wrapper_only else node
-        if previous is not None and has_fixed_gap(previous, marker):
+        if previous is not None and _has_fixed_gap(previous, marker):
             # A fixed descriptor tells the editor that the shell owns the gap.
             # It never copies or reorders the actual HTML.
             segments.append({"kind": "fixed", "id": f"fixed-{index-1:03d}"})

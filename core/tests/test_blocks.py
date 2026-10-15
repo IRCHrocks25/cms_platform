@@ -59,6 +59,56 @@ class LayoutAwareConversionTests(TestCase):
                                     content, blocks._catalog_from_fragments(fragments),
                                     block_layout=layout)
 
+    def test_layout_shell_rejects_reordered_or_nested_anchors(self):
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        first_start = '<!--cms-slot:body-001:start-->'
+        first_end = '<!--cms-slot:body-001:end-->'
+        second_start = '<!--cms-slot:body-002:start-->'
+        fixed = '<div class="fixed">Do not move</div>'
+        mutations = {
+            # Review mutation: the renderer would move hero after the fixed div.
+            "end across fixed": shell.replace(first_end + fixed, fixed + first_end),
+            "start across fixed": shell.replace(first_start, "").replace(
+                fixed, fixed + first_start),
+            "whole slot across fixed": shell.replace(first_start + first_end, "").replace(
+                fixed, fixed + first_start + first_end),
+            "slots swapped": shell.replace("body-001", "temporary-slot").replace(
+                "body-002", "body-001").replace("temporary-slot", "body-002"),
+            "nested ranges": shell.replace(first_end + fixed + second_start,
+                                           fixed + second_start + first_end),
+            "end before start": shell.replace(first_start, "").replace(
+                first_end, first_end + first_start),
+        }
+        for name, mutated in mutations.items():
+            self.assertNotEqual(mutated, shell, name)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                blocks.validate_layout_shell(mutated, layout)
+
+    def test_layout_shell_rejects_fixed_content_inside_element_slot(self):
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.WRAPPED)
+        mutated = shell.replace('data-region="body-001">',
+                                'data-region="body-001"><div class="fixed">Moved</div>')
+        with self.assertRaises(ValueError):
+            blocks.validate_layout_shell(mutated, layout)
+
+    def test_template_and_version_save_reject_anchor_across_fixed_segment(self):
+        from core.services.templates import AnnotationMismatchError, save_template_version
+
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        template = Template.objects.create(name="Ordered anchors", html_source=shell,
+                                           block_layout=layout)
+        first_end = '<!--cms-slot:body-001:end-->'
+        fixed = '<div class="fixed">Do not move</div>'
+        mutated = shell.replace(first_end + fixed, fixed + first_end)
+        template.html_source = mutated
+        with self.assertRaises(ValueError):
+            template.save()
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(template, mutated, user=None)
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, shell)
+        self.assertFalse(template.versions.exists())
+
     def test_adjacent_direct_slots_have_no_invented_fixed_segment(self):
         html = self.INTERLEAVED.replace('<div class="fixed">Do not move</div>', '')
         _, _, layout = blocks.split_shell_and_blocks_v2(html)
