@@ -1754,3 +1754,60 @@ class HomepageStripLayoutTests(TestCase):
         self.assertEqual(self.tenant.blog_settings["strip_layouts"], {"home_0": "image_above"})
         self.assertEqual(self.tenant.blog_settings["strip_count"], 1)
         self.assertEqual(self.tenant.blog_settings["index_layout"], "style")
+
+
+class HeadlessTemplateBlogStylesTests(TestCase):
+    """CMS-89: blog pages keep their styles when the template has no <head>."""
+
+    HEADLESS_HTML = (
+        "<header class='site-header' data-section='header'><a href='/'>HEADLESS NAV</a></header>"
+        "<style>.site-header{color:#123456}</style>"
+        "<section data-section='hero'><h1 data-edit='hero.title' data-type='text'>Hi</h1></section>"
+        "<footer data-section='footer'><p>HEADLESS FOOTER</p></footer>"
+    )
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        owner = User.objects.create_user("headless-owner", password="x", is_staff=True)
+        tpl = Template.objects.create(name="Headless", html_source=cls.HEADLESS_HTML)
+        cls.tenant = Tenant.objects.create(
+            name="Headless", subdomain="headless", template=tpl, owner=owner, is_published=True,
+        )
+        cls.post = _post(cls.tenant, "Headless Post", body="<p>body text</p>",
+                         cover_image="https://example.test/cover.jpg")
+
+    def _assert_blog_styles_in_head(self, path):
+        from bs4 import BeautifulSoup
+        response = Client(HTTP_HOST="headless.localhost").get(path)
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "lxml")
+        self.assertIsNotNone(soup.head)
+        head_css = " ".join(s.get_text() for s in soup.head.find_all("style"))
+        self.assertIn("--blog-accent", head_css)
+        self.assertIn("cms-blog-chrome-contrast", str(soup.head))
+        self.assertTrue(
+            any("family=Fraunces" in (link.get("href") or "") for link in soup.head.find_all("link"))
+        )
+        # The site's own chrome and stylesheet are still there.
+        body = response.content.decode()
+        self.assertIn("HEADLESS NAV", body)
+        self.assertIn("HEADLESS FOOTER", body)
+        self.assertIn(".site-header{color:#123456}", body)
+        return soup
+
+    def test_index_keeps_blog_styles(self):
+        soup = self._assert_blog_styles_in_head("/blog/")
+        self.assertIn("Headless Post", soup.get_text())
+
+    def test_detail_keeps_blog_styles(self):
+        soup = self._assert_blog_styles_in_head(f"/blog/{self.post.slug}/")
+        self.assertIn("body text", soup.get_text())
+
+    def test_template_with_head_is_unchanged(self):
+        from core.services.blog_render import _ensure_head
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup("<html><head><title>t</title></head><body></body></html>", "lxml")
+        head = soup.head
+        self.assertIs(_ensure_head(soup), head)
+        self.assertEqual(len(soup.find_all("head")), 1)
