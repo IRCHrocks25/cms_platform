@@ -123,6 +123,24 @@ class PreSaveComparisonTests(TestCase):
             with self.subTest(candidate=candidate[:80]), self.assertRaises(AnnotationMismatchError):
                 save_template_version(self.template, candidate, user=self.user, preserve_rendered=True)
 
+    def test_annotation_ignores_whitespace_after_document_root(self):
+        raw = (
+            '<!DOCTYPE html><html><body><section><p>Safe copy</p>'
+            '</section></body></html>\n'
+        )
+        annotated = (
+            '<!DOCTYPE html><html><body><section data-section="intro">'
+            '<p data-edit="intro.title" data-type="text">Safe copy</p>'
+            '</section></body></html>'
+        )
+        template = Template.objects.create(name="Synthetic whitespace", html_source=raw)
+
+        save_template_version(template, annotated, user=self.user, preserve_rendered=True)
+
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, annotated)
+        self.assertEqual(_annotation_snapshot(raw, {}), _annotation_snapshot(annotated, {}))
+
     def test_attribute_only_annotation_preserves_content_and_repeat_save(self):
         candidate = OLD.replace('<p data-edit="mission.eyebrow"',
                                 '<p data-label="Eyebrow" data-edit="mission.eyebrow"')

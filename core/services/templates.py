@@ -14,7 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Union
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -519,6 +519,14 @@ def _annotation_snapshot(html: str, content: dict) -> str:
     for tag in soup.find_all(True):
         for attr in _ANNOTATION_ATTRS:
             tag.attrs.pop(attr, None)
+    # The annotator may drop a newline after </html>. It has no rendered
+    # content, but string comparison would reject an otherwise identical page.
+    # Only trim whitespace outside the document root; whitespace inside the
+    # document and every rendered text/attribute value remain guarded.
+    while soup.contents and isinstance(soup.contents[0], NavigableString) and not str(soup.contents[0]).strip():
+        soup.contents[0].extract()
+    while soup.contents and isinstance(soup.contents[-1], NavigableString) and not str(soup.contents[-1]).strip():
+        soup.contents[-1].extract()
     return str(soup)
 
 
