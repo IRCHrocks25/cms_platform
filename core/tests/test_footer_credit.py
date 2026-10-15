@@ -220,6 +220,21 @@ class FooterCreditTenantTests(TestCase):
         self.assertNotIn("Built by", blog_html)
         self.assertIn("Copyright", blog_html)
 
+    def test_hidden_credit_is_preserved_in_block_shell_blog_chrome(self):
+        self.template.html_source = FOOTER.replace(
+            "<footer", "<main data-region='main'></main><footer", 1,
+        )
+        self.template.save()
+        self.tenant.content = {"regions": {"main": []}}
+        self.tenant.site_settings = {"show_footer_credit": False}
+        self.tenant.save(update_fields=["content", "site_settings"])
+
+        blog_html = wrap_in_site_chrome(self.tenant, "<main>Article</main>")
+        soup = BeautifulSoup(blog_html, "lxml")
+        self.assertIsNone(soup.select_one(".credit"))
+        self.assertIsNone(soup.select_one(".separator"))
+        self.assertEqual(soup.footer.get_text(" ", strip=True), "Copyright")
+
     def test_regular_settings_save_does_not_reset_hidden_credit(self):
         self.tenant.site_settings = {"show_footer_credit": False}
         self.tenant.save(update_fields=["site_settings"])

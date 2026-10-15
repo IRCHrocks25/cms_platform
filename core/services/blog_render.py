@@ -447,8 +447,14 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
         # block shell the hero/heading elements live in blocks, not html_source;
         # rendering only the shell loses the site's semantic heading aliases.
         from .blocks import render_content
-        shell_html = render_content(tenant.template, tenant.content,
-                                    preview=False, site_settings=None)
+        shell_html = render_content(
+            tenant.template,
+            tenant.content,
+            preview=False,
+            site_settings={
+                "show_footer_credit": (tenant.site_settings or {}).get("show_footer_credit") is not False,
+            },
+        )
 
     soup = BeautifulSoup(shell_html, "lxml") if shell_html else None
     body = soup.find("body") if soup else None
