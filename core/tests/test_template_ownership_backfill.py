@@ -30,6 +30,15 @@ class TemplateOwnershipBackfillTests(TransactionTestCase):
         executor.migrate(targets)
         return executor.loader.project_state(targets).apps
 
+    def tearDown(self):
+        try:
+            # The next TransactionTestCase must see the current schema, even if
+            # this historical backfill assertion failed partway through.
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+        finally:
+            super().tearDown()
+
     def test_backfill_claims_single_owner_keeps_shared_library(self):
         apps = self._migrate(self.migrate_from)
         Template = apps.get_model("core", "Template")

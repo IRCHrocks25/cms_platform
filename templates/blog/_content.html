@@ -12,8 +12,9 @@ leaks into the page as literal text.
     --blog-accent: {{ accent|default:"#2563eb" }};
     --blog-ink:#16161d; --blog-soft:#4b4f5e; --blog-muted:#8a8fa3;
     --blog-line:#e8e9f0; --blog-bg:#ffffff; --blog-surface:#f6f7fb;
-    --blog-sans:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    --blog-serif:'Fraunces',Georgia,'Times New Roman',serif;
+    /* Site typography contract (core/typography.py) when the template has it. */
+    --blog-sans:var(--cms-font-body,'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);
+    --blog-serif:var(--cms-font-heading,'Fraunces',Georgia,'Times New Roman',serif);
     /* width + gutter detected from the client's own container (see
        wrap_in_site_chrome); fallbacks keep it sane standalone. */
     --site-cw:1100px; --site-gut:24px;

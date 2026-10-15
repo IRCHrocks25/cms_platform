@@ -18,6 +18,9 @@ every editable section and field. Annotations the parser understands:
   Global brand tokens (place on the <style> element):
     data-tokens                      contents become a "Brand" section with
                                      CSS variable values exposed as fields.
+
+  Typography tokens (any :root block): --font-body, --font-heading,
+  --text-body, --text-heading. See core/typography.py.
 """
 from __future__ import annotations
 
@@ -27,6 +30,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from core.ghl_embed import VALID_GHL_EMBED_KINDS, parse_ghl_embed_value
+from core.typography import detect_typography
 
 
 VALID_FIELD_TYPES = {
@@ -65,7 +69,9 @@ def _humanize(token: str) -> str:
     return token.replace("-", " ").replace("_", " ").strip().title()
 
 
-def _parse_brand_tokens(soup: BeautifulSoup) -> dict[str, Any] | None:
+def _parse_brand_tokens(
+    soup: BeautifulSoup, exclude: set[str] = frozenset()
+) -> dict[str, Any] | None:
     style = soup.find("style", attrs={"data-tokens": True})
     if not style:
         return None
@@ -73,6 +79,9 @@ def _parse_brand_tokens(soup: BeautifulSoup) -> dict[str, Any] | None:
     fields: list[dict[str, Any]] = []
     for match in TOKEN_PATTERN.finditer(style.text or ""):
         name, value = match.group(1), match.group(2).strip()
+        # Typography tokens are edited from the Design tab's font controls.
+        if name in exclude:
+            continue
         ftype = "color" if value.startswith("#") or value.startswith("rgb") else "text"
         fields.append(
             {
@@ -320,7 +329,12 @@ def build_schema(html: str) -> dict[str, Any]:
     sections: list[dict[str, Any]] = []
     defaults: dict[str, dict[str, str]] = {}
 
-    brand = _parse_brand_tokens(soup)
+    typography = detect_typography(soup)
+    typography_tokens = typography["tokens"]
+    brand = _parse_brand_tokens(
+        soup,
+        {t["name"] for t in typography_tokens} | {s["name"] for s in typography["slots"]},
+    )
     if brand:
         sections.append(brand)
         defaults["brand"] = {f["id"].split(".")[-1]: f["default"] for f in brand["fields"]}
@@ -453,6 +467,9 @@ def build_schema(html: str) -> dict[str, Any]:
         "defaults": defaults,
         "link_targets": link_targets,
         "theme_tokens": theme_tokens,
+        "typography_tokens": typography_tokens,
+        "font_slots": typography["slots"],
+        "text_groups": typography["groups"],
     }
 
 

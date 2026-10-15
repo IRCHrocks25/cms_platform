@@ -47,6 +47,17 @@ class NormalizeStylesTests(SimpleTestCase):
         self.assertEqual(set(content["_global"]), {
             "fontFamily", "baseSize", "headingFamily", "textColor", "pageBg"})
 
+    def test_heading_size_accepts_plain_lengths_only(self):
+        for value, kept in (
+            ("40px", True), ("2.5rem", True), ("3em", True),
+            ("huge", False), ("40px;}body{display:none", False), ("calc(1rem + 2px)", False),
+            ("1000px", False),
+        ):
+            with self.subTest(value=value):
+                content = {"_global": {"headingSize": value}}
+                _normalize_styles(content)
+                self.assertEqual("headingSize" in content["_global"], kept)
+
     def test_missing_namespaces_are_untouched(self):
         content = {"hero": {"title": "x"}}
         _normalize_styles(content)
