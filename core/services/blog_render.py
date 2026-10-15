@@ -269,6 +269,7 @@ def render_detail(
             "blog_base": blog_base,
             "is_preview": is_preview,
             "preview_bridge": preview_bridge,
+            "site_styled": _site_style_opt_in(tenant),
         },
         request=request,
     )
@@ -294,7 +295,8 @@ def index_page_size(style: str, index_layout: str) -> int:
 def render_index(tenant, context, *, style, index_layout=BLOG_INDEX_LAYOUT_STYLE, request=None) -> str:
     """Render the blog index fragment wrapped in the client's site chrome."""
     fragment = render_to_string(
-        index_template_path(style, index_layout), context, request=request
+        index_template_path(style, index_layout),
+        {**context, "site_styled": _site_style_opt_in(tenant)}, request=request,
     )
     home_url = _home_from_blog_base(context.get("blog_base", "/blog/"))
     return wrap_in_site_chrome(tenant, fragment, request=request, home_url=home_url)
@@ -460,6 +462,11 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     body = soup.find("body") if soup else None
     if soup is None or body is None:
         return _wrap_minimal(inner_html)
+    mounted_font_aliases = (
+        _site_font_aliases(soup)
+        if soup.find(attrs={"data-blog-strip": True}) and not _has_saved_typography(tenant)
+        else []
+    )
 
     nav, footer = _find_chrome(soup, body)
 
@@ -571,6 +578,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
     blog_root = soup.find(class_="cms-blog")
     if blog_root is not None:
         decls = [f"--site-cw: {cw}", f"--site-gut: {gut}"]
+        decls.extend(mounted_font_aliases)
         existing = str(blog_root.get("style", "") or "").rstrip().rstrip(";")
         blog_root["style"] = (existing + "; " if existing else "") + "; ".join(decls) + ";"
 
@@ -604,6 +612,54 @@ def _rewrite_chrome_anchors(soup, blog_root, home_url: str) -> None:
 IMAGE_STRIP_LAYOUTS = {"image_left", "image_right", "image_above"}
 
 
+def _has_saved_typography(tenant) -> bool:
+    content = tenant.content if isinstance(tenant.content, dict) else {}
+    global_styles = content.get("_global")
+    if not isinstance(global_styles, dict):
+        return False
+    keys = {"fontFamily", "headingFamily", "titleFamily", "baseSize", "headingSize"}
+    return any(
+        isinstance(value, str) and value.strip()
+        and (key in keys or key.startswith(("font:", "group:")))
+        for key, value in global_styles.items()
+    )
+
+
+def _site_style_opt_in(tenant) -> bool:
+    if _has_saved_typography(tenant):
+        return True
+    if not tenant.template_id or not tenant.template.html_source:
+        return False
+    from .blocks import render_content
+
+    shell = render_content(tenant.template, tenant.content, preview=False, site_settings=None)
+    return BeautifulSoup(shell, "lxml").find(attrs={"data-blog-strip": True}) is not None
+
+
+def _site_font_aliases(soup) -> list[str]:
+    """Aliases for the template's discovered fonts, used only after opt-in."""
+    from core.typography import detect_typography_tokens
+
+    role_names = {token["role"]: token["name"] for token in detect_typography_tokens(soup)}
+    aliases = []
+    for role in ("body", "heading"):
+        name = role_names.get(f"{role}-font")
+        if name:
+            aliases.append(f"--cms-font-{role}:var(--{name})")
+    return aliases
+
+
+def _mount_site_font_aliases(soup, markers) -> None:
+    """Scope discovered template fonts to explicit mounts on unsaved sites."""
+    aliases = _site_font_aliases(soup)
+    if not aliases:
+        return
+    for marker in markers:
+        current = str(marker.get("style", "")).rstrip("; ")
+        declarations = [alias for alias in aliases if alias.split(":", 1)[0] not in current]
+        marker["style"] = ";".join(part for part in (current, *declarations) if part) + ";"
+
+
 def blog_strip_markers(tenant) -> list[dict]:
     """List the existing homepage and inner-page markers for the settings editor."""
     from . import blocks
@@ -634,7 +690,7 @@ def blog_strip_markers(tenant) -> list[dict]:
     return rows
 
 
-def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", layout: str = "") -> str:
+def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", layout: str = "", site_styled: bool = False) -> str:
     """HTML fragment for the homepage strip, or '' if nothing to show."""
     settings = get_blog_settings(tenant)
     if not settings["strip_enabled"]:
@@ -652,6 +708,7 @@ def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", la
             "accent": accent_color(tenant),
             "blog_base": blog_base,
             "layout": selected,
+            "site_styled": site_styled,
         },
         request=request,
     )
@@ -703,6 +760,15 @@ def render_strip_doc(
     count = max(1, min(STRIP_MAX, count))
     heading = (str(heading) if heading is not None else "").strip() or saved["strip_heading"]
 
+    shell_soup = None
+    if tenant.template_id and tenant.template.html_source:
+        from .blocks import render_content
+        shell = render_content(tenant.template, tenant.content, preview=False, site_settings=None)
+        shell_soup = BeautifulSoup(shell, "lxml")
+    site_styled = _has_saved_typography(tenant) or bool(
+        shell_soup and shell_soup.find(attrs={"data-blog-strip": True})
+    )
+
     if not enabled:
         inner = '<p class="strip-preview-empty">The homepage strip is turned off.</p>'
     else:
@@ -721,20 +787,21 @@ def render_strip_doc(
                     "heading": heading,
                     "accent": accent_color(tenant),
                     "blog_base": blog_base,
+                    "site_styled": site_styled,
                 },
                 request=request,
             )
     # Use the same rendered font aliases, overrides, stylesheet links and body
     # attributes as public output. A standalone fixed-font head hides site CSS
     # from the preview even when the fragment correctly consumes site tokens.
-    if tenant.template_id and tenant.template.html_source:
-        from .blocks import render_content
-        shell = render_content(tenant.template, tenant.content, preview=False, site_settings=None)
-        soup = BeautifulSoup(shell, "lxml")
+    if site_styled and shell_soup is not None:
+        soup = shell_soup
         if soup.body is not None and soup.head is not None:
             # Retain an explicit mount's ancestor selectors and spacing. Block
             # templates can carry their CSS in the body, outside the shell head.
             marker = soup.find(attrs={"data-blog-strip": True})
+            if marker is not None and not _has_saved_typography(tenant):
+                _mount_site_font_aliases(soup, [marker])
             wrappers = []
             if marker is not None:
                 node = marker
@@ -766,16 +833,22 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
     just before the footer, else at the end of ``<body>``. No featured
     posts → returns the HTML untouched (no empty strip on the public site).
     """
-    fragment = render_strip_fragment(tenant, request=request, blog_base=blog_base)
+    soup = BeautifulSoup(html, "lxml")
+    markers = soup.find_all(attrs={"data-blog-strip": True})
+    if markers and not _has_saved_typography(tenant):
+        _mount_site_font_aliases(soup, markers)
+    site_styled = bool(markers) or _has_saved_typography(tenant)
+    fragment = render_strip_fragment(
+        tenant, request=request, blog_base=blog_base, site_styled=site_styled,
+    )
     if not fragment:
         return html
 
-    soup = BeautifulSoup(html, "lxml")
     # Re-rendering an already composed document must replace the generated
     # strip rather than append another one. Never remove authored blog blocks.
     for previous in soup.select("[data-cms-blog-strip]"):
         previous.decompose()
-    if soup.head is not None and "family=Fraunces" not in html:
+    if site_styled and soup.head is not None and "family=Fraunces" not in html:
         for node in list(BeautifulSoup(_BLOG_FONTS_LINK, "html.parser").children):
             soup.head.append(node)
     frag_soup = BeautifulSoup(fragment, "lxml")
@@ -785,7 +858,6 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
     if not nodes:
         return html
 
-    markers = soup.find_all(attrs={"data-blog-strip": True})
     if markers:
         saved = (tenant.blog_settings or {}).get("strip_layouts") or {}
         if not isinstance(saved, dict):
@@ -797,6 +869,7 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
             if layout not in fragments:
                 selected_html = render_strip_fragment(
                     tenant, request=request, blog_base=blog_base, layout=layout,
+                    site_styled=site_styled,
                 )
                 selected_soup = BeautifulSoup(selected_html, "lxml")
                 fragments[layout] = list(

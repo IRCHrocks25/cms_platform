@@ -1,7 +1,7 @@
 {% extends "blog/_content.html" %}
 
 {% block styles %}
-  .min-index-title { font-family: var(--cms-font-title,var(--font-title,var(--blog-serif))); font-size: 42px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .min-index-title { font-family: {% if site_styled %}var(--cms-font-title,var(--font-title,var(--blog-serif))){% else %}var(--blog-serif){% endif %}; font-size: 42px; margin: 0 0 8px; letter-spacing: -0.01em; }
   .min-index-sub { color: var(--blog-muted); margin: 0 0 44px; }
   .min-list { display: flex; flex-direction: column; }
   .min-item { padding: 34px 0; border-bottom: 1px solid var(--blog-line); }

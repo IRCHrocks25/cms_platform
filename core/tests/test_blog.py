@@ -13,6 +13,14 @@ from core.models import Template, Tenant, TenantMembership, BlogPost, Page
 from core.services.sanitizer import sanitize_html
 
 
+def _opt_in_to_site_blog_fonts(tenant):
+    tenant.content = {
+        **tenant.content,
+        "_global": {"fontFamily": "Inter", "headingFamily": "Bebas Neue"},
+    }
+    tenant.save(update_fields=["content"])
+
+
 @override_settings(TENANT_BASE_DOMAIN="localhost")
 class InstalledBlogPlacementTests(TestCase):
     """Site 41 structure observed read-only; all writes use isolated test DBs."""
@@ -59,6 +67,7 @@ class InstalledBlogPlacementTests(TestCase):
         self.assertIsNone(home.select_one("[data-blog-strip]"))
 
     def test_mounted_block_save_publish_updates_in_place_and_preview_matches_public(self):
+        _opt_in_to_site_blog_fonts(self.tenant)
         self.block.html_source = (Path(__file__).resolve().parents[2] / "samples/iam-blog-mounted.html").read_text()
         self.block.save()
         edit = reverse("dashboard:blog_edit_self", args=[self.post.pk])
@@ -83,6 +92,7 @@ class InstalledBlogPlacementTests(TestCase):
             self.assertIsNone(surface.select_one("[data-cms-blog-strip]"))
 
     def test_strip_preview_uses_public_site_typography_and_repeated_injection_is_unique(self):
+        _opt_in_to_site_blog_fonts(self.tenant)
         from core.services.blog_render import inject_strip, render_strip_doc
         from core.services.blocks import render_content
         from bs4 import BeautifulSoup
@@ -110,9 +120,69 @@ except ImportError:
 class InstalledBlogBrowserTests(StaticLiveServerTestCase):
     """Browser acceptance on a local copy of the observed block structure."""
 
+    def test_unmarked_homepage_keeps_legacy_strip_styles_and_head_links(self):
+        os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+        InstalledBlogPlacementTests.setUp(self)
+        self.post.body = '<p><a href="/blog/">Article link</a> body</p>'
+        self.post.save(update_fields=["body"])
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                for width in (1280, 390):
+                    with self.subTest(width=width):
+                        page = browser.new_page(viewport={"width": width, "height": 900})
+                        try:
+                            response = page.goto(self.live_server_url + "/site/iam-repro/")
+                            self.assertEqual(response.status, 200)
+                            self.assertIn("Roboto", page.locator(".cms-strip").evaluate(
+                                "e=>getComputedStyle(e).fontFamily"))
+                            self.assertIn("Fraunces", page.locator(".cbs-title").evaluate(
+                                "e=>getComputedStyle(e).fontFamily"))
+                            self.assertEqual("rgb(37, 99, 235)", page.locator(".cbs-eyebrow").evaluate(
+                                "e=>getComputedStyle(e).color"))
+                            self.assertEqual(0, page.locator(
+                                'head link[href*="fonts.googleapis.com"], '
+                                'head link[href*="fonts.gstatic.com"]',
+                            ).count())
+                            page.goto(self.live_server_url + f"/site/iam-repro/blog/{self.post.slug}/")
+                            self.assertEqual("rgb(37, 99, 235)", page.locator(".blog-prose a").evaluate(
+                                "e=>getComputedStyle(e).color"))
+                        finally:
+                            page.close()
+            finally:
+                browser.close()
+
+    def test_explicit_mount_uses_site_fonts_without_saved_typography(self):
+        os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+        InstalledBlogPlacementTests.setUp(self)
+        self.post.body = "<h2>Article heading</h2><p>Article body</p>"
+        self.post.save(update_fields=["body"])
+        self.block.html_source = (Path(__file__).resolve().parents[2] / "samples/iam-blog-mounted.html").read_text()
+        self.block.save()
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                page = browser.new_page(viewport={"width": 1280, "height": 900})
+                response = page.goto(self.live_server_url + "/site/iam-repro/")
+                self.assertEqual(response.status, 200)
+                self.assertIn("Inter", page.locator(".cms-strip").evaluate(
+                    "e=>getComputedStyle(e).fontFamily"))
+                self.assertIn("Bebas Neue", page.locator(".cbs-title").evaluate(
+                    "e=>getComputedStyle(e).fontFamily"))
+                self.assertEqual("rgb(255, 46, 136)", page.locator(".cbs-eyebrow").evaluate(
+                    "e=>getComputedStyle(e).color"))
+                page.goto(self.live_server_url + f"/site/iam-repro/blog/{self.post.slug}/")
+                self.assertIn("Inter", page.locator(".blog-prose p").evaluate(
+                    "e=>getComputedStyle(e).fontFamily"))
+                self.assertIn("Bebas Neue", page.locator(".blog-prose h2").evaluate(
+                    "e=>getComputedStyle(e).fontFamily"))
+            finally:
+                browser.close()
+
     def test_edit_preview_save_publish_and_refresh_at_desktop_and_mobile(self):
         os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
         InstalledBlogPlacementTests.setUp(self)
+        _opt_in_to_site_blog_fonts(self.tenant)
         self.block.html_source = (Path(__file__).resolve().parents[2] / "samples/iam-blog-mounted.html").read_text()
         self.block.save()
         with sync_playwright() as pw:
@@ -139,7 +209,16 @@ class InstalledBlogBrowserTests(StaticLiveServerTestCase):
                 for width in (1280,390):
                     page.set_viewport_size({"width":width,"height":900})
                     preview_url = self.live_server_url + reverse("dashboard:blog_preview", args=[self.tenant.pk,self.post.pk])
-                    page.goto(preview_url)
+                    preview_response = page.goto(preview_url)
+                    self.assertEqual(
+                        preview_response.status, 200,
+                        f"preview URL {preview_url} returned {preview_response.status}: "
+                        f"{page.locator('body').inner_text()[:240]}",
+                    )
+                    self.assertTrue(
+                        page.locator(".blog-prose").count(),
+                        f"preview lacked article content: {page.locator('body').inner_text()[:300]}",
+                    )
                     preview_font = page.locator(".blog-prose").evaluate("e=>getComputedStyle(e).fontFamily")
                     preview_title = page.locator(".cms-blog h1").evaluate("e=>getComputedStyle(e).fontFamily")
                     page.goto(public_base + f"blog/{self.post.slug}/")
@@ -1572,7 +1651,7 @@ class HomepageStripLayoutTests(TestCase):
     def test_unset_marker_choice_preserves_current_global_strip_output(self):
         from bs4 import BeautifulSoup
         from core.services.blog_render import render_strip_fragment
-        before = BeautifulSoup(render_strip_fragment(self.tenant), "html.parser")
+        before = BeautifulSoup(render_strip_fragment(self.tenant, site_styled=True), "html.parser")
         response = Client(HTTP_HOST="strip-a.localhost").get("/")
         self.assertEqual(response.status_code, 200)
         markers = BeautifulSoup(response.content, "html.parser").select("[data-blog-strip]")
