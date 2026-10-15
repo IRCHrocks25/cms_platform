@@ -72,9 +72,13 @@ BLOG_INDEX_LAYOUT_IMAGE_RIGHT = "image_right"
 BLOG_INDEX_LAYOUT_IMAGE_ABOVE = "image_above"
 BLOG_INDEX_LAYOUT_CHOICES = [
     (BLOG_INDEX_LAYOUT_STYLE, "Match blog page style"),
+    ("text_only", "Text only (no picture)"),
     (BLOG_INDEX_LAYOUT_IMAGE_LEFT, "Image left, text right"),
     (BLOG_INDEX_LAYOUT_IMAGE_RIGHT, "Text left, image right"),
     (BLOG_INDEX_LAYOUT_IMAGE_ABOVE, "Large image above text"),
+    ("cards_2", "Picture on top cards (2 columns)"),
+    ("cards_3", "Picture on top cards (3 columns)"),
+    ("featured", "Featured: one large, two small, then grid"),
 ]
 BLOG_INDEX_LAYOUT_IDS = {c[0] for c in BLOG_INDEX_LAYOUT_CHOICES}
 DEFAULT_BLOG_INDEX_LAYOUT = BLOG_INDEX_LAYOUT_STYLE
