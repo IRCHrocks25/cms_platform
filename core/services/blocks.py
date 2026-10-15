@@ -1492,12 +1492,15 @@ def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], di
 
 def convert_content_to_layout_regions(content: dict | None,
                                       fragments: list[tuple[str, str]],
-                                      layout: dict) -> dict:
+                                      layout: dict,
+                                      *,
+                                      type_keys: dict[str, str] | None = None) -> dict:
     keys = [key for key, _ in fragments]
-    result = convert_content_to_regions(content, keys)
+    result = convert_content_to_regions(content, keys, type_keys=type_keys)
     source = (content or {}).get("_classic") or (content or {})
     result["regions"] = {
-        sid: [{"id": key, "type": key, "fields": dict(source.get(key) or {})}]
+        sid: [{"id": key, "type": (type_keys or {}).get(key, key),
+               "fields": dict(source.get(key) or {})}]
         for sid, (key, _) in zip(layout_slot_ids(layout), fragments)
     }
     return result
@@ -1545,6 +1548,7 @@ def convert_content_to_regions(
     ordered_block_keys: list[str],
     *,
     region: str = "main",
+    type_keys: dict[str, str] | None = None,
 ) -> dict:
     """Convert classic ``{section: {field}}`` content into the region model.
 
@@ -1565,7 +1569,8 @@ def convert_content_to_regions(
     instances = []
     for key in ordered_block_keys:
         instances.append(
-            {"id": key, "type": key, "fields": dict(source.get(key) or {})}
+            {"id": key, "type": (type_keys or {}).get(key, key),
+             "fields": dict(source.get(key) or {})}
         )
     new_content["regions"] = {region: instances}
     for section_id, value in source.items():
@@ -1648,10 +1653,13 @@ def preview_classic_upgrade(
         return False, "no body sections to convert"
     schema = build_schema(html)
     classic = render_site(html, merge_with_defaults(schema, content))
+    resolved, type_keys = _resolve_classic_block_keys(fragments)
     block_keys = [k for k, _ in fragments]
-    catalog = _catalog_from_fragments(fragments)
-    new_content = (convert_content_to_layout_regions(content, fragments, layout)
-                   if layout else convert_content_to_regions(content, block_keys, region=region))
+    catalog = _catalog_from_fragments(resolved)
+    new_content = (convert_content_to_layout_regions(content, fragments, layout,
+                                                     type_keys=type_keys)
+                   if layout else convert_content_to_regions(content, block_keys,
+                                                            region=region, type_keys=type_keys))
     block_out = render_page_from_blocks(shell_html, new_content, catalog,
                                         block_layout=layout)
     normalize = normalize_v2_for_diff if layout else normalize_for_diff
@@ -1686,6 +1694,19 @@ def classic_upgrade_is_safe(template, *, region: str = "main") -> tuple[bool, st
 
 class ConversionMismatchError(Exception):
     """The composed block page differs from the existing rendered page."""
+
+
+def _resolve_classic_block_keys(
+    fragments: list[tuple[str, str]],
+) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """Resolve internal type keys once while keeping source section IDs intact."""
+    from core.management.commands.seed_builder_blocks import BUILDER_BLOCKS
+
+    type_keys = {
+        key: f"{key}_section" if key in BUILDER_BLOCKS else key
+        for key, _ in fragments
+    }
+    return [(type_keys[key], frag) for key, frag in fragments], type_keys
 
 
 def _catalog_from_fragments(fragments: list[tuple[str, str]]) -> dict[str, dict]:
@@ -1795,19 +1816,16 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
         host.append(slot)
         shell_html = _ensure_region_layout_css(str(soup))
 
-    from core.management.commands.seed_builder_blocks import BUILDER_BLOCKS
-
-    resolved: list[tuple[str, str]] = []
-    for key, frag in fragments:
-        bt_key = f"{key}_section" if key in BUILDER_BLOCKS else key
-        resolved.append((bt_key, frag))
-    block_keys = [k for k, _ in resolved]
+    resolved, type_keys = _resolve_classic_block_keys(fragments)
+    block_keys = [k for k, _ in fragments]
     editables = list(Tenant.objects.filter(template=template))
     editables += list(Page.objects.filter(template=template))
     conversions = [
-        (ed, convert_content_to_layout_regions(ed.content or {}, resolved, layout)
+        (ed, convert_content_to_layout_regions(ed.content or {}, fragments, layout,
+                                               type_keys=type_keys)
          if not was_block_shell and layout else
-         convert_content_to_regions(ed.content or {}, block_keys, region=region))
+         convert_content_to_regions(ed.content or {}, block_keys, region=region,
+                                    type_keys=type_keys))
         for ed in editables
     ]
 
