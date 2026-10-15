@@ -56,6 +56,7 @@ BLOG_SETTINGS_DEFAULTS = {
 INDEX_PAGE_SIZE = {
     "minimal": 8, "magazine": 7, "cards": 9,
     "image_left": 8, "image_right": 8, "image_above": 6,
+    "text_only": 8, "cards_2": 8, "cards_3": 9, "featured": 9,
 }
 
 # Public index sort orders (?sort=). pk is the final tie-breaker so posts that
@@ -286,6 +287,8 @@ def render_detail(
 
 def index_template_path(style: str, index_layout: str) -> str:
     """The index template: an explicit listing layout, else the style's own."""
+    if index_layout in {"text_only", "cards_2", "cards_3", "featured"}:
+        return "blog/listing/page_layout.html"
     if index_layout in BLOG_INDEX_LAYOUT_IDS and index_layout != BLOG_INDEX_LAYOUT_STYLE:
         return "blog/listing/index.html"
     return template_path(style, "index")

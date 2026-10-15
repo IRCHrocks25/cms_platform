@@ -1,0 +1,52 @@
+{% extends "blog/_content.html" %}
+{% block styles %}
+  .cms-blog .page-index { padding-top: 64px; }
+  .cms-blog .page-head h1 { font-family: var(--blog-serif); font-size: 36px; line-height: 1.2; margin: 0 0 8px; overflow-wrap: anywhere; }
+  .cms-blog .page-head p { color: var(--blog-muted); margin: 0 0 32px; }
+  .cms-blog .page-posts { display: grid; gap: 32px; }
+  .cms-blog .page-post { min-width: 0; overflow-wrap: anywhere; }
+  .cms-blog .page-cover-link { display: block; margin-bottom: 16px; }
+  .cms-blog .page-cover { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 16px; background: var(--blog-surface); }
+  .cms-blog .page-title { font-family: var(--blog-serif); font-size: 24px; line-height: 1.3; margin: 12px 0; }
+  .cms-blog .page-title a { color: var(--blog-ink); }
+  .cms-blog .page-title a:hover { color: var(--blog-accent); }
+  .cms-blog .page-excerpt { color: var(--blog-soft); margin: 0; }
+  .cms-blog .page-index a:focus-visible { outline: 3px solid var(--blog-accent); outline-offset: 4px; }
+  .cms-blog .lst--cards_2 .page-posts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cms-blog .lst--cards_3 .page-posts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cms-blog .lst--featured .page-posts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cms-blog .lst--featured .page-post--lead { grid-column: span 2; grid-row: span 2; }
+  .cms-blog .lst--featured .page-post--lead .page-title { font-size: 36px; }
+  .cms-blog .lst--text_only .page-posts { max-width: var(--blog-read); }
+  @media (max-width: 640px) {
+    .cms-blog .lst--cards_2 .page-posts,
+    .cms-blog .lst--cards_3 .page-posts,
+    .cms-blog .lst--featured .page-posts { grid-template-columns: minmax(0, 1fr); }
+    .cms-blog .lst--featured .page-post--lead { grid-column: auto; grid-row: auto; padding-bottom: 16px; }
+    .cms-blog .lst--featured .page-post--lead .page-cover-link { margin-bottom: 20px; }
+    .cms-blog .lst--featured .page-post--lead .page-cover { aspect-ratio: 4 / 3; }
+    .cms-blog .lst--featured .page-post--lead .page-title { font-size: 32px; }
+  }
+{% endblock %}
+{% block body %}
+<main class="blog-wrap page-index lst--{{ index_layout }}">
+  <div class="page-head"><h1>{{ settings.title }}</h1><p>Latest from {{ tenant.name }}</p></div>
+  {% include "blog/_filters.html" %}
+  {% if posts %}
+  <div class="page-posts">
+    {% for post in posts %}
+    <article class="page-post{% if not post.cover_image %} page-post--no-cover{% endif %}{% if index_layout == 'featured' %}{% if forloop.first %} page-post--lead{% elif forloop.counter <= 3 %} page-post--secondary{% else %} page-post--grid{% endif %}{% endif %}">
+      {% if index_layout != 'text_only' and post.cover_image %}
+      <a class="page-cover-link" href="{{ blog_base }}{{ post.slug }}/" tabindex="-1" aria-hidden="true"><img class="page-cover" src="{{ post.cover_image }}" alt="" loading="lazy"></a>
+      {% endif %}
+      <div class="blog-meta"><time>{{ post.publish_date|date:"M j, Y" }}</time>{% if post.author %}<span class="dot"></span><span>{{ post.author }}</span>{% endif %}{% include "blog/_post_category.html" %}</div>
+      <h2 class="page-title"><a href="{{ blog_base }}{{ post.slug }}/">{{ post.title }}</a></h2>
+      <p class="page-excerpt">{{ post.display_excerpt }}</p>
+    </article>
+    {% endfor %}
+  </div>
+  {% include "blog/_pager.html" %}
+  {% elif is_filtered %}{% include "blog/_filtered_empty.html" %}
+  {% else %}<div class="blog-empty"><h2>No posts yet</h2><p>Check back soon for the latest updates.</p></div>{% endif %}
+</main>
+{% endblock %}
