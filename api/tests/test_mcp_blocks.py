@@ -67,9 +67,11 @@ class McpBlockTests(TestCase):
             '</main></body></html>'
         )
         self.tpl.block_layout = {"version": 2, "segments": [
-            {"kind": "slot", "id": "body-001", "mode": "element"},
+            {"kind": "slot", "id": "body-001", "mode": "element",
+             "container_path": ["html:0", "body:0", "main:0"]},
             {"kind": "fixed", "id": "fixed-001"},
-            {"kind": "slot", "id": "body-002", "mode": "range"},
+            {"kind": "slot", "id": "body-002", "mode": "range",
+             "container_path": ["html:0", "body:0", "main:0"]},
         ]}
         self.tpl.save(update_fields=["html_source", "block_layout"])
         self.tenant.content = {"regions": {
