@@ -880,12 +880,16 @@ def render_strip_doc(
     return _STRIP_DOC_HEAD + inner + _STRIP_DOC_TAIL
 
 
-def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", marker_namespace: str = "home") -> str:
+def inject_strip(
+    html: str, tenant, request=None, *, blog_base: str = "/blog/",
+    marker_namespace: str = "home", preview: bool = False,
+) -> str:
     """Place the featured-posts strip into a rendered homepage.
 
     Into ``[data-blog-strip]`` if the template marks a spot; otherwise
     just before the footer, else at the end of ``<body>``. No featured
-    posts → returns the HTML untouched (no empty strip on the public site).
+    posts → public HTML stays untouched; an enabled editor mount shows an
+    example state.
     """
     soup = BeautifulSoup(html, "lxml")
     markers = soup.find_all(attrs={"data-blog-strip": True})
@@ -896,11 +900,27 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
         tenant, request=request, blog_base=blog_base, site_styled=site_styled,
     )
     if not fragment:
+        if preview and markers and get_blog_settings(tenant)["strip_enabled"]:
+            for marker in markers:
+                marker.clear()
+                example = soup.new_tag("div")
+                example["data-cms-blog-strip-example"] = ""
+                example["role"] = "status"
+                example["style"] = (
+                    "box-sizing:border-box;max-width:100%;padding:32px 24px;"
+                    "border:1px dashed #a3a3a3;text-align:center;"
+                )
+                example.string = (
+                    "Example preview — publish and feature a blog post "
+                    "to show it here."
+                )
+                marker.append(example)
+            return str(soup)
         return html
 
     # Re-rendering an already composed document must replace the generated
     # strip rather than append another one. Never remove authored blog blocks.
-    for previous in soup.select("[data-cms-blog-strip]"):
+    for previous in soup.select("[data-cms-blog-strip], [data-cms-blog-strip-example]"):
         previous.decompose()
     if site_styled and "family=Fraunces" not in html:
         head = _ensure_head(soup)
