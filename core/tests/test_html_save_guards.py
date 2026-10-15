@@ -244,6 +244,71 @@ class FieldLossKeepsCandidateTest(TestCase):
         self.assertContains(response, "Annotation would change rendered", status_code=409)
 
 
+@override_settings(STORAGES=PLAIN_STATIC)
+class SubmittedHtmlLineEndingTest(TestCase):
+    HTML = (
+        '<html><head><style>h1 {\n  color: blue;\n}</style></head>\n'
+        '<body><section data-section="hero">\n'
+        '<h1 data-edit="hero.title" data-type="text">Headline</h1>\n'
+        '<a href="/about" class="nav">About</a>\n'
+        '</section></body></html>\n'
+    )
+
+    def setUp(self):
+        self.staff = User.objects.create_user("line-endings", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+        self.tpl = Template.objects.create(name="Line endings", html_source=self.HTML)
+
+    def _save(self, html):
+        return self.client.post(
+            f"/dashboard/templates/{self.tpl.pk}/",
+            {"name": self.tpl.name, "description": "", "editing_mode": "editable",
+             "html_source": html, "preserve_annotated_render": "1"},
+        )
+
+    def test_browser_crlf_submission_of_lf_template_saves_lf(self):
+        response = self._save(self.HTML.replace("\n", "\r\n"))
+
+        self.tpl.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.tpl.html_source, self.HTML)
+
+    def test_existing_crlf_template_saves_from_lf_submission(self):
+        self.tpl.html_source = self.HTML.replace("\n", "\r\n")
+        self.tpl.save(update_fields=["html_source"])
+
+        response = self._save(self.HTML)
+
+        self.tpl.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.tpl.html_source, self.HTML)
+
+    def test_lone_cr_submission_and_stored_template_save_as_lf(self):
+        response = self._save(self.HTML.replace("\n", "\r"))
+        self.tpl.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.tpl.html_source, self.HTML)
+
+        self.tpl.html_source = self.HTML.replace("\n", "\r")
+        self.tpl.save(update_fields=["html_source"])
+        response = self._save(self.HTML)
+        self.tpl.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.tpl.html_source, self.HTML)
+
+    def test_real_text_link_and_attribute_changes_still_conflict(self):
+        for candidate in (
+            self.HTML.replace("Headline", "Different headline"),
+            self.HTML.replace('href="/about"', 'href="/contact"'),
+            self.HTML.replace('class="nav"', 'class="other"'),
+        ):
+            with self.subTest(candidate=candidate):
+                response = self._save(candidate.replace("\n", "\r\n"))
+                self.tpl.refresh_from_db()
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(self.tpl.html_source, self.HTML)
+
+
 class NoOpVersionTest(TestCase):
     """A byte-identical save must not manufacture a version row."""
 

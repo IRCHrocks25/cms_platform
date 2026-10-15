@@ -65,6 +65,11 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _submitted_html_source(value):
+    """Canonicalize textarea line endings before validation and storage."""
+    return (value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _templates_available(*, tenant=None):
     """Agency library templates, optionally plus one tenant's private copies."""
     if tenant is None:
@@ -330,7 +335,7 @@ def template_create(request):
         description = (request.POST.get("description") or "").strip()
         html_source = (
             BLOCK_SHELL_STARTER_HTML if blocks_mode
-            else (request.POST.get("html_source") or "")
+            else _submitted_html_source(request.POST.get("html_source"))
         )
 
         if not name or (not blocks_mode and not html_source.strip()):
@@ -338,7 +343,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST, "html_value": request.POST.get("html_source") or ""},
+                {"form_data": request.POST, "html_value": html_source},
             )
 
         if len(name) > 120:
@@ -346,7 +351,7 @@ def template_create(request):
             return render(
                 request,
                 "dashboard/template_form.html",
-                {"form_data": request.POST, "html_value": request.POST.get("html_source") or ""},
+                {"form_data": request.POST, "html_value": html_source},
                 status=400,
             )
 
@@ -424,7 +429,7 @@ def template_detail(request, pk):
         # half-apply metadata. A blank field is never "keep the current HTML":
         # that fallback is what turned failed uploads into no-ops that reported
         # success (incident 2026-08-17).
-        html_source = request.POST.get("html_source") or ""
+        html_source = _submitted_html_source(request.POST.get("html_source"))
         if not html_source.strip():
             messages.error(request, "HTML source cannot be empty.")
             return render(
@@ -2355,7 +2360,7 @@ def _page_create(request, tenant, scope):
     nav = _page_nav_urls(scope, tenant)
     title = (request.POST.get("title") or "").strip()
     slug = slugify(request.POST.get("slug") or title)[:80]
-    html_source = request.POST.get("html_source") or ""
+    html_source = _submitted_html_source(request.POST.get("html_source"))
 
     errors = []
     if not title:
@@ -2869,7 +2874,7 @@ def page_edit_html(request, pk, page_pk):
         )
         return redirect("dashboard:template_detail", pk=tenant.template.pk)
     if request.method == "POST":
-        new_html = request.POST.get("html_source") or ""
+        new_html = _submitted_html_source(request.POST.get("html_source"))
         if not new_html.strip():
             messages.error(request, "Page HTML cannot be empty.")
         else:
