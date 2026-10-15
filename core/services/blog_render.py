@@ -921,9 +921,12 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
             choice = saved.get(f"{marker_namespace}_{index}", "")
             layout = choice if isinstance(choice, str) and choice in PER_BLOCK_STRIP_LAYOUTS else ""
             selected_style = layout or global_style
-            section = marker.find_parent(attrs={"data-section": True})
-            has_authored_heading = bool(section and section.find(["h1", "h2", "h3"]))
-            show_header = selected_style != "front_line" or not has_authored_heading
+            # A mount must explicitly say when its parent owns the heading.
+            # Nearby headings can belong to unrelated content or follow it.
+            show_header = (
+                selected_style != "front_line"
+                or marker.get("data-blog-strip-header") != "none"
+            )
             cache_key = (layout, show_header)
             if cache_key not in fragments:
                 selected_html = render_strip_fragment(

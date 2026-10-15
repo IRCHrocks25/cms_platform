@@ -98,7 +98,8 @@ class FrontLineStripTests(TestCase):
                 "<html><body><section id='blog' data-section='blog'>"
                 "<p class='tag'>Existing eyebrow</p><h2>Existing heading</h2>"
                 "<p class='shift-support'>Existing subtitle</p>"
-                "<div data-blog-strip></div></section><footer>End</footer></body></html>"
+                "<div data-blog-strip data-blog-strip-header='none'></div>"
+                "</section><footer>End</footer></body></html>"
             ),
         )
         tenant = Tenant.objects.create(
@@ -121,6 +122,31 @@ class FrontLineStripTests(TestCase):
         self.assertEqual(len(section.select(".fl-heading, .fl-eyebrow, .fl-subtitle")), 0)
         self.assertEqual(len(section.select(".fl-card")), 1)
         self.assertIn("cms-strip--embedded", section.select_one("[data-cms-blog-strip]").get("class", []))
+
+    def test_later_heading_does_not_hide_front_line_header(self):
+        template = Template.objects.create(
+            name="Later unrelated heading",
+            html_source=(
+                "<html><body><section data-section='blog'>"
+                "<div data-blog-strip></div><h3>Later heading</h3>"
+                "</section><footer>End</footer></body></html>"
+            ),
+        )
+        tenant = Tenant.objects.create(
+            name="Later heading", subdomain="later-front-line", template=template,
+            owner=self.owner, is_published=True,
+            blog_settings={"strip_style": "front_line", "strip_count": 1},
+        )
+        BlogPost.objects.create(
+            tenant=tenant, title="Example", slug="example", body="One word",
+            status="published", publish_date=timezone.now(), featured=True,
+        )
+        response = Client(HTTP_HOST="later-front-line.localhost").get("/")
+        self.assertEqual(response.status_code, 200)
+        section = BeautifulSoup(response.content, "html.parser").select_one("[data-section='blog']")
+        self.assertEqual(len(section.select(".fl-heading")), 1)
+        self.assertEqual(len(section.select("h3")), 1)
+        self.assertNotIn("cms-strip--embedded", section.select_one("[data-cms-blog-strip]").get("class", []))
 
     def test_unselected_global_and_marker_output_stays_identical(self):
         before = str(self._home().select_one("#blog [data-cms-blog-strip]"))
