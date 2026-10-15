@@ -52,11 +52,13 @@ BLOG_STRIP_CARDS = "cards"
 BLOG_STRIP_OVERLAY = "overlay"
 BLOG_STRIP_SPOTLIGHT = "spotlight"
 BLOG_STRIP_LIST = "list"
+BLOG_STRIP_FRONT_LINE = "front_line"
 BLOG_STRIP_CHOICES = [
     (BLOG_STRIP_CARDS, "Cards (cover image, title & excerpt)"),
     (BLOG_STRIP_OVERLAY, "Overlay (title on a full-bleed image)"),
     (BLOG_STRIP_SPOTLIGHT, "Spotlight (one lead post + a list)"),
     (BLOG_STRIP_LIST, "Minimal list (clean, text-forward)"),
+    (BLOG_STRIP_FRONT_LINE, "Front Line cards (site-styled)"),
 ]
 BLOG_STRIP_IDS = {c[0] for c in BLOG_STRIP_CHOICES}
 DEFAULT_BLOG_STRIP = BLOG_STRIP_CARDS

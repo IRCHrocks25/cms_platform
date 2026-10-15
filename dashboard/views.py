@@ -5023,6 +5023,8 @@ def _blog_strip_preview(request, tenant, scope):
         strip_style=(g.get("strip_style") or "").strip() or None,
         count=g.get("count"),
         heading=g.get("heading"),
+        eyebrow=g.get("eyebrow"),
+        subtitle=g.get("subtitle"),
         enabled=enabled,
         request=request,
         blog_base=_blog_nav_urls(scope, tenant)["public_base"],
@@ -5202,6 +5204,8 @@ def _blog_settings_save(request, tenant, scope):
         strip_style = DEFAULT_BLOG_STRIP
     title = (request.POST.get("title") or "Blog").strip() or "Blog"
     heading = (request.POST.get("strip_heading") or "").strip() or "From the blog"
+    eyebrow = (request.POST.get("strip_eyebrow") or "").strip() or "What’s working now"
+    subtitle = (request.POST.get("strip_subtitle") or "").strip()
     strip_enabled = (request.POST.get("strip_enabled") or "") in ("on", "true", "1", "yes")
     try:
         strip_count = int(request.POST.get("strip_count") or 3)
@@ -5213,7 +5217,7 @@ def _blog_settings_save(request, tenant, scope):
     for marker in blog_render.blog_strip_markers(tenant):
         key = marker["key"]
         choice = (request.POST.get(f"strip_layout_{key}") or "").strip()
-        if choice in blog_render.IMAGE_STRIP_LAYOUTS:
+        if choice in blog_render.PER_BLOCK_STRIP_LAYOUTS:
             strip_layouts[key] = choice
 
     tenant.blog_settings = {
@@ -5223,6 +5227,8 @@ def _blog_settings_save(request, tenant, scope):
         "strip_enabled": strip_enabled,
         "strip_count": strip_count,
         "strip_heading": heading[:120],
+        "strip_eyebrow": eyebrow[:120],
+        "strip_subtitle": subtitle[:240],
         "strip_style": strip_style,
         "strip_layouts": strip_layouts,
     }

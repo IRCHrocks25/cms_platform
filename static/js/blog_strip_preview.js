@@ -1,7 +1,7 @@
 /* Locked CMS — live homepage-strip preview on the blog list screen.
  *
  * Loads the chosen blog style's strip fragment in an iframe, reflecting the
- * *unsaved* strip settings (style / heading / count / on-off) via query
+ * *unsaved* strip settings (style / heading / eyebrow / subtitle / count / on-off) via query
  * params, plus the current featured order. Reuses the same server-side strip
  * renderer the public homepage uses, so the preview matches the live strip.
  *
@@ -20,6 +20,8 @@
 
   var stripStyleEl = document.getElementById("bs-strip-style");
   var headingEl = document.getElementById("bs-heading");
+  var eyebrowEl = document.getElementById("bs-eyebrow");
+  var subtitleEl = document.getElementById("bs-subtitle");
   var countEl = document.getElementById("bs-count");
   var enabledEl = document.getElementById("bs-enabled");
 
@@ -27,6 +29,8 @@
     var params = [];
     if (stripStyleEl && stripStyleEl.value) params.push("strip_style=" + encodeURIComponent(stripStyleEl.value));
     if (headingEl) params.push("heading=" + encodeURIComponent(headingEl.value || ""));
+    if (eyebrowEl) params.push("eyebrow=" + encodeURIComponent(eyebrowEl.value || ""));
+    if (subtitleEl) params.push("subtitle=" + encodeURIComponent(subtitleEl.value || ""));
     if (countEl && countEl.value) params.push("count=" + encodeURIComponent(countEl.value));
     if (enabledEl) params.push("enabled=" + (enabledEl.checked ? "1" : "0"));
     return base + (params.length ? "?" + params.join("&") : "");
@@ -46,7 +50,7 @@
     timer = setTimeout(refresh, 300);
   }
 
-  [headingEl, countEl].forEach(function (el) {
+  [headingEl, eyebrowEl, subtitleEl, countEl].forEach(function (el) {
     if (el) el.addEventListener("input", schedule);
   });
   if (stripStyleEl) stripStyleEl.addEventListener("change", schedule);
