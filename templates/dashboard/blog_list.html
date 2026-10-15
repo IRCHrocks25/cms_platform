@@ -221,6 +221,16 @@
               <input class="input" type="number" name="strip_count" id="bs-count" min="1" max="{{ strip_max }}" value="{{ blog_settings.strip_count }}">
             </div>
           </div>
+          <div class="blog-settings-grid">
+            <div class="field">
+              <label class="field-label" for="bs-eyebrow">Front Line eyebrow</label>
+              <input class="input" type="text" name="strip_eyebrow" id="bs-eyebrow" maxlength="120" value="{{ blog_settings.strip_eyebrow }}">
+            </div>
+            <div class="field">
+              <label class="field-label" for="bs-subtitle">Front Line subtitle</label>
+              <input class="input" type="text" name="strip_subtitle" id="bs-subtitle" maxlength="240" value="{{ blog_settings.strip_subtitle }}">
+            </div>
+          </div>
           {% if strip_markers %}
             <div class="blog-settings-grid">
               {% for marker in strip_markers %}
@@ -231,6 +241,7 @@
                     <option value="image_left" {% if marker.choice == "image_left" %}selected{% endif %}>Image left, text right</option>
                     <option value="image_right" {% if marker.choice == "image_right" %}selected{% endif %}>Text left, image right</option>
                     <option value="image_above" {% if marker.choice == "image_above" %}selected{% endif %}>Large image above text</option>
+                    <option value="front_line" {% if marker.choice == "front_line" %}selected{% endif %}>Front Line cards</option>
                   </select>
                   <span class="field-hint">Changes this existing strip only. Featured posts and count stay the same.</span>
                 </div>
@@ -248,7 +259,7 @@
                 <span class="status-dot"></span>
                 <span id="strip-preview-status">Homepage strip preview</span>
               </span>
-              <span class="field-hint m-0">Reflects unsaved style, heading &amp; count.</span>
+              <span class="field-hint m-0">Reflects unsaved style, heading, eyebrow, subtitle &amp; count.</span>
             </div>
             <div class="strip-preview-frame-wrap">
               <iframe id="strip-preview-frame" class="strip-preview-frame"
