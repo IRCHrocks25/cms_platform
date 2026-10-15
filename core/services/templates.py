@@ -515,7 +515,12 @@ def _migrate_auto_content(content: dict, mapping: dict[str, str | None]) -> dict
 def _annotation_snapshot(html: str, content: dict) -> str:
     from core.renderer import render_site
 
-    soup = BeautifulSoup(render_site(html, content or {}), "lxml")
+    # Normalize before rendering: the renderer's parser can turn lone CR into
+    # spaces, losing information needed to compare historic stored templates.
+    # This changes only the preservation snapshot, never the stored source.
+    comparison_html = (html or "").replace("\r\n", "\n").replace("\r", "\n")
+    rendered = render_site(comparison_html, content or {})
+    soup = BeautifulSoup(rendered, "lxml")
     for tag in soup.find_all(True):
         for attr in _ANNOTATION_ATTRS:
             tag.attrs.pop(attr, None)
