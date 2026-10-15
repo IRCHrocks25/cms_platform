@@ -1811,3 +1811,59 @@ class HeadlessTemplateBlogStylesTests(TestCase):
         head = soup.head
         self.assertIs(_ensure_head(soup), head)
         self.assertEqual(len(soup.find_all("head")), 1)
+
+
+class MountedStripLayoutSiteStylingTests(TestCase):
+    """CMS-91: per-block picture layouts keep the mounted strip's site styling."""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        owner = User.objects.create_user("styled-strip-owner", password="x", is_staff=True)
+        tpl = Template.objects.create(
+            name="Mounted strip",
+            html_source=(
+                "<html><head><style>:root{--primary:#ff3366;--font-heading:'Bebas Neue',sans-serif;"
+                "--font-body:'Inter',sans-serif}</style></head><body><main>"
+                "<section id='blog' data-section='blog'><div data-blog-strip></div></section>"
+                "</main><footer data-section='footer'>Footer</footer></body></html>"
+            ),
+        )
+        cls.tenant = Tenant.objects.create(
+            name="Styled", subdomain="styled", template=tpl, owner=owner, is_published=True,
+            blog_settings={"strip_style": "cards", "strip_count": 2},
+        )
+        _post(cls.tenant, "Styled post", featured=True, cover_image="https://example.test/c.jpg")
+
+    def _strip(self, layout):
+        from bs4 import BeautifulSoup
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings, "strip_layouts": {"home_0": layout} if layout else {},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        html = Client(HTTP_HOST="styled.localhost").get("/").content.decode()
+        strip = BeautifulSoup(html, "lxml").select_one("[data-blog-strip] [data-cms-blog-strip]")
+        self.assertIsNotNone(strip, layout)
+        return strip
+
+    def test_every_per_block_layout_uses_site_fonts_accent_and_eyebrow(self):
+        for layout in ("image_left", "image_right", "image_above"):
+            strip = self._strip(layout)
+            css = strip.style.get_text()
+            self.assertIn(f"lst--{layout}", " ".join(strip.get("class")), layout)
+            self.assertIn("var(--cms-font-heading,var(--font-heading,", css, layout)
+            self.assertIn("var(--cms-font-body,var(--font-body,", css, layout)
+            self.assertIn("var(--primary,", css, layout)
+            self.assertEqual(strip.select_one(".lst-eyebrow").get_text(strip=True), "Latest", layout)
+
+    def test_default_strip_still_site_styled(self):
+        strip = self._strip("")
+        self.assertIn("cms-strip--cards", " ".join(strip.get("class")))
+        self.assertIn("var(--cms-font-heading,var(--font-heading,", strip.style.get_text())
+
+    def test_unstyled_listing_strip_keeps_default_blog_styling(self):
+        from core.services.blog_render import render_strip_fragment
+        html = render_strip_fragment(self.tenant, layout="image_left", site_styled=False)
+        self.assertIn("--blog-serif:'Fraunces'", html)
+        self.assertNotIn("var(--cms-font-heading", html)
+        self.assertNotIn("lst-eyebrow", html.split("</style>", 1)[1])
