@@ -1350,6 +1350,28 @@ def _has_fixed_gap(left, right) -> bool:
     return False
 
 
+def _slot_container_path(container) -> list[str]:
+    """Stable element path for a slot's parent, ignoring text and comments."""
+    path = []
+    node = container
+    while isinstance(node, Tag) and node.name != "[document]":
+        index = sum(isinstance(sibling, Tag) for sibling in node.previous_siblings)
+        path.append(f"{node.name}:{index}")
+        node = node.parent
+    return list(reversed(path))
+
+
+def _inside_chrome(node) -> bool:
+    while isinstance(node, Tag) and node.name != "[document]":
+        group = (node.get("data-group") or "").lower()
+        section = (node.get("data-section") or "").lower()
+        if (node.name in {"header", "footer"} or group in {"header", "footer"}
+                or section in CHROME_IDS):
+            return True
+        node = node.parent
+    return False
+
+
 def validate_layout_shell(html: str, layout: dict) -> None:
     """Validate slot order and fixed gaps before rendering or storing a shell."""
     if layout.get("version") != 2:
@@ -1392,6 +1414,10 @@ def validate_layout_shell(html: str, layout: dict) -> None:
                    for child in siblings[:siblings.index(end)]):
                 raise ValueError(f"Invalid v2 block layout: slot {sid} contains fixed markup or nested anchors.")
             boundaries[sid] = (start, end)
+        container = boundaries[sid][0].parent
+        chrome_node = boundaries[sid][0] if modes == ["element"] else container
+        if _inside_chrome(chrome_node) or declared.get("container_path") != _slot_container_path(container):
+            raise ValueError(f"Invalid v2 block layout: slot {sid} moved from its declared container or into chrome.")
     if any(name not in expected for name, _ in seen):
         raise ValueError("Invalid v2 block layout: undeclared slot anchor.")
 
@@ -1454,7 +1480,9 @@ def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], di
             mode = "range"
         fragments.append((keys[index - 1], str(node)))
         node.extract()
-        segments.append({"kind": "slot", "id": sid, "mode": mode})
+        container = parent.parent if wrapper_only else parent
+        segments.append({"kind": "slot", "id": sid, "mode": mode,
+                         "container_path": _slot_container_path(container)})
         previous = marker if wrapper_only else end_comment
     layout = {"version": 2, "segments": segments}
     shell = str(soup)

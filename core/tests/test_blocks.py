@@ -109,6 +109,50 @@ class LayoutAwareConversionTests(TestCase):
         self.assertEqual(template.html_source, shell)
         self.assertFalse(template.versions.exists())
 
+    def test_layout_shell_rejects_slot_moved_to_other_container(self):
+        first_pair = ('<!--cms-slot:body-001:start-->'
+                      '<!--cms-slot:body-001:end-->')
+        cases = {
+            "header": ('<header>Site header</header>', '</header>'),
+            # Put footer first so slot order and the fixed gap still look valid.
+            "footer": ('<footer>Site footer</footer>', '</footer>'),
+            "other wrapper": ('<div class="other"></div>', '</div>'),
+        }
+        for name, (container, closing) in cases.items():
+            with self.subTest(name=name):
+                classic = self.INTERLEAVED.replace('<main class="page">',
+                                                    container + '<main class="page">')
+                shell, _, layout = blocks.split_shell_and_blocks_v2(classic)
+                self.assertIn(first_pair, shell)
+                moved = shell.replace(first_pair, "")
+                if name == "other wrapper":
+                    moved = moved.replace(container, '<div class="other">' + first_pair + '</div>')
+                else:
+                    moved = moved.replace(closing, first_pair + closing, 1)
+                self.assertNotEqual(moved, shell)
+                with self.assertRaises(ValueError):
+                    blocks.validate_layout_shell(moved, layout)
+
+    def test_template_save_and_version_refuse_slot_moved_into_header(self):
+        from core.services.templates import AnnotationMismatchError, save_template_version
+
+        classic = self.INTERLEAVED.replace('<main class="page">',
+                                            '<header>Site header</header><main class="page">')
+        shell, _, layout = blocks.split_shell_and_blocks_v2(classic)
+        template = Template.objects.create(name="Container anchored", html_source=shell,
+                                           block_layout=layout)
+        first_pair = ('<!--cms-slot:body-001:start-->'
+                      '<!--cms-slot:body-001:end-->')
+        moved = shell.replace(first_pair, "").replace('</header>', first_pair + '</header>')
+        template.html_source = moved
+        with self.assertRaises(ValueError):
+            template.save()
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(template, moved, user=None)
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, shell)
+        self.assertFalse(template.versions.exists())
+
     def test_adjacent_direct_slots_have_no_invented_fixed_segment(self):
         html = self.INTERLEAVED.replace('<div class="fixed">Do not move</div>', '')
         _, _, layout = blocks.split_shell_and_blocks_v2(html)

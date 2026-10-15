@@ -49,7 +49,8 @@ class ContentVersionServiceTests(TestCase):
             '<html><body><main><div data-region="body-001"></div></main></body></html>'
         )
         template.block_layout = {"version": 2, "segments": [
-            {"kind": "slot", "id": "body-001", "mode": "element"},
+            {"kind": "slot", "id": "body-001", "mode": "element",
+             "container_path": ["html:0", "body:0", "main:0"]},
         ]}
         template.save(update_fields=["html_source", "block_layout"])
         self.tenant.content = {"regions": {"body-001": []}}
