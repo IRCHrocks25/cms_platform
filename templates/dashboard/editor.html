@@ -351,7 +351,7 @@
                 <div class="stack-5">
                   {% for field in section.fields %}
                     {% include "dashboard/components/field.html" with field=field section_id=section.id %}
-                    {% if field.id == 'footer.builtBy' %}
+                    {% if field.id in footer_credit_link_ids %}
                       <div class="field">
                         <label class="field-label" for="show-footer-credit">
                           <input id="show-footer-credit" type="checkbox" data-footer-credit-toggle

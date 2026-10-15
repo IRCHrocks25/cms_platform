@@ -33,6 +33,7 @@ from core.models import (
 )
 from core.permissions import agency_operator_required, agency_admin_required, tenant_member_required
 from core.renderer import (
+    FOOTER_CREDIT_LINK_IDS,
     drop_blank_instance_fields,
     merge_with_defaults,
     render_site,
@@ -3462,6 +3463,7 @@ def _render_editor(request, tenant, *, scope, page=None):
                 _blocks.editor_header_pages(tenant) if block_mode else []
             ),
             "show_footer_credit": (tenant.site_settings or {}).get("show_footer_credit") is not False,
+            "footer_credit_link_ids": FOOTER_CREDIT_LINK_IDS,
         },
     )
 
