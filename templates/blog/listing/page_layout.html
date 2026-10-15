@@ -22,8 +22,10 @@
     .cms-blog .lst--cards_2 .page-posts,
     .cms-blog .lst--cards_3 .page-posts,
     .cms-blog .lst--featured .page-posts { grid-template-columns: minmax(0, 1fr); }
-    .cms-blog .lst--featured .page-post--lead { grid-column: auto; grid-row: auto; }
-    .cms-blog .lst--featured .page-post--lead .page-title { font-size: 24px; }
+    .cms-blog .lst--featured .page-post--lead { grid-column: auto; grid-row: auto; padding-bottom: 16px; }
+    .cms-blog .lst--featured .page-post--lead .page-cover-link { margin-bottom: 20px; }
+    .cms-blog .lst--featured .page-post--lead .page-cover { aspect-ratio: 4 / 3; }
+    .cms-blog .lst--featured .page-post--lead .page-title { font-size: 32px; }
   }
 {% endblock %}
 {% block body %}

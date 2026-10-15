@@ -143,6 +143,21 @@ class BlogPageLayoutBrowserTests(StaticLiveServerTestCase):
                             self.assertEqual(link.evaluate('e=>getComputedStyle(e).outlineColor'),'rgb(255, 46, 136)')
                             self.assertGreater(link.evaluate('e=>parseFloat(getComputedStyle(e).outlineWidth)'),0)
                             cards=page.locator('.page-post');boxes=[cards.nth(i).bounding_box() for i in range(min(4,cards.count()))]
+                            if layout=='featured':
+                                lead=cards.first
+                                regular=cards.nth(2)
+                                self.assertIn('page-post--lead', lead.get_attribute('class'))
+                                self.assertIn('page-post--secondary', regular.get_attribute('class'))
+                                lead_title=lead.locator('.page-title').evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                                regular_title=regular.locator('.page-title').evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+                                self.assertGreater(lead_title, regular_title)
+                                if width==390:
+                                    lead_cover=lead.locator('.page-cover').bounding_box()
+                                    regular_cover=regular.locator('.page-cover').bounding_box()
+                                    self.assertGreater(lead_cover['height']/lead_cover['width'], regular_cover['height']/regular_cover['width'])
+                                    lead_spacing=lead.evaluate('e=>parseFloat(getComputedStyle(e).paddingBottom)')
+                                    regular_spacing=regular.evaluate('e=>parseFloat(getComputedStyle(e).paddingBottom)')
+                                    self.assertGreater(lead_spacing, regular_spacing)
                             if width==390:
                                 self.assertTrue(all(abs(b['x']-boxes[0]['x'])<2 for b in boxes))
                             elif layout=='featured':
