@@ -156,10 +156,12 @@ def sanitize_template_html(html: str) -> str:
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # Comments out: conditional comments are an old IE XSS vector and
-    # they're not load-bearing for any template we ship.
+    # Only the exact inert v2 layout anchors survive. The renderer validates
+    # paired IDs against Template.block_layout before inserting any blocks.
+    # Other comments, including conditional comments, remain excluded.
     for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
-        comment.extract()
+        if not re.fullmatch(r"cms-slot:body-\d{3}:(?:start|end)", str(comment).strip()):
+            comment.extract()
 
     # First pass: remove dangerous subtrees entirely.
     for tag in soup.find_all(list(DANGEROUS_TAGS)):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, Tag
 
 from api.mcp import content as content_mod
 from core.services import blocks
@@ -20,9 +20,22 @@ def _body_region(region: str) -> bool:
 
 
 def _single_region_slot(html: str, region: str, *, shell: bool) -> None:
-    matches = BeautifulSoup(html or "", "html.parser").find_all(
+    soup = BeautifulSoup(html or "", "html.parser")
+    matches = soup.find_all(
         attrs={"data-region": region}
     )
+    if not matches and region.startswith("body-"):
+        anchors = [comment for comment in soup.find_all(
+            string=lambda value: isinstance(value, Comment))
+            if str(comment).strip() in {f"cms-slot:{region}:start", f"cms-slot:{region}:end"}]
+        if len(anchors) == 2 and str(anchors[0]).strip().endswith(":start") \
+                and str(anchors[1]).strip().endswith(":end") \
+                and anchors[0].parent is anchors[1].parent:
+            if shell and any(parent.name in {"header", "footer"} or
+                             parent.get("data-section") in {"header", "footer", "nav"}
+                             for parent in anchors[0].parents if isinstance(parent, Tag)):
+                raise BlockStructureError("Header and footer regions use the visual editor.")
+            return
     if len(matches) != 1:
         raise BlockStructureError("Destination region must appear exactly once in its template.")
     if shell and (matches[0].name in {"header", "footer"} or
@@ -173,6 +186,18 @@ def move_block(stored: dict, catalog: dict, shell_html: str, *, instance_id: str
                parent_id: str | None, region: str, position: int) -> dict:
     rows = _rows(stored, catalog)
     _editable_row(rows, instance_id, shell_html)
+    source_row = next(row for row in rows if row["id"] == instance_id)
+    by_id = {row["id"]: row for row in rows}
+
+    def root_region(row):
+        while row["parent_id"] is not None:
+            row = by_id[row["parent_id"]]
+        return row["region"]
+
+    source_root = root_region(source_row)
+    destination_root = root_region(by_id[parent_id]) if parent_id in by_id else region
+    if source_root.startswith("body-") and destination_root != source_root:
+        raise BlockStructureError("Blocks cannot move between fixed layout slots.")
     if parent_id == instance_id:
         raise BlockStructureError("A block cannot move inside itself.")
     destination_parent = parent_id

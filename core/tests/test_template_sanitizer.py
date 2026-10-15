@@ -33,6 +33,15 @@ from core.services.template_sanitizer import (
 
 
 class TemplateSanitizerPreservesDesignTests(TestCase):
+    def test_cms_slot_anchor_comments_survive_but_other_comments_do_not(self):
+        out = sanitize_template_html(
+            '<!--cms-slot:body-001:start--><p>Text</p>'
+            '<!--cms-slot:body-001:end--><!--ordinary comment-->'
+        )
+        self.assertIn('<!--cms-slot:body-001:start-->', out)
+        self.assertIn('<!--cms-slot:body-001:end-->', out)
+        self.assertNotIn('ordinary comment', out)
+
     def test_class_attribute_preserved_on_span(self):
         out = sanitize_template_html(
             "<span class='accent gradient-text'>Hi</span>"

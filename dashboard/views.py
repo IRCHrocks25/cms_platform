@@ -2477,6 +2477,13 @@ def _page_create_shared(request, tenant, scope):
     # ids so a home page built from layout rows copies its nested content too,
     # and the two pages stay independent (C2). Header/footer extras copy too.
     copied = {}
+    layout_slots = _blocks.layout_slot_ids(shell.block_layout)
+    if layout_slots and any(
+        slot not in _blocks.shell_region_names(shell.html_source, shell.block_layout)
+        for slot in source_regions
+    ):
+        messages.error(request, "That page uses a different block layout and cannot be copied here.")
+        return redirect(nav["list"])
     for slot, items in (source_regions or {}).items():
         cloned_list = [
             cloned
@@ -2484,7 +2491,10 @@ def _page_create_shared(request, tenant, scope):
             if cloned is not None
         ]
         copied[slot] = cloned_list
-    if "main" not in copied:
+    if layout_slots:
+        for slot in layout_slots:
+            copied.setdefault(slot, [])
+    elif "main" not in copied:
         copied["main"] = []
     content = {"regions": copied}
 
@@ -3226,6 +3236,9 @@ def _render_editor(request, tenant, *, scope, page=None):
     if block_mode:
         from core.services import blocks as _blocks
 
+        if (tpl.block_layout or {}).get("version") == 2:
+            region_name = _blocks.layout_slot_ids(tpl.block_layout)[0]
+
         palette = _blocks.palette_for_template(tpl)
         catalog = _blocks.catalog_for_template(tpl)
         block_defaults = {
@@ -3233,7 +3246,7 @@ def _render_editor(request, tenant, *, scope, page=None):
             for key, entry in catalog.items()
         }
         regions = (editable.content or {}).get("regions") or {}
-        shell_regions = _blocks.shell_region_names(tpl.html_source)
+        shell_regions = _blocks.shell_region_names(tpl.html_source, tpl.block_layout)
         instance_sections: list = []
         _region_group = {
             "header": "Header", "header-left": "Header", "header-center": "Header",
@@ -3281,7 +3294,7 @@ def _render_editor(request, tenant, *, scope, page=None):
                 0,
                 None,
                 slot,
-                _region_group.get(slot, "Sections"),
+                _region_group.get(slot, f"Body slot {slot.split('-')[-1]}" if slot.startswith("body-") else "Sections"),
             )
         # The shell can also own editable content outside its block regions
         # (for example a modal). Keep those sections after the movable blocks.
@@ -3456,8 +3469,9 @@ def _render_editor(request, tenant, *, scope, page=None):
             "block_defaults": block_defaults,
             "region_name": region_name,
             "shell_regions": (
-                _blocks.shell_region_names(tpl.html_source) if block_mode else ["main"]
+                _blocks.shell_region_names(tpl.html_source, tpl.block_layout) if block_mode else ["main"]
             ),
+            "block_layout_segments": (tpl.block_layout or {}).get("segments", []) if block_mode else [],
             "max_block_depth": _blocks.MAX_BLOCK_DEPTH if block_mode else 0,
             "header_pages": (
                 _blocks.editor_header_pages(tenant) if block_mode else []
@@ -3716,7 +3730,7 @@ def _save_content(request, editable):
     # ids for anything missing/duplicated. Rejecting a non-allowlisted block
     # type is what keeps "clients insert only curated blocks" true server-side.
     try:
-        _normalize_regions(content, template)
+        _normalize_regions(content, template, current_content=editable.content or {})
     except _BlockValidationError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     drop_blank_instance_fields(content)
@@ -3840,7 +3854,7 @@ def _sanitize_content_field_values(content: dict, schema: dict) -> None:
             section_data[field_name] = safe
 
 
-def _normalize_regions(content: dict, template) -> None:
+def _normalize_regions(content: dict, template, *, current_content: dict | None = None) -> None:
     """Validate + sanitize ``content['regions']`` in place (no-op if absent).
 
     Rejects block types not on the template's allowlist, drops unknown instance
@@ -3849,6 +3863,38 @@ def _normalize_regions(content: dict, template) -> None:
     per-page block cap across every nested instance.
     """
     regions = content.get("regions")
+    v2 = bool(template and (template.block_layout or {}).get("version") == 2)
+    if v2:
+        from core.services import blocks
+        try:
+            blocks.validate_layout_shell(template.html_source, template.block_layout)
+        except ValueError as exc:
+            raise _BlockValidationError(str(exc)) from exc
+        declared = set(blocks.shell_region_names(template.html_source, template.block_layout))
+        if not isinstance(regions, dict) or not set(blocks.layout_slot_ids(template.block_layout)) <= set(regions):
+            raise _BlockValidationError("This layout requires every declared body slot.")
+        if set(regions) - declared:
+            raise _BlockValidationError("Content contains an undeclared layout slot.")
+        old_regions = (current_content or {}).get("regions") or {}
+        def locations(region_map):
+            found = {}
+            def walk(values, root):
+                for inst in values if isinstance(values, list) else []:
+                    if not isinstance(inst, dict):
+                        continue
+                    if inst.get("id"):
+                        found[inst["id"]] = root
+                    child_map = inst.get("children")
+                    for children in (child_map if isinstance(child_map, dict) else {}).values():
+                        walk(children, root)
+            for root, values in region_map.items():
+                walk(values, root)
+            return found
+        old_locations = locations(old_regions)
+        new_locations = locations(regions)
+        if any(iid in old_locations and old_locations[iid] != root
+               for iid, root in new_locations.items()):
+            raise _BlockValidationError("Blocks cannot move between fixed layout slots.")
     if regions is None:
         return
     if not isinstance(regions, dict) or template is None:

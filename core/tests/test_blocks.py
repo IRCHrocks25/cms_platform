@@ -1,12 +1,290 @@
 """Curated block palette: parser, renderer, and migration parity."""
 from pathlib import Path
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from core.models import BlockType, Template, Tenant
 from core.parser import build_block_schema, build_schema
 from core.renderer import merge_with_defaults, render_page_from_blocks, render_site
 from core.services import blocks
+
+
+class LayoutAwareConversionTests(TestCase):
+    WRAPPED = (
+        '<html><body><main class="page">'
+        '<div class="band"><section data-section="hero"><h1>Hi</h1></section></div>'
+        '<div class="fixed">Do not move</div>'
+        '<div class="band"><section data-section="proof"><p>Yes</p></section></div>'
+        '</main></body></html>'
+    )
+    INTERLEAVED = (
+        '<html><body><main class="page">'
+        '<section data-section="hero"><h1>Hi</h1></section>'
+        '<div class="fixed">Do not move</div>'
+        '<section data-section="proof"><p>Yes</p></section>'
+        '</main></body></html>'
+    )
+
+    def test_wrappers_and_fixed_sibling_keep_exact_order(self):
+        shell, fragments, layout = blocks.split_shell_and_blocks_v2(self.WRAPPED)
+        self.assertEqual([key for key, _ in fragments], ["hero", "proof"])
+        self.assertEqual([entry["kind"] for entry in layout["segments"]],
+                         ["slot", "fixed", "slot"])
+        self.assertIn('class="band" data-region="body-001"', shell)
+        self.assertIn('class="fixed">Do not move', shell)
+        content = blocks.convert_content_to_layout_regions({}, fragments, layout)
+        rendered = render_page_from_blocks(shell, content,
+                                           blocks._catalog_from_fragments(fragments),
+                                           block_layout=layout)
+        self.assertEqual(blocks.normalize_v2_for_diff(render_site(self.WRAPPED, {})),
+                         blocks.normalize_v2_for_diff(rendered))
+
+    def test_interleaved_direct_children_use_comment_anchors(self):
+        shell, fragments, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        self.assertIn('<!--cms-slot:body-001:start-->', shell)
+        self.assertIn('<!--cms-slot:body-001:end-->', shell)
+        content = blocks.convert_content_to_layout_regions({}, fragments, layout)
+        rendered = render_page_from_blocks(shell, content,
+                                           blocks._catalog_from_fragments(fragments),
+                                           block_layout=layout)
+        self.assertEqual(blocks.normalize_v2_for_diff(render_site(self.INTERLEAVED, {})),
+                         blocks.normalize_v2_for_diff(rendered))
+        self.assertNotIn('data-region="body-001"', rendered)
+        preview = render_page_from_blocks(shell, content,
+                                          blocks._catalog_from_fragments(fragments),
+                                          block_layout=layout, preview=True)
+        self.assertIn('data-region="body-001"', preview)
+        with self.assertRaises(ValueError):
+            render_page_from_blocks(shell.replace('<!--cms-slot:body-001:start-->', ''),
+                                    content, blocks._catalog_from_fragments(fragments),
+                                    block_layout=layout)
+
+    def test_layout_shell_rejects_reordered_or_nested_anchors(self):
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        first_start = '<!--cms-slot:body-001:start-->'
+        first_end = '<!--cms-slot:body-001:end-->'
+        second_start = '<!--cms-slot:body-002:start-->'
+        fixed = '<div class="fixed">Do not move</div>'
+        mutations = {
+            # Review mutation: the renderer would move hero after the fixed div.
+            "end across fixed": shell.replace(first_end + fixed, fixed + first_end),
+            "start across fixed": shell.replace(first_start, "").replace(
+                fixed, fixed + first_start),
+            "whole slot across fixed": shell.replace(first_start + first_end, "").replace(
+                fixed, fixed + first_start + first_end),
+            "slots swapped": shell.replace("body-001", "temporary-slot").replace(
+                "body-002", "body-001").replace("temporary-slot", "body-002"),
+            "nested ranges": shell.replace(first_end + fixed + second_start,
+                                           fixed + second_start + first_end),
+            "end before start": shell.replace(first_start, "").replace(
+                first_end, first_end + first_start),
+        }
+        for name, mutated in mutations.items():
+            self.assertNotEqual(mutated, shell, name)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                blocks.validate_layout_shell(mutated, layout)
+
+    def test_layout_shell_rejects_fixed_content_inside_element_slot(self):
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.WRAPPED)
+        mutated = shell.replace('data-region="body-001">',
+                                'data-region="body-001"><div class="fixed">Moved</div>')
+        with self.assertRaises(ValueError):
+            blocks.validate_layout_shell(mutated, layout)
+
+    def test_template_and_version_save_reject_anchor_across_fixed_segment(self):
+        from core.services.templates import AnnotationMismatchError, save_template_version
+
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        template = Template.objects.create(name="Ordered anchors", html_source=shell,
+                                           block_layout=layout)
+        first_end = '<!--cms-slot:body-001:end-->'
+        fixed = '<div class="fixed">Do not move</div>'
+        mutated = shell.replace(first_end + fixed, fixed + first_end)
+        template.html_source = mutated
+        with self.assertRaises(ValueError):
+            template.save()
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(template, mutated, user=None)
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, shell)
+        self.assertFalse(template.versions.exists())
+
+    def test_layout_shell_rejects_slot_moved_to_other_container(self):
+        first_pair = ('<!--cms-slot:body-001:start-->'
+                      '<!--cms-slot:body-001:end-->')
+        cases = {
+            "header": ('<header>Site header</header>', '</header>'),
+            # Put footer first so slot order and the fixed gap still look valid.
+            "footer": ('<footer>Site footer</footer>', '</footer>'),
+            "other wrapper": ('<div class="other"></div>', '</div>'),
+        }
+        for name, (container, closing) in cases.items():
+            with self.subTest(name=name):
+                classic = self.INTERLEAVED.replace('<main class="page">',
+                                                    container + '<main class="page">')
+                shell, _, layout = blocks.split_shell_and_blocks_v2(classic)
+                self.assertIn(first_pair, shell)
+                moved = shell.replace(first_pair, "")
+                if name == "other wrapper":
+                    moved = moved.replace(container, '<div class="other">' + first_pair + '</div>')
+                else:
+                    moved = moved.replace(closing, first_pair + closing, 1)
+                self.assertNotEqual(moved, shell)
+                with self.assertRaises(ValueError):
+                    blocks.validate_layout_shell(moved, layout)
+
+    def test_template_save_and_version_refuse_slot_moved_into_header(self):
+        from core.services.templates import AnnotationMismatchError, save_template_version
+
+        classic = self.INTERLEAVED.replace('<main class="page">',
+                                            '<header>Site header</header><main class="page">')
+        shell, _, layout = blocks.split_shell_and_blocks_v2(classic)
+        template = Template.objects.create(name="Container anchored", html_source=shell,
+                                           block_layout=layout)
+        first_pair = ('<!--cms-slot:body-001:start-->'
+                      '<!--cms-slot:body-001:end-->')
+        moved = shell.replace(first_pair, "").replace('</header>', first_pair + '</header>')
+        template.html_source = moved
+        with self.assertRaises(ValueError):
+            template.save()
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(template, moved, user=None)
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, shell)
+        self.assertFalse(template.versions.exists())
+
+    def test_adjacent_direct_slots_have_no_invented_fixed_segment(self):
+        html = self.INTERLEAVED.replace('<div class="fixed">Do not move</div>', '')
+        _, _, layout = blocks.split_shell_and_blocks_v2(html)
+        self.assertEqual([entry["kind"] for entry in layout["segments"]],
+                         ["slot", "slot"])
+
+    def test_direct_child_css_selects_v2_without_a_new_wrapper(self):
+        html = ('<html><head><style>main > section { color: red; }</style></head>'
+                '<body><main><section data-section="hero">Hi</section></main></body></html>')
+        shell, fragments, layout = blocks.split_classic_candidate(html)
+        self.assertEqual(layout["version"], 2)
+        self.assertIn('<!--cms-slot:body-001:start-->', shell)
+        self.assertNotIn('<div data-region="main">', shell)
+        self.assertEqual(blocks.preview_classic_upgrade(html, {}), (True, ""))
+
+    def test_preview_gate_accepts_wrappers_and_interleaving(self):
+        self.assertEqual(blocks.preview_classic_upgrade(self.WRAPPED, {}), (True, ""))
+        self.assertEqual(blocks.preview_classic_upgrade(self.INTERLEAVED, {}), (True, ""))
+
+    def test_v2_mutation_of_fixed_markup_fails_strict_gate(self):
+        shell, fragments, layout = blocks.split_classic_candidate(self.INTERLEAVED)
+        content = blocks.convert_content_to_layout_regions({}, fragments, layout)
+        rendered = render_page_from_blocks(shell.replace("Do not move", "Moved"), content,
+                                           blocks._catalog_from_fragments(fragments),
+                                           block_layout=layout)
+        self.assertNotEqual(blocks.normalize_v2_for_diff(render_site(self.INTERLEAVED, {})),
+                            blocks.normalize_v2_for_diff(rendered))
+        wrapper_shell, wrapper_fragments, wrapper_layout = blocks.split_classic_candidate(self.WRAPPED)
+        wrapper_content = blocks.convert_content_to_layout_regions({}, wrapper_fragments, wrapper_layout)
+        changed_wrapper = wrapper_shell.replace('class="band"', 'class="different"', 1)
+        wrapper_rendered = render_page_from_blocks(
+            changed_wrapper, wrapper_content,
+            blocks._catalog_from_fragments(wrapper_fragments), block_layout=wrapper_layout,
+        )
+        self.assertNotEqual(
+            blocks.normalize_v2_for_diff(render_site(self.WRAPPED, {})),
+            blocks.normalize_v2_for_diff(wrapper_rendered),
+        )
+
+    def test_annotation_snapshot_keeps_anchor_and_detects_removal(self):
+        from core.services.templates import _annotation_snapshot
+
+        shell, _, _ = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        self.assertIn('<!--cms-slot:body-001:start-->', _annotation_snapshot(shell, {}))
+        self.assertNotEqual(
+            _annotation_snapshot(shell, {}),
+            _annotation_snapshot(shell.replace('<!--cms-slot:body-001:start-->', ''), {}),
+        )
+
+    def test_source_save_refuses_stripped_anchor_before_storage(self):
+        from core.services.templates import AnnotationMismatchError, save_template_version
+
+        shell, _, layout = blocks.split_shell_and_blocks_v2(self.INTERLEAVED)
+        template = Template.objects.create(name="Anchored", html_source=shell,
+                                           block_layout=layout)
+        with self.assertRaises(AnnotationMismatchError):
+            save_template_version(
+                template, shell.replace('<!--cms-slot:body-001:start-->', ''),
+                user=None,
+            )
+        template.refresh_from_db()
+        self.assertEqual(template.html_source, shell)
+        self.assertEqual(template.versions.count(), 0)
+
+    def test_apply_persists_layout_and_legacy_clone_retains_it(self):
+        from django.contrib.auth.models import User
+
+        owner = User.objects.create_user("layout-owner", password="x")
+        template = Template.objects.create(name="Layout home", html_source=self.WRAPPED)
+        tenant = Tenant.objects.create(name="Layout", subdomain="layout", owner=owner,
+                                       template=template, content={})
+        blocks.apply_classic_upgrade(template)
+        template.refresh_from_db()
+        tenant.refresh_from_db()
+        self.assertEqual(template.block_layout["version"], 2)
+        self.assertEqual(list(tenant.content["regions"]), ["body-001", "body-002"])
+        self.assertEqual(blocks.normalize_v2_for_diff(blocks.render_content(template, tenant.content)),
+                         blocks.normalize_v2_for_diff(render_site(self.WRAPPED, {})))
+        clone = template.clone_for(tenant)
+        self.assertEqual(clone.block_layout, template.block_layout)
+
+    @override_settings(STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }, ALLOWED_HOSTS=["*"])
+    def test_v2_editor_round_trip_and_slot_validation(self):
+        import json
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+        from dashboard.views import _BlockValidationError, _normalize_regions
+
+        staff = User.objects.create_user("layout-staff", password="x", is_staff=True)
+        template = Template.objects.create(name="Editor layout", html_source=self.INTERLEAVED,
+                                           editing_mode=Template.EDITING_EDITABLE)
+        tenant = Tenant.objects.create(name="Editor", subdomain="editor-layout", owner=staff,
+                                       template=template, content={})
+        blocks.apply_classic_upgrade(template)
+        tenant.refresh_from_db()
+        self.client.force_login(staff)
+        editor = self.client.get(reverse("dashboard:tenant_editor", args=[tenant.pk]),
+                                 HTTP_HOST="localhost")
+        self.assertEqual(editor.status_code, 200)
+        self.assertContains(editor, "Body slot body-001")
+        self.assertContains(editor, "Fixed design")
+        self.assertContains(editor, 'regionName: "body-001"')
+        saved = self.client.post(reverse("dashboard:tenant_save", args=[tenant.pk]),
+                                 data=json.dumps({"content": tenant.content}),
+                                 content_type="application/json", HTTP_HOST="localhost")
+        self.assertEqual(saved.status_code, 200)
+        tenant.refresh_from_db()
+        self.assertEqual(list(tenant.content["regions"]), ["body-001", "body-002"])
+        created = self.client.post(
+            reverse("dashboard:page_create", args=[tenant.pk]),
+            {"title": "Inner", "slug": "inner", "start_from": "blank"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(created.status_code, 302)
+        from core.models import Page
+        inner = Page.objects.get(tenant=tenant, slug="inner")
+        self.assertEqual(inner.content["regions"], {"body-001": [], "body-002": []})
+        invalid = {"regions": {"body-001": [], "body-002": [], "body-999": []}}
+        with self.assertRaises(_BlockValidationError):
+            _normalize_regions(invalid, template)
+        from copy import deepcopy
+        moved = deepcopy(tenant.content)
+        moved["regions"]["body-002"].append(moved["regions"]["body-001"].pop())
+        with self.assertRaisesRegex(_BlockValidationError, "cannot move between"):
+            _normalize_regions(moved, template, current_content=tenant.content)
+        template.html_source = template.html_source.replace('<!--cms-slot:body-001:start-->', '')
+        with self.assertRaises(_BlockValidationError):
+            _normalize_regions(tenant.content, template)
+
 
 
 TESTIMONIAL = (

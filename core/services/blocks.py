@@ -652,9 +652,21 @@ def apply_header_layout(soup, header_meta=None) -> None:
         inner.append(zones[name])
 
 
-def shell_region_names(html: str | None) -> list[str]:
+def shell_region_names(html: str | None, block_layout: dict | None = None) -> list[str]:
     """Top-level ``data-region`` slots on a block shell (header / main / footer)."""
     names = block_region_names(html)
+    if (block_layout or {}).get("version") == 2:
+        body = layout_slot_ids(block_layout)
+        header = [name for name in names if name in _HEADER_SLOTS or name.startswith("header")]
+        footer = [name for name in names if name.startswith("footer")]
+        other = [name for name in names if name not in body + header + footer]
+        return header + body + other + footer
+    if html and "cms-slot:" in html:
+        soup = BeautifulSoup(html, "lxml")
+        for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
+            match = _SLOT_ANCHOR.fullmatch(str(comment).strip())
+            if match and match[2] == "start" and match[1] not in names:
+                names.append(match[1])
     if not names:
         return ["main"]
     ordered = [n for n in SHELL_REGION_ORDER if n in names]
@@ -1151,6 +1163,7 @@ def render_content(
             preview=preview,
             site_settings=site_settings,
             nav_pages=nav_pages,
+            block_layout=template.block_layout,
         )
 
     merged = merge_with_defaults(template.schema, content)
@@ -1311,6 +1324,222 @@ def split_shell_and_blocks(html: str, *, region: str = "main") -> tuple[str, lis
     return _ensure_region_layout_css(str(soup)), fragments
 
 
+_SLOT_ANCHOR = re.compile(r"^cms-slot:(body-\d{3}):(start|end)$")
+
+
+def layout_slot_ids(layout: dict | None) -> list[str]:
+    if not isinstance(layout, dict) or layout.get("version") != 2:
+        return []
+    return [item["id"] for item in layout.get("segments", [])
+            if item.get("kind") == "slot"]
+
+
+def _has_fixed_gap(left, right) -> bool:
+    """Whether non-whitespace shell markup lies between two slot boundaries."""
+    cursor = left
+    while cursor.next_element is not None and left in cursor.next_element.parents:
+        cursor = cursor.next_element
+    cursor = cursor.next_element
+    while cursor is not None and cursor is not right:
+        if cursor in right.parents:
+            cursor = cursor.next_element
+            continue
+        if isinstance(cursor, Tag) or (isinstance(cursor, str) and cursor.strip()):
+            return True
+        cursor = cursor.next_element
+    return False
+
+
+def _slot_container_path(container) -> list[str]:
+    """Stable element path for a slot's parent, ignoring text and comments."""
+    path = []
+    node = container
+    while isinstance(node, Tag) and node.name != "[document]":
+        index = sum(isinstance(sibling, Tag) for sibling in node.previous_siblings)
+        path.append(f"{node.name}:{index}")
+        node = node.parent
+    return list(reversed(path))
+
+
+def _inside_chrome(node) -> bool:
+    while isinstance(node, Tag) and node.name != "[document]":
+        group = (node.get("data-group") or "").lower()
+        section = (node.get("data-section") or "").lower()
+        if (node.name in {"header", "footer"} or group in {"header", "footer"}
+                or section in CHROME_IDS):
+            return True
+        node = node.parent
+    return False
+
+
+def validate_layout_shell(html: str, layout: dict) -> None:
+    """Validate slot order and fixed gaps before rendering or storing a shell."""
+    if layout.get("version") != 2:
+        return
+    soup = BeautifulSoup(html or "", "lxml")
+    expected = layout_slot_ids(layout)
+    if not expected or len(expected) != len(set(expected)):
+        raise ValueError("Invalid v2 block layout: duplicate or absent slots.")
+    seen = []
+    boundaries = {}
+    for slot in soup.find_all(attrs={"data-region": True}):
+        if slot.get("data-region") in expected:
+            seen.append((slot["data-region"], "element"))
+            boundaries[slot["data-region"]] = (slot, slot)
+            if any(isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+                   for child in slot.children):
+                raise ValueError(f"Invalid v2 block layout: slot {slot['data-region']} contains fixed markup.")
+    comments = soup.find_all(string=lambda value: isinstance(value, Comment))
+    for comment in comments:
+        match = _SLOT_ANCHOR.fullmatch(str(comment).strip())
+        if match:
+            seen.append((match[1], match[2]))
+    for sid in expected:
+        modes = [mode for name, mode in seen if name == sid]
+        if modes not in (["element"], ["start", "end"]):
+            raise ValueError(f"Invalid v2 block layout: slot {sid} anchors are missing or duplicated.")
+        declared = next(item for item in layout["segments"] if item.get("kind") == "slot" and item.get("id") == sid)
+        if declared.get("mode") != ("element" if modes == ["element"] else "range"):
+            raise ValueError(f"Invalid v2 block layout: slot {sid} mode differs from shell.")
+        if modes == ["start", "end"]:
+            pair = [comment for comment in comments
+                    if str(comment).strip() in {f"cms-slot:{sid}:start", f"cms-slot:{sid}:end"}]
+            if pair[0].parent is not pair[1].parent:
+                raise ValueError(f"Invalid v2 block layout: slot {sid} anchors have different parents.")
+            start, end = pair
+            siblings = list(start.next_siblings)
+            if end not in siblings:
+                raise ValueError(f"Invalid v2 block layout: slot {sid} end precedes start.")
+            if any(isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+                   for child in siblings[:siblings.index(end)]):
+                raise ValueError(f"Invalid v2 block layout: slot {sid} contains fixed markup or nested anchors.")
+            boundaries[sid] = (start, end)
+        container = boundaries[sid][0].parent
+        chrome_node = boundaries[sid][0] if modes == ["element"] else container
+        if _inside_chrome(chrome_node) or declared.get("container_path") != _slot_container_path(container):
+            raise ValueError(f"Invalid v2 block layout: slot {sid} moved from its declared container or into chrome.")
+    if any(name not in expected for name, _ in seen):
+        raise ValueError("Invalid v2 block layout: undeclared slot anchor.")
+
+    # Every slot must occur in layout order. A fixed descriptor belongs to the
+    # gap between its two neighbouring slots, not inside either slot.
+    document_order = {id(node): index for index, node in enumerate(soup.descendants)}
+    actual = sorted(expected, key=lambda sid: document_order[id(boundaries[sid][0])])
+    if actual != expected:
+        raise ValueError("Invalid v2 block layout: slot order differs from layout.")
+    segments = layout["segments"]
+    for left_id, right_id in zip(expected, expected[1:]):
+        left_pos = next(i for i, item in enumerate(segments)
+                        if item.get("kind") == "slot" and item.get("id") == left_id)
+        right_pos = next(i for i, item in enumerate(segments)
+                         if item.get("kind") == "slot" and item.get("id") == right_id)
+        declared_fixed = any(item.get("kind") == "fixed"
+                             for item in segments[left_pos + 1:right_pos])
+        actual_fixed = _has_fixed_gap(boundaries[left_id][1], boundaries[right_id][0])
+        if actual_fixed != declared_fixed:
+            raise ValueError(f"Invalid v2 block layout: fixed gap between {left_id} and {right_id} differs from layout.")
+
+
+def split_shell_and_blocks_v2(html: str) -> tuple[str, list[tuple[str, str]], dict]:
+    """Keep original wrappers and fixed siblings; extract each root into a slot."""
+    soup = BeautifulSoup(html or "", "lxml")
+    host = soup.body or soup
+    roots = [node for node in host.find_all(True) if _is_root_block(node)]
+    if not roots:
+        return str(soup), [], {"version": 2, "segments": []}
+    keys = [(node.get("data-section") or "").strip() for node in roots]
+    if len(keys) != len(set(keys)):
+        raise ValueError("Duplicate root section IDs cannot be converted.")
+
+    fragments = []
+    segments = []
+    previous = None
+
+    for index, node in enumerate(roots, 1):
+        sid = f"body-{index:03d}"
+        parent = node.parent
+        # A wrapper with only this band is the original slot element. Do not
+        # add a div: direct-child selectors and sibling order depend on it.
+        wrapper_only = (isinstance(parent, Tag) and parent.name == "div"
+                        and not parent.has_attr("data-section")
+                        and not parent.has_attr("data-region")
+                        and all(child is node or (isinstance(child, str) and not child.strip())
+                                for child in parent.children))
+        marker = parent if wrapper_only else node
+        if previous is not None and _has_fixed_gap(previous, marker):
+            # A fixed descriptor tells the editor that the shell owns the gap.
+            # It never copies or reorders the actual HTML.
+            segments.append({"kind": "fixed", "id": f"fixed-{index-1:03d}"})
+        if wrapper_only:
+            parent["data-region"] = sid
+            mode = "element"
+        else:
+            node.insert_before(Comment(f"cms-slot:{sid}:start"))
+            end_comment = Comment(f"cms-slot:{sid}:end")
+            node.insert_after(end_comment)
+            mode = "range"
+        fragments.append((keys[index - 1], str(node)))
+        node.extract()
+        container = parent.parent if wrapper_only else parent
+        segments.append({"kind": "slot", "id": sid, "mode": mode,
+                         "container_path": _slot_container_path(container)})
+        previous = marker if wrapper_only else end_comment
+    layout = {"version": 2, "segments": segments}
+    shell = str(soup)
+    validate_layout_shell(shell, layout)
+    return shell, fragments, layout
+
+
+def convert_content_to_layout_regions(content: dict | None,
+                                      fragments: list[tuple[str, str]],
+                                      layout: dict) -> dict:
+    keys = [key for key, _ in fragments]
+    result = convert_content_to_regions(content, keys)
+    source = (content or {}).get("_classic") or (content or {})
+    result["regions"] = {
+        sid: [{"id": key, "type": key, "fields": dict(source.get(key) or {})}]
+        for sid, (key, _) in zip(layout_slot_ids(layout), fragments)
+    }
+    return result
+
+
+def normalize_v2_for_diff(html: str) -> str:
+    """Preserve wrapper/fixed structure while ignoring conversion metadata."""
+    soup = BeautifulSoup(html or "", "lxml")
+    for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
+        if _SLOT_ANCHOR.fullmatch(str(comment).strip()):
+            comment.extract()
+    for element in soup.find_all(True):
+        for attr in (*_DIFF_STRIP_ATTRS, "data-region"):
+            if attr == "data-region" and not str(element.get(attr) or "").startswith("body-"):
+                continue
+            element.attrs.pop(attr, None)
+    return re.sub(r">\s+<", "><", str(soup)).strip()
+
+
+def split_classic_candidate(html: str, *, region: str = "main") -> tuple[str, list[tuple[str, str]], dict]:
+    """Use v2 only where the legacy one-slot splitter loses DOM structure."""
+    soup = BeautifulSoup(html or "", "lxml")
+    roots = [node for node in (soup.body or soup).find_all(True) if _is_root_block(node)]
+    # A new region div would break `parent > section` selectors even though
+    # the legacy HTML normalizer unwraps it and reports a false equal.
+    for style in soup.find_all("style"):
+        css = style.get_text() or ""
+        if any(">" in chunk.rsplit("}", 1)[-1] for chunk in css.split("{")[:-1]):
+            return split_shell_and_blocks_v2(html)
+    if len({id(node.parent) for node in roots}) > 1:
+        return split_shell_and_blocks_v2(html)
+    if len(roots) > 1:
+        siblings = list(roots[0].parent.children)
+        first, last = siblings.index(roots[0]), siblings.index(roots[-1])
+        if any(isinstance(node, Tag) and node not in roots
+               and not _is_style_glue(node) and not _is_script_glue(node)
+               for node in siblings[first:last + 1]):
+            return split_shell_and_blocks_v2(html)
+    shell, fragments = split_shell_and_blocks(html, region=region)
+    return shell, fragments, {}
+
+
 def convert_content_to_regions(
     content: dict | None,
     ordered_block_keys: list[str],
@@ -1411,19 +1640,27 @@ def preview_classic_upgrade(
     from core.renderer import merge_with_defaults, render_page_from_blocks, render_site
 
     content = content or {}
-    shell_html, fragments = split_shell_and_blocks(html, region=region)
+    try:
+        shell_html, fragments, layout = split_classic_candidate(html, region=region)
+    except ValueError as exc:
+        return False, str(exc)
     if not fragments:
         return False, "no body sections to convert"
     schema = build_schema(html)
     classic = render_site(html, merge_with_defaults(schema, content))
     block_keys = [k for k, _ in fragments]
     catalog = _catalog_from_fragments(fragments)
-    new_content = convert_content_to_regions(content, block_keys, region=region)
-    block_out = render_page_from_blocks(shell_html, new_content, catalog)
-    left = normalize_for_diff(classic)
-    right = normalize_for_diff(block_out)
+    new_content = (convert_content_to_layout_regions(content, fragments, layout)
+                   if layout else convert_content_to_regions(content, block_keys, region=region))
+    block_out = render_page_from_blocks(shell_html, new_content, catalog,
+                                        block_layout=layout)
+    normalize = normalize_v2_for_diff if layout else normalize_for_diff
+    left = normalize(classic)
+    right = normalize(block_out)
     if left == right:
         return True, ""
+    if layout:
+        return False, _first_diff_snippet(left, right)
     if _glue_insensitive_diff(classic) == _glue_insensitive_diff(block_out):
         return True, ""
     return False, _first_diff_snippet(left, right)
@@ -1530,14 +1767,16 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
     from core.parser import build_block_schema
 
     old_html = template.html_source or ""
-    if not template.is_block_shell:
+    was_block_shell = template.is_block_shell
+    layout = {}
+    if not was_block_shell:
         safe, diff = classic_upgrade_is_safe(template, region=region)
         if not safe:
             raise ConversionMismatchError(
                 "Block conversion refused before Save because the rendered page differs: "
                 + diff[:500]
             )
-    if template.is_block_shell:
+    if was_block_shell:
         attach_builder_primitives(template)
         if not _shell_has_unextracted_sections(old_html):
             return
@@ -1547,7 +1786,7 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
         if not fragments:
             return
     else:
-        shell_html, fragments = split_shell_and_blocks(old_html, region=region)
+        shell_html, fragments, layout = split_classic_candidate(old_html, region=region)
     if not fragments and not template.is_block_shell:
         soup = BeautifulSoup(old_html, "lxml")
         host = soup.body or soup
@@ -1566,7 +1805,9 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
     editables = list(Tenant.objects.filter(template=template))
     editables += list(Page.objects.filter(template=template))
     conversions = [
-        (ed, convert_content_to_regions(ed.content or {}, block_keys, region=region))
+        (ed, convert_content_to_layout_regions(ed.content or {}, resolved, layout)
+         if not was_block_shell and layout else
+         convert_content_to_regions(ed.content or {}, block_keys, region=region))
         for ed in editables
     ]
 
@@ -1594,6 +1835,8 @@ def apply_classic_upgrade(template, *, region: str = "main") -> None:
             block_types.append(bt)
 
         template.html_source = shell_html
+        if not was_block_shell:
+            template.block_layout = layout
         template.save()
         if block_types:
             template.allowed_block_types.add(*block_types)

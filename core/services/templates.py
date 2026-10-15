@@ -606,6 +606,14 @@ def save_template_version(
                 "Re-read and retry with the current etag."
             )
 
+        if (locked.block_layout or {}).get("version") == 2:
+            from core.services.blocks import validate_layout_shell
+
+            try:
+                validate_layout_shell(html_source, locked.block_layout)
+            except ValueError as exc:
+                raise AnnotationMismatchError(str(exc)) from exc
+
         if preserve_rendered:
             targets = [("template defaults", {}, {})]
             auto_mapping = _automatic_field_mapping(locked.html_source, html_source)

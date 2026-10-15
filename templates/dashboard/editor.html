@@ -191,6 +191,16 @@
         </div>
       {% endif %}
       {% regroup content_sections by group as section_groups %}
+      {% if block_layout_segments %}
+        <div class="sidebar-group" aria-label="Page layout order">
+          <div class="sidebar-group-label">Page layout</div>
+          {% for segment in block_layout_segments %}
+            <div class="sidebar-link-text" style="display:block;padding:5px 14px;opacity:.7">
+              {% if segment.kind == "fixed" %}Fixed design{% else %}Body slot {{ segment.id }}{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% for group in section_groups %}
         <div class="sidebar-group">
           <div class="sidebar-group-label">{{ group.grouper }}</div>
