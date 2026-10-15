@@ -1867,3 +1867,31 @@ class MountedStripLayoutSiteStylingTests(TestCase):
         self.assertIn("--blog-serif:'Fraunces'", html)
         self.assertNotIn("var(--cms-font-heading", html)
         self.assertNotIn("lst-eyebrow", html.split("</style>", 1)[1])
+
+    def test_unstyled_image_layouts_match_main_output(self):
+        import re
+        from django.template import engines
+        from core.services.blog_render import (
+            accent_color, featured_posts, get_blog_settings, render_strip_fragment,
+        )
+
+        # Frozen copy of main's listing template before this PR. Whitespace
+        # normalization ignores template-tag line breaks, not emitted CSS.
+        source = (Path(__file__).parent / "fixtures/blog_listing_main.html").read_text()
+        baseline = engines["django"].from_string(source)
+        settings = get_blog_settings(self.tenant)
+        for layout in ("image_left", "image_right", "image_above"):
+            with self.subTest(layout=layout):
+                context = {
+                    "tenant": self.tenant,
+                    "posts": featured_posts(self.tenant, settings["strip_count"]),
+                    "heading": settings["strip_heading"],
+                    "accent": accent_color(self.tenant),
+                    "blog_base": "/blog/",
+                    "layout": layout,
+                    "site_styled": False,
+                }
+                expected = baseline.render(context)
+                actual = render_strip_fragment(self.tenant, layout=layout, site_styled=False)
+                normalize = lambda html: re.sub(r"\s+", " ", html).strip()
+                self.assertEqual(normalize(actual), normalize(expected))
