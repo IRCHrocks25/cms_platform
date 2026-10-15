@@ -2708,13 +2708,24 @@ def _remove_credit_separator(node: Tag, direction: str) -> bool:
     return True
 
 
+# Field ids that annotate the footer "Built by" credit link. Templates were
+# annotated at different times, so the same credit appears under either id;
+# each link field also has a ``<id>_label`` field for its words.
+FOOTER_CREDIT_LINK_IDS = ("footer.builtBy", "footer.built_by_link")
+FOOTER_CREDIT_FIELD_IDS = frozenset(
+    ids for link_id in FOOTER_CREDIT_LINK_IDS for ids in (link_id, f"{link_id}_label")
+)
+
+
 def _remove_footer_credit(soup: BeautifulSoup) -> None:
     """Remove the credit's words, link and adjacent separator as one unit.
 
     The credit is authored in a tenant template, so its wrapper tag/class is
     not fixed. Never remove a parent containing other footer content.
     """
-    link = soup.find("a", attrs={"data-edit": "footer.builtBy"})
+    link = soup.find(
+        lambda tag: tag.name == "a" and tag.get("data-edit") in FOOTER_CREDIT_LINK_IDS
+    )
     if link is None:
         return
     footer = link.find_parent("footer") or link.find_parent(attrs={"data-section": "footer"})
@@ -2999,7 +3010,17 @@ def render_site(
     if isinstance(content, dict) and content.get("_hidden"):
         _apply_hidden(soup, content["_hidden"], preview=preview)
 
-    if isinstance(site_settings, dict) and site_settings.get("show_footer_credit") is False:
+    credit_off = isinstance(site_settings, dict) and site_settings.get("show_footer_credit") is False
+    # A credit link hidden with the older per-field toggle would otherwise
+    # leave its "Built by" words behind on the public page; treat it as the
+    # whole credit being hidden. Preview keeps it dimmed so it stays editable.
+    hidden = content.get("_hidden") if isinstance(content, dict) else None
+    credit_field_hidden = (
+        not preview
+        and isinstance(hidden, (list, tuple))
+        and any(isinstance(h, str) and h.strip() in FOOTER_CREDIT_FIELD_IDS for h in hidden)
+    )
+    if credit_off or credit_field_hidden:
         _remove_footer_credit(soup)
 
     if not preview and site_settings:

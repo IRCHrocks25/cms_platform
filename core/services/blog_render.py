@@ -431,6 +431,26 @@ def _wrap_minimal(inner_html: str) -> str:
     )
 
 
+def _ensure_head(soup):
+    """Return the document ``<head>``, creating one if the template has none.
+
+    Some imported templates start straight with body content (their own
+    ``<style>`` included), so the parsed document has no ``<head>``. Anything
+    the blog moves into the head (its scoped stylesheet, the fonts link, the
+    chrome-contrast rule) would otherwise be silently dropped. Browsers treat
+    an inserted head exactly like an authored one.
+    """
+    head = soup.find("head")
+    if head is not None:
+        return head
+    head = soup.new_tag("head")
+    html_tag = soup.find("html")
+    if html_tag is None:
+        return None
+    html_tag.insert(0, head)
+    return head
+
+
 def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str = "/") -> str:
     """Render ``inner_html`` (a blog content fragment) inside the client's
     actual site chrome: same ``<head>`` (global CSS, fonts, brand tokens),
@@ -476,7 +496,7 @@ def wrap_in_site_chrome(tenant, inner_html: str, *, request=None, home_url: str 
         if "cms-blog-page" not in classes:
             html_tag["class"] = classes + ["cms-blog-page"]
 
-    head = soup.find("head")
+    head = _ensure_head(soup)
     if head is not None:
         contrast = soup.new_tag("style", id="cms-blog-chrome-contrast")
         contrast.string = _CHROME_CONTRAST_CSS
@@ -796,7 +816,7 @@ def render_strip_doc(
     # from the preview even when the fragment correctly consumes site tokens.
     if site_styled and shell_soup is not None:
         soup = shell_soup
-        if soup.body is not None and soup.head is not None:
+        if soup.body is not None and _ensure_head(soup) is not None:
             # Retain an explicit mount's ancestor selectors and spacing. Block
             # templates can carry their CSS in the body, outside the shell head.
             marker = soup.find(attrs={"data-blog-strip": True})
@@ -848,9 +868,11 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
     # strip rather than append another one. Never remove authored blog blocks.
     for previous in soup.select("[data-cms-blog-strip]"):
         previous.decompose()
-    if site_styled and soup.head is not None and "family=Fraunces" not in html:
-        for node in list(BeautifulSoup(_BLOG_FONTS_LINK, "html.parser").children):
-            soup.head.append(node)
+    if site_styled and "family=Fraunces" not in html:
+        head = _ensure_head(soup)
+        if head is not None:
+            for node in list(BeautifulSoup(_BLOG_FONTS_LINK, "html.parser").children):
+                head.append(node)
     frag_soup = BeautifulSoup(fragment, "lxml")
     nodes = list(
         frag_soup.body.children if frag_soup.body else frag_soup.children

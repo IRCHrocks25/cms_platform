@@ -256,3 +256,89 @@ class FooterCreditTenantTests(TestCase):
             data=json.dumps({"show_footer_credit": False}), content_type="application/json",
         )
         self.assertEqual(response.status_code, 403)
+
+
+# CMS-90: templates whose credit link is annotated as footer.built_by_link
+# (with its footer.built_by_link_label words field) get the same site control.
+LINK_FOOTER = (
+    "<html><head></head><body><footer data-section='footer' data-group='Footer'>"
+    "<p class='copyright'>Copyright</p><nav class='legal'><a href='/terms'>Terms</a></nav>"
+    "<span class='credit'>Built by <a class='built' data-edit='footer.built_by_link' "
+    "data-label='Built-by link' data-type='link' href='https://katek.co'>KATEK</a></span>"
+    "</footer></body></html>"
+)
+
+
+class BuiltByLinkCreditRenderTests(SimpleTestCase):
+    def _footer_text(self, html):
+        return BeautifulSoup(html, "lxml").footer.get_text(" ", strip=True)
+
+    def test_default_keeps_credit(self):
+        self.assertIn("Built by KATEK", self._footer_text(render_site(LINK_FOOTER, {})))
+
+    def test_site_setting_removes_whole_credit(self):
+        for preview in (False, True):
+            with self.subTest(preview=preview):
+                html = render_site(LINK_FOOTER, {}, preview=preview,
+                                   site_settings={"show_footer_credit": False})
+                text = self._footer_text(html)
+                self.assertNotIn("Built by", text)
+                self.assertNotIn("KATEK", text)
+                self.assertIn("Copyright", text)
+                self.assertIn("Terms", text)
+
+    def test_legacy_per_field_hide_removes_whole_credit_publicly(self):
+        for hidden in (["footer.built_by_link"], ["footer.built_by_link_label"]):
+            with self.subTest(hidden=hidden):
+                html = render_site(LINK_FOOTER, {"_hidden": hidden})
+                text = self._footer_text(html)
+                self.assertNotIn("Built by", text)
+                self.assertNotIn("KATEK", text)
+                self.assertIn("Copyright", text)
+
+    def test_legacy_per_field_hide_still_editable_in_preview(self):
+        html = render_site(LINK_FOOTER, {"_hidden": ["footer.built_by_link"]}, preview=True)
+        link = BeautifulSoup(html, "lxml").select_one('[data-edit="footer.built_by_link"]')
+        self.assertIsNotNone(link)
+        self.assertIn("cms-hidden", link.get("class"))
+
+    def test_unrelated_hidden_field_keeps_credit(self):
+        html = render_site(LINK_FOOTER, {"_hidden": ["footer.copyright"]})
+        self.assertIn("Built by KATEK", self._footer_text(html))
+
+
+class BuiltByLinkCreditEditorTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.owner = User.objects.create_user("link-owner", password="x")
+        template = Template.objects.create(
+            name="Link credit", html_source=LINK_FOOTER,
+            editing_mode=Template.EDITING_EDITABLE,
+        )
+        cls.tenant = Tenant.objects.create(
+            name="Link", subdomain="linkcredit", template=template,
+            owner=cls.owner, is_published=True,
+        )
+        TenantMembership.objects.create(tenant=cls.tenant, user=cls.owner)
+
+    def _editor(self):
+        client = Client(HTTP_HOST="linkcredit.localhost")
+        client.force_login(self.owner)
+        return client.get(reverse("dashboard:tenant_home"))
+
+    def test_editor_shows_site_credit_switch_once(self):
+        soup = BeautifulSoup(self._editor().content, "lxml")
+        toggles = soup.select("#show-footer-credit")
+        self.assertEqual(len(toggles), 1)
+        self.assertTrue(toggles[0].has_attr("checked"))
+        field = toggles[0].find_parent(class_="field").find_previous_sibling(attrs={"data-field-id": True})
+        self.assertIsNotNone(field)
+
+    def test_switch_off_hides_whole_credit_on_public_page(self):
+        self.tenant.site_settings = {"show_footer_credit": False}
+        self.tenant.save(update_fields=["site_settings"])
+        html = Client(HTTP_HOST="linkcredit.localhost").get("/").content.decode()
+        text = BeautifulSoup(html, "lxml").footer.get_text(" ", strip=True)
+        self.assertNotIn("Built by", text)
+        self.assertNotIn("KATEK", text)

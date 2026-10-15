@@ -32,6 +32,11 @@
     nav: ["nav-link"],
   };
   var HEADER_BUTTON_CAP = 2;
+  // Footer "Built by" credit fields (link + words) under either annotation id.
+  var FOOTER_CREDIT_FIELD_IDS = [
+    "footer.builtBy", "footer.builtBy_label",
+    "footer.built_by_link", "footer.built_by_link_label",
+  ];
   var HEADER_PAGES = (window.CMS && window.CMS.headerPages) || [];
   var BLOCK_DEFAULTS = (window.CMS && window.CMS.blockDefaults) || {};
   var PALETTE = (window.CMS && window.CMS.palette) || [];
@@ -1699,7 +1704,8 @@
       if (node.querySelector(".cms-vis-toggle")) return;
       var id = node.getAttribute("data-field-id");
       // The dedicated site-wide control owns the complete footer credit.
-      if (id === "footer.builtBy" || id === "footer.builtBy_label") return;
+      // Keep in step with core/renderer.py FOOTER_CREDIT_FIELD_IDS.
+      if (FOOTER_CREDIT_FIELD_IDS.indexOf(id) !== -1) return;
       if (isHidden(id)) node.classList.add("cms-form-hidden");
       node.classList.add("cms-has-vis");
       node.appendChild(makeVisToggle(id));
