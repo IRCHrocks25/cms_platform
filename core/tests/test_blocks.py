@@ -173,6 +173,7 @@ class LayoutAwareConversionTests(TestCase):
         self.assertEqual(blocks.preview_classic_upgrade(self.INTERLEAVED, {}), (True, ""))
 
     def test_primitive_key_collision_preview_and_apply_preserve_classic_markup(self):
+        from unittest import mock
         from django.contrib.auth.models import User
         from core.renderer import merge_with_defaults
 
@@ -191,8 +192,13 @@ class LayoutAwareConversionTests(TestCase):
                                        template=template, content=content)
         original = render_site(classic, merge_with_defaults(template.schema, content))
 
-        self.assertEqual(blocks.preview_classic_upgrade(classic, content), (True, ""))
-        blocks.apply_classic_upgrade(template)
+        with mock.patch.object(blocks, "_resolve_classic_block_keys",
+                               wraps=blocks._resolve_classic_block_keys) as resolve:
+            self.assertEqual(blocks.preview_classic_upgrade(classic, content), (True, ""))
+            self.assertEqual(resolve.call_count, 1)
+            blocks.apply_classic_upgrade(template)
+            # Apply preflights the editable and then resolves the persisted types.
+            self.assertGreaterEqual(resolve.call_count, 3)
         template.refresh_from_db()
         tenant.refresh_from_db()
         faq_instance = tenant.content["regions"]["body-001"][0]
