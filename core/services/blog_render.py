@@ -911,7 +911,7 @@ def inject_strip(
                     "border:1px dashed #a3a3a3;text-align:center;"
                 )
                 example.string = (
-                    "Example preview — publish and feature a blog post "
+                    "Example preview: publish and feature a blog post "
                     "to show it here."
                 )
                 marker.append(example)
