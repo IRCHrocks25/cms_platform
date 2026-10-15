@@ -1,0 +1,49 @@
+<section class="cms-blog-strip cms-strip cms-strip--front-line" data-cms-blog-strip>
+  <style>
+    .cms-strip--front-line{--fl-accent:{% if site_styled %}var(--primary,{{ accent|default:"#2563eb" }}){% else %}{{ accent|default:"#2563eb" }}{% endif %};box-sizing:border-box;padding:clamp(64px,8.75vw,112px) clamp(20px,3.125vw,40px);background:#fff;color:#0a0a0a;font-family:{% if site_styled %}var(--cms-font-body,var(--font-body,var(--body,'Inter',sans-serif))){% else %}'Inter',sans-serif{% endif %};}
+    .cms-strip--front-line *{box-sizing:border-box;}
+    .cms-strip--front-line .fl-wrap{max-width:1200px;margin-inline:auto;}
+    .cms-strip--front-line .fl-eyebrow{font-size:12.5px;letter-spacing:.28em;text-transform:uppercase;color:#777;margin:0 0 24px;}
+    .cms-strip--front-line .fl-eyebrow:before{content:'[';color:var(--fl-accent);margin-right:10px;}.cms-strip--front-line .fl-eyebrow:after{content:']';color:var(--fl-accent);margin-left:10px;}
+    .cms-strip--front-line .fl-heading,.cms-strip--front-line .fl-title{font-family:{% if site_styled %}var(--cms-font-heading,var(--font-heading,var(--disp,'Bebas Neue',sans-serif))){% else %}'Bebas Neue',sans-serif{% endif %};text-transform:uppercase;color:#0a0a0a;}
+    .cms-strip--front-line .fl-heading{font-size:clamp(35px,5vw,64px);font-weight:800;line-height:.92;letter-spacing:.02em;margin:0;}
+    .cms-strip--front-line .fl-subtitle{font-size:clamp(17px,1.8vw,23px);line-height:1.4;color:rgba(0,0,0,.58);margin:8px 0 0;}
+    .cms-strip--front-line .fl-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:56px;}
+    .cms-strip--front-line .fl-card{display:flex;min-width:0;flex-direction:column;color:inherit;text-decoration:none;border:1px solid #dedede;background:#fff;}
+    .cms-strip--front-line .fl-card:focus-visible{outline:3px solid var(--fl-accent);outline-offset:3px;}
+    .cms-strip--front-line .fl-image-wrap{position:relative;display:block;overflow:hidden;aspect-ratio:16/9;background:#eee;}
+    .cms-strip--front-line .fl-image{width:100%;height:100%;display:block;object-fit:cover;}
+    .cms-strip--front-line .fl-number{position:absolute;top:24px;left:24px;background:#fff;padding:5px 9px;font-size:20px;line-height:1;}
+    .cms-strip--front-line .fl-arrow{position:absolute;top:24px;right:24px;color:var(--fl-accent);font-size:25px;line-height:1;}
+    .cms-strip--front-line .fl-body{display:flex;flex:1;flex-direction:column;padding:28px 30px 30px;}
+    .cms-strip--front-line .fl-category{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--fl-accent);margin:0 0 14px;}
+    .cms-strip--front-line .fl-title{font-size:clamp(20px,1.9vw,24px);font-weight:700;line-height:1.15;letter-spacing:.02em;margin:0 0 14px;}
+    .cms-strip--front-line .fl-excerpt{font-size:15px;line-height:1.6;color:rgba(0,0,0,.6);margin:0;}
+    .cms-strip--front-line .fl-meta{display:flex;align-items:center;gap:9px;margin-top:auto;padding-top:22px;border-top:1px solid #e4e4e4;color:rgba(0,0,0,.5);font-size:11px;letter-spacing:.08em;text-transform:uppercase;}
+    .cms-strip--front-line .fl-excerpt + .fl-meta{margin-top:22px;}
+    .cms-strip--front-line .fl-dot{width:5px;height:5px;background:var(--fl-accent);}
+    @media(max-width:850px){.cms-strip--front-line .fl-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+    @media(max-width:600px){.cms-strip--front-line .fl-grid{grid-template-columns:1fr;gap:16px;margin-top:36px;}.cms-strip--front-line .fl-body{padding:22px 28px 26px;}.cms-strip--front-line .fl-number,.cms-strip--front-line .fl-arrow{top:22px;}.cms-strip--front-line .fl-number{left:22px;}.cms-strip--front-line .fl-arrow{right:22px;}}
+  </style>
+  <div class="fl-wrap">
+    <p class="fl-eyebrow">{{ eyebrow }}</p>
+    <h2 class="fl-heading">{{ heading }}</h2>
+    {% if subtitle %}<p class="fl-subtitle">{{ subtitle }}</p>{% endif %}
+    <div class="fl-grid">
+      {% for card in front_line_cards %}
+        <a class="fl-card" href="{{ blog_base }}{{ card.post.slug }}/">
+          <span class="fl-image-wrap">
+            {% if card.post.cover_image %}<img class="fl-image" src="{{ card.post.cover_image }}" alt="" loading="lazy">{% endif %}
+            <span class="fl-number">{{ card.number }}</span><span class="fl-arrow" aria-hidden="true">↗</span>
+          </span>
+          <span class="fl-body">
+            {% if card.post.category %}<span class="fl-category">{{ card.post.category }}</span>{% endif %}
+            <span class="fl-title">{{ card.post.title }}</span>
+            <span class="fl-excerpt">{{ card.post.display_excerpt }}</span>
+            <span class="fl-meta">Field notes <span class="fl-dot" aria-hidden="true"></span> <span class="fl-reading">{{ card.reading_minutes }} min read</span></span>
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>

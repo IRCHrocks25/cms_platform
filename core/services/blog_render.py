@@ -13,6 +13,7 @@ import re
 from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
+from django.utils.html import strip_tags
 from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 
@@ -46,6 +47,8 @@ BLOG_SETTINGS_DEFAULTS = {
     "strip_enabled": True,
     "strip_count": 3,
     "strip_heading": "From the blog",
+    "strip_eyebrow": "What’s working now",
+    "strip_subtitle": "",
     "strip_style": DEFAULT_BLOG_STRIP,
 }
 
@@ -92,6 +95,8 @@ def get_blog_settings(tenant) -> dict:
     merged["strip_heading"] = (
         str(merged.get("strip_heading") or "From the blog")
     ).strip() or "From the blog"
+    merged["strip_eyebrow"] = str(merged.get("strip_eyebrow") or "What’s working now").strip()[:120]
+    merged["strip_subtitle"] = str(merged.get("strip_subtitle") or "").strip()[:240]
     return merged
 
 
@@ -630,6 +635,17 @@ def _rewrite_chrome_anchors(soup, blog_root, home_url: str) -> None:
 
 
 IMAGE_STRIP_LAYOUTS = {"image_left", "image_right", "image_above"}
+PER_BLOCK_STRIP_LAYOUTS = IMAGE_STRIP_LAYOUTS | {"front_line"}
+
+
+def front_line_cards(posts):
+    """Build strip-only display metadata; do not alter stored post content."""
+    cards = []
+    for index, post in enumerate(posts, start=1):
+        words = re.findall(r"\b[\w'-]+\b", strip_tags(post.body or ""))
+        cards.append({"post": post, "number": f"{index:02d}",
+                      "reading_minutes": max(1, (len(words) + 199) // 200)})
+    return cards
 
 
 def _has_saved_typography(tenant) -> bool:
@@ -705,7 +721,7 @@ def blog_strip_markers(tenant) -> list[dict]:
             rows.append({
                 "key": key,
                 "label": f"{page_label} blog strip {index + 1} layout",
-                "choice": choice if isinstance(choice, str) and choice in IMAGE_STRIP_LAYOUTS else "",
+                "choice": choice if isinstance(choice, str) and choice in PER_BLOCK_STRIP_LAYOUTS else "",
             })
     return rows
 
@@ -718,9 +734,12 @@ def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", la
     posts = featured_posts(tenant, settings["strip_count"])
     if not posts:
         return ""
-    selected = layout if layout in IMAGE_STRIP_LAYOUTS else ""
+    selected = layout if layout in PER_BLOCK_STRIP_LAYOUTS else ""
+    style = selected or settings["strip_style"]
+    site_styled = site_styled or style == "front_line"
+    template_path = "blog/strips/listing.html" if selected in IMAGE_STRIP_LAYOUTS else strip_template_path(style)
     return render_to_string(
-        "blog/strips/listing.html" if selected else strip_template_path(settings["strip_style"]),
+        template_path,
         {
             "tenant": tenant,
             "posts": posts,
@@ -729,6 +748,9 @@ def render_strip_fragment(tenant, request=None, *, blog_base: str = "/blog/", la
             "blog_base": blog_base,
             "layout": selected,
             "site_styled": site_styled,
+            "eyebrow": settings["strip_eyebrow"],
+            "subtitle": settings["strip_subtitle"],
+            "front_line_cards": front_line_cards(posts) if style == "front_line" else [],
         },
         request=request,
     )
@@ -756,6 +778,8 @@ def render_strip_doc(
     strip_style: str | None = None,
     count=None,
     heading: str | None = None,
+    eyebrow: str | None = None,
+    subtitle: str | None = None,
     enabled=None,
     request=None,
     blog_base: str = "/blog/",
@@ -779,13 +803,15 @@ def render_strip_doc(
         count = saved["strip_count"]
     count = max(1, min(STRIP_MAX, count))
     heading = (str(heading) if heading is not None else "").strip() or saved["strip_heading"]
+    eyebrow = (str(eyebrow) if eyebrow is not None else saved["strip_eyebrow"]).strip()[:120] or "What’s working now"
+    subtitle = (str(subtitle) if subtitle is not None else saved["strip_subtitle"]).strip()[:240]
 
     shell_soup = None
     if tenant.template_id and tenant.template.html_source:
         from .blocks import render_content
         shell = render_content(tenant.template, tenant.content, preview=False, site_settings=None)
         shell_soup = BeautifulSoup(shell, "lxml")
-    site_styled = _has_saved_typography(tenant) or bool(
+    site_styled = strip_style == "front_line" or _has_saved_typography(tenant) or bool(
         shell_soup and shell_soup.find(attrs={"data-blog-strip": True})
     )
 
@@ -808,6 +834,9 @@ def render_strip_doc(
                     "accent": accent_color(tenant),
                     "blog_base": blog_base,
                     "site_styled": site_styled,
+                    "eyebrow": eyebrow,
+                    "subtitle": subtitle,
+                    "front_line_cards": front_line_cards(posts) if strip_style == "front_line" else [],
                 },
                 request=request,
             )
@@ -887,7 +916,7 @@ def inject_strip(html: str, tenant, request=None, *, blog_base: str = "/blog/", 
         fragments = {"": nodes}
         for index, marker in enumerate(markers):
             choice = saved.get(f"{marker_namespace}_{index}", "")
-            layout = choice if isinstance(choice, str) and choice in IMAGE_STRIP_LAYOUTS else ""
+            layout = choice if isinstance(choice, str) and choice in PER_BLOCK_STRIP_LAYOUTS else ""
             if layout not in fragments:
                 selected_html = render_strip_fragment(
                     tenant, request=request, blog_base=blog_base, layout=layout,
