@@ -5,7 +5,9 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.servers.basehttp import WSGIServer
 from django.test import Client, TestCase, override_settings
+from django.test.testcases import LiveServerThread
 from django.urls import reverse
 from django.utils import timezone
 
@@ -113,12 +115,28 @@ except ImportError:
     sync_playwright = None
 
 
+class _SerialTestServer(WSGIServer):
+    """Serve one browser request at a time on Django's shared in-memory SQLite DB."""
+
+    def __init__(self, *args, connections_override=None, **kwargs):
+        # LiveServerThread already installs the shared connection in its own
+        # thread. Unlike ThreadedWSGIServer, this server doesn't hand that one
+        # SQLite connection to concurrent request threads.
+        super().__init__(*args, **kwargs)
+
+
+class _SerialLiveServerThread(LiveServerThread):
+    server_class = _SerialTestServer
+
+
 @unittest.skipIf(sync_playwright is None, "playwright is not installed")
 @override_settings(TENANT_BASE_DOMAIN="localhost", ALLOWED_HOSTS=["*"],
     STORAGES={"default":{"BACKEND":"django.core.files.storage.FileSystemStorage"},
               "staticfiles":{"BACKEND":"django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class InstalledBlogBrowserTests(StaticLiveServerTestCase):
     """Browser acceptance on a local copy of the observed block structure."""
+
+    server_thread_class = _SerialLiveServerThread
 
     def test_unmarked_homepage_keeps_legacy_strip_styles_and_head_links(self):
         os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
@@ -194,15 +212,15 @@ class InstalledBlogBrowserTests(StaticLiveServerTestCase):
                 page = context.new_page()
                 editor = self.live_server_url + reverse("dashboard:blog_edit", args=[self.tenant.pk,self.post.pk])
                 public_base = self.live_server_url + "/site/iam-repro/"
-                page.goto(editor)
+                self.assertEqual(page.goto(editor).status, 200)
                 page.locator("#bf-title").fill("Browser correction")
                 page.locator("#blog-body-editor").fill("Browser corrected body")
                 page.locator("#bf-status").select_option("draft")
                 with page.expect_navigation():
                     page.get_by_role("button", name="Save post", exact=True).click()
-                page.goto(public_base)
+                self.assertEqual(page.goto(public_base).status, 200)
                 self.assertEqual(page.locator("[data-cms-blog-strip]").count(), 0)
-                page.goto(editor)
+                self.assertEqual(page.goto(editor).status, 200)
                 page.locator("#bf-status").select_option("published")
                 with page.expect_navigation():
                     page.get_by_role("button", name="Save post", exact=True).click()
@@ -221,7 +239,7 @@ class InstalledBlogBrowserTests(StaticLiveServerTestCase):
                     )
                     preview_font = page.locator(".blog-prose").evaluate("e=>getComputedStyle(e).fontFamily")
                     preview_title = page.locator(".cms-blog h1").evaluate("e=>getComputedStyle(e).fontFamily")
-                    page.goto(public_base + f"blog/{self.post.slug}/")
+                    self.assertEqual(page.goto(public_base + f"blog/{self.post.slug}/").status, 200)
                     page.reload()
                     self.assertIn("Browser corrected body",page.locator(".blog-prose").inner_text())
                     self.assertEqual(preview_font,page.locator(".blog-prose").evaluate("e=>getComputedStyle(e).fontFamily"))
@@ -246,7 +264,7 @@ class InstalledBlogBrowserTests(StaticLiveServerTestCase):
                             "e=>({font:getComputedStyle(e).fontFamily,padding:getComputedStyle(e).padding,"
                             "accent:getComputedStyle(e).getPropertyValue('--cbs-accent')})")
                     public_strip_styles = strip_styles()
-                    page.goto(self.live_server_url + reverse("dashboard:blog_strip_preview", args=[self.tenant.pk]))
+                    self.assertEqual(page.goto(self.live_server_url + reverse("dashboard:blog_strip_preview", args=[self.tenant.pk])).status, 200)
                     self.assertEqual(public_strip_styles, strip_styles())
                 context.close()
             finally:
