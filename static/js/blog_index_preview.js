@@ -44,6 +44,8 @@
   if (titleEl) titleEl.addEventListener("input", schedule);
   if (templateEl) templateEl.addEventListener("change", refresh);
   if (layoutEl) layoutEl.addEventListener("change", refresh);
+  var form = document.getElementById("blog-settings-form");
+  if (form) form.addEventListener("reset", schedule);
 
   var widthToggle = document.getElementById("index-viewport-toggle");
   if (widthToggle) {

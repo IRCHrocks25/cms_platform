@@ -24,6 +24,10 @@
   var subtitleEl = document.getElementById("bs-subtitle");
   var countEl = document.getElementById("bs-count");
   var enabledEl = document.getElementById("bs-enabled");
+  var form = document.getElementById("blog-settings-form");
+  var targetEl = document.getElementById("strip-preview-target");
+  var markerEls = Array.from(document.querySelectorAll('select[name^="strip_layout_"]'));
+  var activeMarker = markerEls.find(function (el) { return el.name === "strip_layout_home_0"; }) || markerEls[0] || null;
 
   function buildSrc() {
     var params = [];
@@ -33,11 +37,18 @@
     if (subtitleEl) params.push("subtitle=" + encodeURIComponent(subtitleEl.value || ""));
     if (countEl && countEl.value) params.push("count=" + encodeURIComponent(countEl.value));
     if (enabledEl) params.push("enabled=" + (enabledEl.checked ? "1" : "0"));
+    if (activeMarker) {
+      params.push("marker=" + encodeURIComponent(activeMarker.name.slice("strip_layout_".length)));
+      params.push(encodeURIComponent(activeMarker.name) + "=" + encodeURIComponent(activeMarker.value));
+    }
     return base + (params.length ? "?" + params.join("&") : "");
   }
 
   function refresh() {
     if (statusEl) statusEl.textContent = "Updating…";
+    if (targetEl) targetEl.textContent = activeMarker
+      ? "Previewing " + (activeMarker.labels && activeMarker.labels[0] ? activeMarker.labels[0].textContent : activeMarker.name.replace("strip_layout_", "").replaceAll("_", " "))
+      : "Previewing the homepage strip layout";
     frame.src = buildSrc();
   }
   frame.addEventListener("load", function () {
@@ -53,8 +64,21 @@
   [headingEl, eyebrowEl, subtitleEl, countEl].forEach(function (el) {
     if (el) el.addEventListener("input", schedule);
   });
-  if (stripStyleEl) stripStyleEl.addEventListener("change", schedule);
+  if (stripStyleEl) stripStyleEl.addEventListener("change", function () {
+    activeMarker = null;
+    schedule();
+  });
+  markerEls.forEach(function (el) {
+    el.addEventListener("change", function () {
+      activeMarker = el;
+      schedule();
+    });
+  });
   if (enabledEl) enabledEl.addEventListener("change", schedule);
+  if (form) form.addEventListener("reset", function () {
+    activeMarker = markerEls.find(function (el) { return el.name === "strip_layout_home_0"; }) || markerEls[0] || null;
+    schedule();
+  });
 
   // Let the reorder module trigger a re-render once a new order is saved.
   window.__cmsRefreshStrip = refresh;
