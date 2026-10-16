@@ -1,11 +1,17 @@
 """CMS-93: explicit Front Line homepage strip, with legacy output preserved."""
+import unittest
 from bs4 import BeautifulSoup
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BlogPost, Template, Tenant
+from core.models import BlogPost, Page, Template, Tenant
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
 
 
 @override_settings(TENANT_BASE_DOMAIN="localhost")
@@ -122,6 +128,123 @@ class FrontLineStripTests(TestCase):
         self.assertEqual(len(section.select(".fl-heading, .fl-eyebrow, .fl-subtitle")), 0)
         self.assertEqual(len(section.select(".fl-card")), 1)
         self.assertIn("cms-strip--embedded", section.select_one("[data-cms-blog-strip]").get("class", []))
+
+    def test_editor_home_preview_renders_saved_front_line_mount_like_public(self):
+        self.template.html_source = self.template.html_source.replace(
+            "<div data-blog-strip></div>",
+            "<div data-blog-strip data-blog-strip-header='none'></div>",
+        )
+        self.template.save()
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "front_line"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        agency = Client(HTTP_HOST="localhost")
+        agency.force_login(self.owner)
+        response = agency.get(reverse("dashboard:tenant_preview", args=[self.tenant.pk]))
+        self.assertEqual(response.status_code, 200)
+        preview = BeautifulSoup(response.content, "html.parser")
+        public = self._home()
+        for surface in (preview, public):
+            blog = surface.select_one("#blog")
+            self.assertEqual(len(blog.select("[data-cms-blog-strip]")), 1)
+            self.assertEqual(len(blog.select(".fl-card")), 2)
+            self.assertEqual(len(blog.select(".fl-heading,.fl-eyebrow")), 0)
+        self.assertEqual(
+            preview.select_one("#blog [data-cms-blog-strip]").decode_contents().replace(
+                f"/site/{self.tenant.subdomain}/blog/", "/blog/"
+            ),
+            public.select_one("#blog [data-cms-blog-strip]").decode_contents(),
+        )
+
+    def test_editor_preview_marks_empty_mount_as_example_without_public_posts(self):
+        BlogPost.objects.filter(tenant=self.tenant).update(status="draft")
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "front_line"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        agency = Client(HTTP_HOST="localhost")
+        agency.force_login(self.owner)
+        response = agency.get(reverse("dashboard:tenant_preview", args=[self.tenant.pk]))
+        self.assertEqual(response.status_code, 200)
+        preview = BeautifulSoup(response.content, "html.parser")
+        self.assertEqual(len(preview.select("#blog [data-cms-blog-strip-example]")), 1)
+        self.assertIn("Example preview", preview.select_one("#blog [data-cms-blog-strip-example]").text)
+        self.assertEqual(len(preview.select("#blog .fl-card")), 0)
+        self.assertEqual(len(self._home().select("[data-cms-blog-strip-example]")), 0)
+        self.assertEqual(len(self._home().select("[data-cms-blog-strip]")), 0)
+
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings, "strip_enabled": False,
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        disabled = agency.get(reverse("dashboard:tenant_preview", args=[self.tenant.pk]))
+        self.assertNotIn(b"data-cms-blog-strip-example", disabled.content)
+
+    def test_editor_inner_page_preview_uses_page_marker_layout(self):
+        page = Page.objects.create(
+            tenant=self.tenant, template=self.template, title="Newsroom",
+            slug="newsroom", is_published=True,
+        )
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "image_left", f"page_{page.pk}_0": "front_line"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        agency = Client(HTTP_HOST="localhost")
+        agency.force_login(self.owner)
+        response = agency.get(reverse("dashboard:page_preview", args=[self.tenant.pk, page.pk]))
+        self.assertEqual(response.status_code, 200)
+        preview = BeautifulSoup(response.content, "html.parser")
+        self.assertEqual(len(preview.select("#blog .cms-strip--front-line")), 1)
+        self.assertEqual(len(preview.select("#blog .fl-card")), 2)
+        self.assertEqual(len(self._home().select("#blog .cms-strip--front-line")), 0)
+
+    @unittest.skipIf(sync_playwright is None, "playwright is not installed")
+    def test_editor_preview_front_line_browser_matches_public_at_both_widths(self):
+        self.tenant.blog_settings = {
+            **self.tenant.blog_settings,
+            "strip_layouts": {"home_0": "front_line"},
+        }
+        self.tenant.save(update_fields=["blog_settings"])
+        agency = Client(HTTP_HOST="localhost")
+        agency.force_login(self.owner)
+        preview = agency.get(reverse("dashboard:tenant_preview", args=[self.tenant.pk])).content.decode()
+        public = Client(HTTP_HOST="front-line-synthetic.localhost").get("/").content.decode()
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            try:
+                for width in (1280, 390):
+                    with self.subTest(width=width):
+                        surfaces = []
+                        for html in (preview, public):
+                            page = browser.new_page(viewport={"width": width, "height": 900})
+                            try:
+                                page.set_content(html, wait_until="domcontentloaded")
+                                surfaces.append(page.evaluate("""() => {
+                                    const blog = document.querySelector('#blog');
+                                    const strip = blog.querySelector('.cms-strip--front-line');
+                                    const grid = strip.querySelector('.fl-grid');
+                                    const title = strip.querySelector('.fl-title');
+                                    return {
+                                        strips: blog.querySelectorAll('[data-cms-blog-strip]').length,
+                                        cards: grid.querySelectorAll('.fl-card').length,
+                                        gridColumns: getComputedStyle(grid).gridTemplateColumns,
+                                        titleFont: getComputedStyle(title).fontFamily,
+                                        titleColor: getComputedStyle(title).color,
+                                        overflow: document.documentElement.scrollWidth > innerWidth,
+                                    };
+                                }"""))
+                            finally:
+                                page.close()
+                        self.assertEqual(surfaces[0], surfaces[1])
+                        self.assertEqual(surfaces[0]["strips"], 1)
+                        self.assertEqual(surfaces[0]["cards"], 2)
+                        self.assertFalse(surfaces[0]["overflow"])
+            finally:
+                browser.close()
 
     def test_later_heading_does_not_hide_front_line_header(self):
         template = Template.objects.create(

@@ -1972,7 +1972,7 @@ def tenant_editor(request, pk):
 @agency_operator_required
 def tenant_preview(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _render_preview(tenant)
+    return _render_preview(tenant, request=request, blog_base=f"/site/{tenant.subdomain}/blog/")
 
 
 @agency_operator_required
@@ -2038,7 +2038,7 @@ def tenant_home(request):
 
 @tenant_member_required
 def tenant_preview_self(request):
-    return _render_preview(request.tenant)
+    return _render_preview(request.tenant, request=request)
 
 
 @tenant_member_required
@@ -2967,7 +2967,10 @@ def page_edit_html(request, pk, page_pk):
 @agency_operator_required
 def page_preview(request, pk, page_pk):
     tenant = get_object_or_404(Tenant, pk=pk)
-    return _render_preview(_get_tenant_page(tenant, page_pk))
+    return _render_preview(
+        _get_tenant_page(tenant, page_pk), request=request,
+        blog_base=f"/site/{tenant.subdomain}/blog/",
+    )
 
 
 @agency_operator_required
@@ -3048,7 +3051,7 @@ def page_editor_self(request, page_pk):
 
 @tenant_member_required
 def page_preview_self(request, page_pk):
-    return _render_preview(_get_tenant_page(request.tenant, page_pk))
+    return _render_preview(_get_tenant_page(request.tenant, page_pk), request=request)
 
 
 @tenant_member_required
@@ -3519,13 +3522,18 @@ def _editor_typography(editable, schema):
     return found
 
 
-def _render_preview(editable):
-    from core.services import blocks
+def _render_preview(editable, *, request=None, blog_base="/blog/"):
+    from core.services import blocks, blog_render
     tenant = editable if isinstance(editable, Tenant) else editable.tenant
     html = blocks.render_content(
         editable.template, editable.content, preview=True,
         site_settings=tenant.site_settings or {},
         nav_pages=blocks.nav_pages_for(tenant),
+    )
+    html = blog_render.inject_strip(
+        html, tenant, request=request, blog_base=blog_base,
+        marker_namespace=(f"page_{editable.pk}" if isinstance(editable, Page) else "home"),
+        preview=True,
     )
     return HttpResponse(html)
 
