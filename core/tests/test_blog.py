@@ -138,6 +138,61 @@ class InstalledBlogBrowserTests(StaticLiveServerTestCase):
 
     server_thread_class = _SerialLiveServerThread
 
+    def test_unsaved_home_mount_layout_updates_preview_at_desktop_and_mobile(self):
+        os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+        InstalledBlogPlacementTests.setUp(self)
+        self.block.html_source = (
+            '<section id="blog" data-section="blog"><h2>From the front line</h2>'
+            '<div data-blog-strip data-blog-strip-header="none"></div></section>'
+        )
+        self.block.save(update_fields=["html_source"])
+        self.tenant.blog_settings = {"strip_style": "list", "strip_count": 1}
+        self.tenant.save(update_fields=["blog_settings"])
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+            try:
+                context = browser.new_context(viewport={"width": 1280, "height": 900})
+                context.add_cookies([{
+                    "name": "sessionid", "value": self.client.cookies["sessionid"].value,
+                    "url": self.live_server_url,
+                }])
+                page = context.new_page()
+                settings_url = self.live_server_url + reverse("dashboard:blog_list", args=[self.tenant.pk])
+                for width in (1280, 390):
+                    with self.subTest(width=width):
+                        page.set_viewport_size({"width": width, "height": 900})
+                        self.assertEqual(page.goto(settings_url).status, 200)
+                        frame = page.frame_locator("#strip-preview-frame")
+                        frame.locator("#blog .cms-strip--list").wait_for()
+                        page.locator("#bs-strip-style").select_option("overlay")
+                        frame.locator(".cms-strip--overlay").wait_for()
+                        page.get_by_role("button", name="Cancel changes").click()
+                        frame.locator("#blog .cms-strip--list").wait_for()
+                        page.locator("#bs-strip-layout-home_0").select_option("front_line")
+                        frame.locator("#blog .cms-strip--front-line.cms-strip--embedded").wait_for()
+                        self.assertEqual(frame.locator("#blog .fl-card").count(), 1)
+                        self.assertEqual(frame.locator("#blog h2").count(), 1)
+                        self.assertLessEqual(frame.locator("body").evaluate("e => e.scrollWidth - e.clientWidth"), 1)
+                        self.tenant.refresh_from_db()
+                        self.assertFalse((self.tenant.blog_settings or {}).get("strip_layouts"))
+                        page.get_by_role("button", name="Cancel changes").click()
+                        frame.locator("#blog .cms-strip--list").wait_for()
+                public = Client(HTTP_HOST="iam-repro.localhost").get("/")
+                self.assertIn(b"cms-strip--list", public.content)
+                page.locator("#bs-strip-layout-home_0").select_option("front_line")
+                with page.expect_navigation():
+                    page.get_by_role("button", name="Save blog settings").click()
+                self.tenant.refresh_from_db()
+                self.assertEqual(self.tenant.blog_settings["strip_layouts"], {"home_0": "front_line"})
+                public = Client(HTTP_HOST="iam-repro.localhost").get("/")
+                self.assertIn(b"cms-strip--front-line", public.content)
+                agency = Client(HTTP_HOST="localhost")
+                agency.force_login(self.owner)
+                editor = agency.get(reverse("dashboard:tenant_preview", args=[self.tenant.pk]))
+                self.assertIn(b"cms-strip--front-line", editor.content)
+            finally:
+                browser.close()
+
     def test_unmarked_homepage_keeps_legacy_strip_styles_and_head_links(self):
         os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
         InstalledBlogPlacementTests.setUp(self)
@@ -1754,6 +1809,93 @@ class HomepageStripLayoutTests(TestCase):
         self.assertEqual(self.tenant.blog_settings["strip_layouts"], {"home_0": "image_above"})
         self.assertEqual(self.tenant.blog_settings["strip_count"], 1)
         self.assertEqual(self.tenant.blog_settings["index_layout"], "style")
+
+    def test_unsaved_mount_choice_previews_front_line_without_changing_public_site(self):
+        from bs4 import BeautifulSoup
+
+        self.template.html_source = (
+            '<html><body><section id="blog"><h2>From the front line</h2>'
+            '<div data-blog-strip data-blog-strip-header="none"></div>'
+            '</section></body></html>'
+        )
+        self.template.save(update_fields=["html_source"])
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        url = reverse("dashboard:blog_strip_preview", args=[self.tenant.pk])
+        response = client.get(url, {
+            "marker": "home_0", "strip_layout_home_0": "front_line",
+            "strip_style": "list", "enabled": "1", "count": "1",
+        })
+        self.assertEqual(response.status_code, 200)
+        preview = BeautifulSoup(response.content, "lxml")
+        self.assertIsNotNone(preview.select_one("#blog .cms-strip--front-line.cms-strip--embedded"))
+        self.assertEqual(len(preview.select("#blog h2")), 1)
+        self.assertEqual(preview.select_one("#blog h2").get_text(strip=True), "From the front line")
+        self.assertEqual(len(preview.select("#blog .fl-card")), 1)
+        self.assertNotIn("strip_layouts", self.tenant.blog_settings)
+        public = BeautifulSoup(Client(HTTP_HOST="strip-a.localhost").get("/").content, "lxml")
+        self.assertIsNotNone(public.select_one("#blog .cms-strip--list"))
+
+    def test_unsaved_mount_choice_rejects_unknown_marker_and_layout(self):
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        url = reverse("dashboard:blog_strip_preview", args=[self.tenant.pk])
+        for marker, layout in (("page_99999_0", "front_line"), ("home_0", "<script>")):
+            response = client.get(url, {"marker": marker, f"strip_layout_{marker}": layout})
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, "cms-strip--front-line")
+
+    def test_unsaved_mount_choice_tolerates_malformed_saved_layouts(self):
+        self.tenant.blog_settings = {"strip_layouts": "invalid"}
+        self.tenant.save(update_fields=["blog_settings"])
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        response = client.get(reverse("dashboard:blog_strip_preview", args=[self.tenant.pk]), {
+            "marker": "home_0", "strip_layout_home_0": "front_line",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "cms-strip--front-line")
+
+    def test_unsaved_inner_page_marker_previews_only_that_tenants_page(self):
+        from bs4 import BeautifulSoup
+
+        page = Page.objects.create(
+            tenant=self.tenant, template=self.template, title="Newsroom",
+            slug="newsroom", is_published=True,
+        )
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        key = f"page_{page.pk}_0"
+        url = reverse("dashboard:blog_strip_preview", args=[self.tenant.pk])
+        response = client.get(url, {"marker": key, f"strip_layout_{key}": "image_above"})
+        self.assertEqual(response.status_code, 200)
+        preview = BeautifulSoup(response.content, "lxml")
+        self.assertIsNotNone(preview.select_one("[data-blog-strip] .lst--image_above"))
+        self.assertNotIn("strip_layouts", self.tenant.blog_settings)
+        other = Client(HTTP_HOST="localhost")
+        other.force_login(self.owner)
+        denied = other.get(reverse("dashboard:blog_strip_preview", args=[self.other.pk]), {
+            "marker": key, f"strip_layout_{key}": "image_above",
+        })
+        self.assertNotContains(denied, "lst--image_above")
+
+    def test_preview_of_second_mount_in_same_section_excludes_first_mount(self):
+        from bs4 import BeautifulSoup
+
+        self.template.html_source = (
+            '<html><body><section id="blog"><h2>Blog</h2>'
+            '<div data-blog-strip></div><aside data-blog-strip></aside>'
+            '</section></body></html>'
+        )
+        self.template.save(update_fields=["html_source"])
+        client = Client(HTTP_HOST="localhost")
+        client.force_login(self.owner)
+        response = client.get(reverse("dashboard:blog_strip_preview", args=[self.tenant.pk]), {
+            "marker": "home_1", "strip_layout_home_1": "image_right",
+        })
+        soup = BeautifulSoup(response.content, "lxml")
+        self.assertEqual(len(soup.select("[data-blog-strip]")), 1)
+        self.assertIsNotNone(soup.select_one("[data-blog-strip] .lst--image_right"))
 
 
 class HeadlessTemplateBlogStylesTests(TestCase):

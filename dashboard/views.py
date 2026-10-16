@@ -5080,10 +5080,14 @@ def _blog_strip_preview(request, tenant, scope):
         eyebrow=g.get("eyebrow"),
         subtitle=g.get("subtitle"),
         enabled=enabled,
+        marker_key=g.get("marker"),
+        marker_layout=g.get(f"strip_layout_{g.get('marker')}") if g.get("marker") else None,
         request=request,
         blog_base=_blog_nav_urls(scope, tenant)["public_base"],
     )
-    return HttpResponse(html)
+    response = HttpResponse(html)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _blog_index_preview(request, tenant, scope):

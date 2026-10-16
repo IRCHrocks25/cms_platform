@@ -9,6 +9,7 @@ injected here.
 """
 from __future__ import annotations
 
+import copy
 import re
 from urllib.parse import urlencode
 
@@ -785,6 +786,8 @@ def render_strip_doc(
     eyebrow: str | None = None,
     subtitle: str | None = None,
     enabled=None,
+    marker_key: str | None = None,
+    marker_layout: str | None = None,
     request=None,
     blog_base: str = "/blog/",
 ) -> str:
@@ -809,6 +812,17 @@ def render_strip_doc(
     heading = (str(heading) if heading is not None else "").strip() or saved["strip_heading"]
     eyebrow = (str(eyebrow) if eyebrow is not None else saved["strip_eyebrow"]).strip()[:120] or "What’s working now"
     subtitle = (str(subtitle) if subtitle is not None else saved["strip_subtitle"]).strip()[:240]
+
+    # Preview an existing mount with the same renderer used by the public page
+    # and the site editor. The settings live only on a shallow model copy: no
+    # pending choice is persisted until the Blog settings form is submitted.
+    if marker_key and marker_key in {row["key"] for row in blog_strip_markers(tenant)}:
+        mounted = _render_mounted_strip_doc(
+            tenant, marker_key, marker_layout, strip_style, count, heading,
+            eyebrow, subtitle, enabled, request, blog_base,
+        )
+        if mounted is not None:
+            return mounted
 
     shell_soup = None
     if tenant.template_id and tenant.template.html_source:
@@ -878,6 +892,80 @@ def render_strip_doc(
                 soup.head.append(node)
             return str(soup)
     return _STRIP_DOC_HEAD + inner + _STRIP_DOC_TAIL
+
+
+def _render_mounted_strip_doc(
+    tenant, marker_key, marker_layout, strip_style, count, heading,
+    eyebrow, subtitle, enabled, request, blog_base,
+):
+    from . import blocks
+
+    namespace, index_text = marker_key.rsplit("_", 1)
+    index = int(index_text)
+    if namespace == "home":
+        editable = tenant
+    elif namespace.startswith("page_"):
+        editable = tenant.pages.select_related("template").filter(pk=int(namespace[5:])).first()
+    else:
+        return None
+    if editable is None or editable.template_id is None:
+        return None
+
+    preview_tenant = copy.copy(tenant)
+    settings = get_blog_settings(tenant)
+    settings.update({
+        "strip_style": strip_style, "strip_count": count,
+        "strip_heading": heading, "strip_eyebrow": eyebrow,
+        "strip_subtitle": subtitle, "strip_enabled": enabled,
+    })
+    saved_layouts = settings.get("strip_layouts")
+    layouts = dict(saved_layouts) if isinstance(saved_layouts, dict) else {}
+    if marker_layout is not None:
+        if marker_layout in PER_BLOCK_STRIP_LAYOUTS:
+            layouts[marker_key] = marker_layout
+        elif marker_layout == "":
+            layouts.pop(marker_key, None)
+    settings["strip_layouts"] = layouts
+    preview_tenant.blog_settings = settings
+
+    shell = blocks.render_content(
+        editable.template, editable.content, preview=True,
+        site_settings=tenant.site_settings or {}, nav_pages=blocks.nav_pages_for(tenant),
+    )
+    if not enabled:
+        return _STRIP_DOC_HEAD + '<p class="strip-preview-empty">The homepage strip is turned off.</p>' + _STRIP_DOC_TAIL
+    rendered = inject_strip(
+        shell, preview_tenant, request=request, blog_base=blog_base,
+        marker_namespace=namespace, preview=True,
+    )
+    soup = BeautifulSoup(rendered, "lxml")
+    markers = soup.find_all(attrs={"data-blog-strip": True})
+    if index >= len(markers) or soup.body is None or _ensure_head(soup) is None:
+        return None
+    marker = markers[index]
+    root = marker.find_parent("section") or marker
+    for other in list(root.find_all(attrs={"data-blog-strip": True})):
+        if other is not marker:
+            other.decompose()
+    ancestors = []
+    node = root.parent
+    while node is not None and node is not soup.body:
+        ancestors.append((node.name, dict(node.attrs)))
+        node = node.parent
+    for asset in list(soup.body.find_all(["style", "link"])):
+        soup.head.append(asset.extract())
+    for script in soup.find_all("script"):
+        script.decompose()
+    selected = BeautifulSoup(str(root), "html.parser")
+    soup.body.clear()
+    target = soup.body
+    for name, attrs in reversed(ancestors):
+        wrapper = soup.new_tag(name, attrs=attrs)
+        target.append(wrapper)
+        target = wrapper
+    for child in list(selected.children):
+        target.append(child)
+    return str(soup)
 
 
 def inject_strip(

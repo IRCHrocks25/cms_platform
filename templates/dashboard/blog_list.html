@@ -150,7 +150,7 @@
         </div>
       </div>
 
-      <form method="post" action="{{ blog_urls.settings }}" class="stack-5">
+      <form method="post" action="{{ blog_urls.settings }}" class="stack-5" id="blog-settings-form">
         {% csrf_token %}
         <fieldset class="blog-settings-group stack-4">
           <legend class="blog-settings-legend">Blog pages</legend>
@@ -259,7 +259,7 @@
                 <span class="status-dot"></span>
                 <span id="strip-preview-status">Homepage strip preview</span>
               </span>
-              <span class="field-hint m-0">Reflects unsaved style, heading, eyebrow, subtitle &amp; count.</span>
+              <span class="field-hint m-0" id="strip-preview-target">Reflects unsaved layout, heading, eyebrow, subtitle &amp; count.</span>
             </div>
             <div class="strip-preview-frame-wrap">
               <iframe id="strip-preview-frame" class="strip-preview-frame"
@@ -270,6 +270,7 @@
         </fieldset>
 
         <div class="row-end">
+          <button type="reset" class="btn btn-ghost">Cancel changes</button>
           <button type="submit" class="btn btn-primary">Save blog settings</button>
         </div>
       </form>
